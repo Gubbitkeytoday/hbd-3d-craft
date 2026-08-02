@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- SEO and Title -->
+    <title>Interactive 3D Happy Birthday Experience</title>
+    <meta name="description" content="Design and share stunning, highly interactive 3D birthday greetings featuring dynamic 3D cakes, microphone-based candle blowing, and animated surprises!">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Outfit:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,400;1,600&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome for modern icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div id="app">
+        <!-- SPA View Container -->
+        
+        <!-- 1. CREATOR DASHBOARD VIEW -->
+        <main id="creator-view" class="view-panel active-view">
+            <!-- Glassmorphic Top Nav Bar -->
+            <nav class="app-nav-bar glass-panel">
+                <div class="nav-logo">
+                    <i class="fa-solid fa-cake-candles icon-glow"></i>
+                    <span data-i18n="appTitle">HBD 3D Craft</span>
+                </div>
+                <div class="nav-links">
+                    <a href="index.html" class="nav-item active" data-i18n="navCreator"><i class="fa-solid fa-wand-magic-sparkles"></i> 3D Creator</a>
+                    
+                    <!-- Modern Glass Language Switcher -->
+                    <div class="lang-selector-wrapper">
+                        <i class="fa-solid fa-globe lang-icon"></i>
+                        <select id="lang-switcher" class="lang-select">
+                            <option value="en">EN</option>
+                            <option value="th">TH</option>
+                            <option value="ja">JA</option>
+                        </select>
+                    </div>
+                </div>
+            </nav>
+
+            <header class="dashboard-header">
+                <div class="logo">
+                    <span class="logo-icon"><i class="fa-solid fa-cake-candles"></i></span>
+                    <h1>HBD 3D Craft</h1>
+                </div>
+                <p class="subtitle" data-i18n="appSubtitle">Design an unforgettable interactive 3D birthday card for Cream</p>
+            </header>
+
+            <div class="creator-container">
+                <!-- Customizer Sidebar -->
+                <section class="customizer-sidebar glass-panel">
+                    <h2 class="section-title" data-i18n="customizeCard"><i class="fa-solid fa-sliders"></i> Customize Card</h2>
+                    
+                    <!-- Sidebar Tabs Navigation -->
+                    <div class="sidebar-tabs">
+                        <button type="button" class="tab-btn active" data-tab="tab-info" data-i18n="wishDetails">
+                            <i class="fa-solid fa-pen-to-square"></i> Wish Details
+                        </button>
+                        <button type="button" class="tab-btn" data-tab="tab-decor" data-i18n="decorCake">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Decorate Cake
+                        </button>
+                        <button type="button" class="tab-btn" data-tab="tab-colors" data-i18n="customColors">
+                            <i class="fa-solid fa-palette"></i> Custom Colors
+                        </button>
+                    </div>
+
+                    <form id="creator-form" onsubmit="event.preventDefault();">
+                        <!-- Tab 1: Info Panel -->
+                        <div id="tab-info" class="tab-panel active">
+                            <!-- Recipient Name -->
+                            <div class="form-group">
+                                <label for="recipient-name">Recipient's Name (ครีม)</label>
+                                <div class="input-wrapper">
+                                    <i class="fa-solid fa-user input-icon"></i>
+                                    <input type="text" id="recipient-name" value="ครีม" placeholder="e.g. ครีม" required maxlength="25">
+                                </div>
+                            </div>
+
+                            <!-- Birthday Date -->
+                            <div class="form-group">
+                                <label for="birth-date">Birthday Date (วันเกิด)</label>
+                                <div class="input-wrapper">
+                                    <i class="fa-solid fa-cake-candles input-icon"></i>
+                                    <input type="date" id="birth-date" value="2026-08-28">
+                                </div>
+                            </div>
+
+                            <!-- Main Title / Wish Title -->
+                            <div class="form-group">
+                                <label for="wish-title">Greeting Title</label>
+                                <div class="input-wrapper">
+                                    <i class="fa-solid fa-wand-magic input-icon"></i>
+                                    <input type="text" id="wish-title" value="สุขสันต์วันเกิดครีม!" placeholder="e.g. Happy Birthday!" required maxlength="40">
+                                </div>
+                            </div>
+
+                            <!-- Birthday Message -->
+                            <div class="form-group">
+                                <label for="wish-message">Personal Message / Wishes</label>
+                                <div class="textarea-wrapper">
+                                    <i class="fa-solid fa-heart input-icon"></i>
+                                    <textarea id="wish-message" rows="4" placeholder="Write something sweet and warm for your Senpai..." required>สุขสันต์วันเกิดนะครีม! 🎂 ขอให้ปีนี้เป็นปีที่ดีที่สุดของครีม สุขภาพแข็งแรง สมหวังในทุกเรื่องที่ตั้งใจ และมีความสุขมาก ๆ ทุกวันเลยนะ ✨🍰</textarea>
+                                </div>
+                            </div>
+
+                            <!-- Greeting Card Font -->
+                            <div class="form-group">
+                                <label for="card-font">Greeting Card Font</label>
+                                <div class="select-wrapper">
+                                    <i class="fa-solid fa-font input-icon"></i>
+                                    <select id="card-font">
+                                        <option value="outfit">Outfit Modern (Clean)</option>
+                                        <option value="playfair">Playfair Serif (Elegant)</option>
+                                        <option value="great-vibes">Great Vibes (Romantic Cursive)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Memory Photo URL -->
+                            <div class="form-group">
+                                <label for="memory-photo-url">Memory Photo URL (Optional)</label>
+                                <div class="input-wrapper">
+                                    <i class="fa-solid fa-image input-icon"></i>
+                                    <input type="url" id="memory-photo-url" placeholder="e.g. https://i.imgur.com/XYZ.jpg" title="Direct URL to image (CORS enabled).">
+                                </div>
+                                <span class="form-help-text" style="font-size: 0.72rem; opacity: 0.7; margin-top: 4px; display: block; line-height: 1.3;">
+                                    Use direct image links from Imgur or Discord. If CORS fails, a beautiful silhouette fallback is used.
+                                </span>
+                            </div>
+
+                            <!-- Dynamic Theme Selection -->
+                            <div class="form-group">
+                                <label data-i18n="themeLabel">Theme & Visual Palette</label>
+                                <div class="theme-grid">
+                                    <button type="button" class="theme-btn active" data-theme="neon-rose" style="background: linear-gradient(135deg, #ff0055, #7a00ff);" title="Neon Rose theme">
+                                        <span>Neon Rose</span>
+                                    </button>
+                                    <button type="button" class="theme-btn" data-theme="midnight-gold" style="background: linear-gradient(135deg, #ffd700, #111111);" title="Midnight Gold theme">
+                                        <span>Midnight Gold</span>
+                                    </button>
+                                    <button type="button" class="theme-btn" data-theme="pastel-mint" style="background: linear-gradient(135deg, #00f2fe, #4facfe);" title="Ocean Breeze theme">
+                                        <span>Ocean Breeze</span>
+                                    </button>
+                                    <button type="button" class="theme-btn" data-theme="lavender-dream" style="background: linear-gradient(135deg, #f355ff, #8000ff);" title="Lavender Dream theme">
+                                        <span>Lavender Dream</span>
+                                    </button>
+                                    <button type="button" class="theme-btn" data-theme="sakura-blossom" style="background: linear-gradient(135deg, #ff758f, #ffb3c6);" title="Sakura Blossom theme">
+                                        <span>Sakura Bloom</span>
+                                    </button>
+                                    <button type="button" class="theme-btn" data-theme="cyber-retro" style="background: linear-gradient(135deg, #ff3399, #ff9966);" title="Cyber Retro theme">
+                                        <span>Cyber Retro</span>
+                                    </button>
+                                    <button type="button" class="theme-btn" data-theme="forest-moss" style="background: linear-gradient(135deg, #00ff88, #38b000);" title="Forest Moss theme">
+                                        <span>Forest Moss</span>
+                                    </button>
+                                    <button type="button" class="theme-btn" data-theme="cosmic-nebula" style="background: linear-gradient(135deg, #8a2be2, #00f2fe);" title="Cosmic Nebula theme">
+                                        <span>Cosmic Void</span>
+                                    </button>
+                                    <button type="button" class="theme-btn" data-theme="choco-monarch" style="background: linear-gradient(135deg, #cca43b, #5c3d2e);" title="Choco Monarch theme">
+                                        <span>Choco Gold</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Candle Count -->
+                            <div class="form-group">
+                                <label for="candle-count" data-i18n="candlesCount">Candles to Blow Out (1 - 10)</label>
+                                <div class="slider-group">
+                                    <input type="range" id="candle-count" min="1" max="10" value="5">
+                                    <span class="slider-val" id="candle-count-display">5</span>
+                                </div>
+                            </div>
+
+                            <!-- Music Selector -->
+                            <div class="form-group">
+                                <label for="music-track" data-i18n="musicLabel">Background Track</label>
+                                <div class="select-wrapper">
+                                    <i class="fa-solid fa-music input-icon"></i>
+                                    <select id="music-track">
+                                        <option value="happy-birthday-lofi">Lo-Fi Acoustic Birthday (Warm)</option>
+                                        <option value="happy-birthday-piano">Chopin Style Piano HBD (Elegant)</option>
+                                        <option value="happy-birthday-synth">Upbeat Synth Pop HBD (Vibrant)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- 3D Interactive Letter Toggle -->
+                            <div class="form-group toggle-group" style="border-top: 1px dashed var(--glass-border); padding-top: 12px; margin-top: 15px;">
+                                <label for="letter-enabled" class="toggle-label">
+                                    <span data-i18n="letterEnabledTitle">Interactive 3D Letter</span>
+                                    <span class="toggle-sub" data-i18n="letterEnabledDesc">Attach a floating 3D envelope card in WebGL</span>
+                                </label>
+                                <div class="switch-wrapper">
+                                    <input type="checkbox" id="letter-enabled" checked>
+                                    <label for="letter-enabled" class="switch-slider"></label>
+                                </div>
+                            </div>
+
+                            <div id="letter-details-group" style="display: block;">
+                                <!-- Letter Design Theme -->
+                                <div class="form-group">
+                                    <label for="letter-theme" data-i18n="letterTheme">Envelope/Letter Style</label>
+                                    <div class="select-wrapper">
+                                        <i class="fa-solid fa-envelope input-icon"></i>
+                                        <select id="letter-theme">
+                                            <option value="cyber">Cyberpunk Neon (Cyan/Magenta)</option>
+                                            <option value="royal">Golden Royal (Glossy Gold)</option>
+                                            <option value="romance">Sweet Hearts (Soft Rose)</option>
+                                            <option value="steampunk">Steampunk Lab (Rusty Copper)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <!-- Letter Custom Title -->
+                                <div class="form-group">
+                                    <label for="letter-title" data-i18n="letterTitleLabel">Letter Title</label>
+                                    <div class="input-wrapper">
+                                        <i class="fa-solid fa-pen-nib input-icon"></i>
+                                        <input type="text" id="letter-title" value="ถึงครีมคนพิเศษ" placeholder="e.g. To My Dearest Senpai" data-i18n="letterTitle" maxlength="30">
+                                    </div>
+                                </div>
+
+                                <!-- Letter Custom Message -->
+                                <div class="form-group">
+                                    <label for="letter-body" data-i18n="letterBodyLabel">Handwritten Letter Body</label>
+                                    <div class="textarea-wrapper">
+                                        <i class="fa-solid fa-message input-icon"></i>
+                                        <textarea id="letter-body" rows="4" placeholder="Write a special letter message..." data-i18n="letterBody">ถึงครีมที่รัก,
+
+จดหมายใบนี้ลอยอยู่กลางอวกาศ ไกลจากโลกพอที่ผมจะกล้าพูดความจริงออกมา
+
+ผมชอบวันที่มีครีมอยู่ในนั้น มากกว่าวันที่ไม่มี แค่นั้นเลยครับ ไม่มีเหตุผลอื่นซ่อนอยู่
+
+ขอให้ปีนี้ครีมเจอแต่เรื่องดี ๆ สุขภาพแข็งแรง และหัวเราะบ่อยกว่าเดิม
+แล้วถ้าในปีนี้ยังมีที่ว่างให้ใครอีกคนเดินไปข้าง ๆ ... ผมขอจองไว้ก่อนได้ไหมครับ
+
+สุขสันต์วันเกิดนะครีม ✨🪐</textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: Decor Panel -->
+                        <div id="tab-decor" class="tab-panel">
+                            <!-- Preset Grid -->
+                            <div class="form-group">
+                                <label data-i18n="presetsLabel">One-Click Aesthetic Presets</label>
+                                <div class="preset-grid">
+                                    <button type="button" class="preset-btn" data-preset="chocolate-royal">
+                                        <i class="fa-solid fa-cookie"></i> Choco Royal
+                                    </button>
+                                    <button type="button" class="preset-btn" data-preset="pink-dream">
+                                        <i class="fa-solid fa-heart"></i> Pink Dream
+                                    </button>
+                                    <button type="button" class="preset-btn" data-preset="mint-chocolate">
+                                        <i class="fa-solid fa-leaf"></i> Mint Breeze
+                                    </button>
+                                    <button type="button" class="preset-btn" data-preset="midnight-gold">
+                                        <i class="fa-solid fa-crown"></i> Midnight Royal
+                                    </button>
+                                </div>
+                            </div>
+                            <!-- Cake Stand / Plate -->
+                            <div class="form-group">
+                                <label for="plate-style">Plate / Stand Style</label>
+                                <div class="select-wrapper">
+                                    <i class="fa-solid fa-compact-disc input-icon"></i>
+                                    <select id="plate-style">
+                                        <option value="ceramic">Ceramic White (Elegant)</option>
+                                        <option value="crystal">Rose Crystal Glass (Glossy)</option>
+                                        <option value="golden">Golden Royal (Premium)</option>
+                                        <option value="cosmic">Cosmic Obsidian (Sleek)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Glaze Style -->
+                            <div class="form-group">
+                                <label for="glaze-style">Glaze / Cream Glaze</label>
+                                <div class="select-wrapper">
+                                    <i class="fa-solid fa-droplet input-icon"></i>
+                                    <select id="glaze-style">
+                                        <option value="chocolate">Rich Dark Chocolate</option>
+                                        <option value="strawberry">Fresh Sweet Strawberry</option>
+                                        <option value="mint">Refreshing Ice Mint</option>
+                                        <option value="cream">Fluffy Vanilla Cream</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Cake Center Topper -->
+                            <div class="form-group">
+                                <label for="topper-style">Cake Center Topper</label>
+                                <div class="select-wrapper">
+                                    <i class="fa-solid fa-crown input-icon"></i>
+                                    <select id="topper-style">
+                                        <option value="best-senpai">"Best Cream 💖"</option>
+                                        <option value="hbd">"Happy Birthday 🎂"</option>
+                                        <option value="star">"Sparkling Star ⭐"</option>
+                                        <option value="none">No Topper</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Custom Topper Text -->
+                            <div class="form-group" id="custom-topper-text-group">
+                                <label for="custom-topper-text" data-i18n="customTopperTextLabel">Or Custom Topper Text (Max 16 chars)</label>
+                                <div class="input-wrapper">
+                                    <i class="fa-solid fa-keyboard input-icon"></i>
+                                    <input type="text" id="custom-topper-text" value="" placeholder="e.g. CREAM #1" maxlength="16">
+                                </div>
+                                <span class="form-help-text" data-i18n="customTopperHelp" style="font-size: 0.72rem; opacity: 0.7; margin-top: 4px; display: block; line-height: 1.3;">
+                                    If typed, this overrides the default selection with a custom 3D glowing plaque topper.
+                                </span>
+                            </div>
+
+                            <!-- Strawberries Quantity -->
+                            <div class="form-group">
+                                <label for="decor-strawberries">Fresh Strawberries (0 - 8)</label>
+                                <div class="slider-group">
+                                    <input type="range" id="decor-strawberries" min="0" max="8" value="4">
+                                    <span class="slider-val" id="decor-strawberries-display">4</span>
+                                </div>
+                            </div>
+
+                            <!-- Cherries Quantity -->
+                            <div class="form-group">
+                                <label for="decor-cherries">Sweet Cherries (0 - 8)</label>
+                                <div class="slider-group">
+                                    <input type="range" id="decor-cherries" min="0" max="8" value="4">
+                                    <span class="slider-val" id="decor-cherries-display">4</span>
+                                </div>
+                            </div>
+
+                            <!-- Chocolate Rolls Quantity -->
+                            <div class="form-group">
+                                <label for="decor-rolls">Choco Wafer Rolls (0 - 6)</label>
+                                <div class="slider-group">
+                                    <input type="range" id="decor-rolls" min="0" max="6" value="3">
+                                    <span class="slider-val" id="decor-rolls-display">3</span>
+                                </div>
+                            </div>
+
+                            <!-- Colorful Sprinkles Switch -->
+                            <div class="form-group toggle-group">
+                                <label for="decor-sprinkles" class="toggle-label">
+                                    <span data-i18n="rainbowSprinklesTitle">Rainbow Sprinkles</span>
+                                    <span class="toggle-sub" data-i18n="rainbowSprinklesDesc">Scatter colorful sugar pills</span>
+                                </label>
+                                <div class="switch-wrapper">
+                                    <input type="checkbox" id="decor-sprinkles" checked>
+                                    <label for="decor-sprinkles" class="switch-slider"></label>
+                                </div>
+                            </div>
+
+                            <!-- Glowing Hearts Switch -->
+                            <div class="form-group toggle-group">
+                                <label for="decor-hearts" class="toggle-label">
+                                    <span data-i18n="glowingHeartsTitle">Glowing Hearts</span>
+                                    <span class="toggle-sub" data-i18n="glowingHeartsDesc">Scatter floating neon-magenta hearts</span>
+                                </label>
+                                <div class="switch-wrapper">
+                                    <input type="checkbox" id="decor-hearts">
+                                    <label for="decor-hearts" class="switch-slider"></label>
+                                </div>
+                            </div>
+
+                            <!-- Neon Stars Switch -->
+                            <div class="form-group toggle-group">
+                                <label for="decor-stars" class="toggle-label">
+                                    <span data-i18n="glowingStarsTitle">Glowing Neon Stars</span>
+                                    <span class="toggle-sub" data-i18n="glowingStarsDesc">Scatter floating neon-gold stars</span>
+                                </label>
+                                <div class="switch-wrapper">
+                                    <input type="checkbox" id="decor-stars">
+                                    <label for="decor-stars" class="switch-slider"></label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 3: Colors Panel -->
+                        <div id="tab-colors" class="tab-panel">
+                            <div class="form-group">
+                                <label data-i18n="customColorsLabel">Freestyle Custom Colors</label>
+                                <p class="form-help-text" data-i18n="customColorsHelp" style="font-size: 0.75rem; opacity: 0.7; margin-bottom: 12px; line-height: 1.3;">
+                                    Tweak individual component colors to design your own realistic or fantastic birthday surprise!
+                                </p>
+                                
+                                <div class="color-picker-grid">
+                                    <!-- Cake Glaze -->
+                                    <div class="color-picker-item">
+                                        <label for="glaze-color" data-i18n="glazeColor">Cake Glaze</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="glaze-color" value="#311a11">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Cake Cream -->
+                                    <div class="color-picker-item">
+                                        <label for="cream-color" data-i18n="creamColor">Cake Base</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="cream-color" value="#ed004c">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Plate / Stand -->
+                                    <div class="color-picker-item">
+                                        <label for="plate-color" data-i18n="plateColor">Stand & Plate</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="plate-color" value="#fbfbf8">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Candles -->
+                                    <div class="color-picker-item">
+                                        <label for="candle-color" data-i18n="candleColor">Candle Body</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="candle-color" value="#ff0055">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Topper Rim -->
+                                    <div class="color-picker-item">
+                                        <label for="topper-color" data-i18n="topperColor">Topper Rim</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="topper-color" value="#00f2fe">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Envelope Base -->
+                                    <div class="color-picker-item">
+                                        <label for="env-base-color" data-i18n="envBaseColor">Envelope Body</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="env-base-color" value="#071e22">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Envelope Flap -->
+                                    <div class="color-picker-item">
+                                        <label for="env-flap-color" data-i18n="envFlapColor">Envelope Flap</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="env-flap-color" value="#00f2fe">
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Envelope Seal -->
+                                    <div class="color-picker-item">
+                                        <label for="env-seal-color" data-i18n="envSealColor">Envelope Seal</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" id="env-seal-color" value="#ff0055">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Action Button -->
+                        <button type="button" id="btn-generate-card" class="btn-primary">
+                            <i class="fa-solid fa-link"></i> Generate & Share Card
+                        </button>
+                    </form>
+                </section>
+
+                <!-- Live Preview Block -->
+                <section class="preview-area glass-panel">
+                    <div class="preview-header">
+                        <h3 data-i18n="previewTitle"><i class="fa-solid fa-eye"></i> Real-time 3D Preview</h3>
+                        <span class="badge" data-i18n="dragRotate">Drag to Rotate 3D Cake</span>
+                    </div>
+                    <div class="preview-canvas-container" id="preview-canvas-wrapper">
+                        <!-- Three.js Canvas will mount here -->
+                        <div class="canvas-loading">
+                            <i class="fa-solid fa-circle-notch fa-spin"></i>
+                            <p>Loading 3D Canvas...</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Share Modal -->
+            <div id="share-modal" class="modal-overlay">
+                <div class="modal-content glass-panel">
+                    <button class="modal-close" id="btn-modal-close"><i class="fa-solid fa-xmark"></i></button>
+                    <div class="modal-icon"><i class="fa-solid fa-circle-check"></i></div>
+                    <h3 data-i18n="readyTitle">Your 3D Birthday Card is Ready!</h3>
+                    <p data-i18n="readyHint">Copy the unique URL below and send it to your Senpai. Since it's fully encoded, it requires no hosting database!</p>
+                    
+                    <div class="copy-url-group">
+                        <input type="text" id="share-url-input" readonly>
+                        <button id="btn-copy-url" class="btn-secondary" data-i18n="readyCopyBtn">
+                            <i class="fa-solid fa-copy"></i> Copy
+                        </button>
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <a href="" id="btn-test-link" target="_blank" class="btn-outline">
+                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Test Card Now
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 2. RECEIVER GREETING VIEW (SENPAI VIEW) -->
+        <main id="receiver-view" class="view-panel">
+            <!-- Envelope Welcome Gate (Crucial for unlocking web audio) -->
+            <div id="envelope-gate" class="gate-overlay active-gate">
+                <!-- Floating Receiver Lang Selector -->
+                <div class="lang-selector-wrapper floating-receiver-lang">
+                    <i class="fa-solid fa-globe lang-icon"></i>
+                    <select id="lang-switcher-receiver" class="lang-select">
+                        <option value="en">EN</option>
+                        <option value="th">TH</option>
+                        <option value="ja">JA</option>
+                    </select>
+                </div>
+                
+                <div class="envelope-container">
+                    <div class="envelope glass-panel">
+                        <div class="envelope-top-heart"><i class="fa-solid fa-heart"></i></div>
+                        <h2 data-i18n="gateTitle">You Have a Special Message!</h2>
+                        <p class="envelope-hint" data-i18n="gateHint">Click the envelope below to unlock your custom 3D birthday surprise...</p>
+                        <button id="btn-open-envelope" class="envelope-seal-btn" data-i18n="gateBtn">
+                            <i class="fa-solid fa-envelope-open"></i> Open Surprise
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Interactive 3D Canvas -->
+            <div id="greeting-canvas-container">
+                <!-- Sci-Fi Cyber-Neon HUD Overlay -->
+                <div class="cyber-hud-overlay">
+                    <div class="hud-scanline"></div>
+                    <div class="hud-noise"></div>
+                    <div class="hud-corner top-left"></div>
+                    <div class="hud-corner top-right"></div>
+                    <div class="hud-corner bottom-left"></div>
+                    <div class="hud-corner bottom-right"></div>
+                    
+                    <div class="hud-header-bar">
+                        <span class="hud-indicator active-blink">● SYSTEM_UPSTREAM: SECURE</span>
+                        <span class="hud-logo">HBD_CRAFT_V4.0 // QUANTUM_GRID</span>
+                        <span class="hud-timer" id="hud-timer">TIME_ELAPSED: 00:00:00</span>
+                    </div>
+                    
+                    <div class="hud-footer-bar">
+                        <span class="hud-coords">CAKE_SECTOR: [0.00, 1.30, 0.00]</span>
+                        <span class="hud-status">STATUS: AWAITING_IGNITION</span>
+                    </div>
+
+                    <!-- Tech Target Crosshairs -->
+                    <div class="tech-crosshair">
+                        <div class="circle outer"></div>
+                        <div class="circle inner"></div>
+                        <div class="line horizontal"></div>
+                        <div class="line vertical"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Receiver Overlays -->
+            <div class="receiver-hud">
+                <!-- Top Instructions Overlay -->
+                <div class="hud-instructions glass-panel" id="hud-instructions">
+                    <span class="inst-icon pulse"><i class="fa-solid fa-microphone"></i></span>
+                    <p id="instruction-text" data-i18n="hudBlow">Blow into your mic or click on the candle flames to blow them out!</p>
+                </div>
+
+                <!-- Right Side Control Overlays -->
+                <div class="hud-controls">
+                    <button id="btn-hud-mic" class="hud-btn active" title="Toggle Mic Blow Detection">
+                        <i class="fa-solid fa-microphone"></i>
+                    </button>
+                    <button id="btn-hud-audio" class="hud-btn" title="Toggle Background Music">
+                        <i class="fa-solid fa-volume-xmark"></i>
+                    </button>
+                    <button id="btn-hud-reset" class="hud-btn" title="Relight Candles">
+                        <i class="fa-solid fa-rotate-left"></i>
+                    </button>
+                </div>
+                
+                <!-- Micro-visualizer for Mic Level -->
+                <div class="mic-visualizer" id="mic-visualizer" style="display:none;">
+                    <div class="mic-bar" id="mic-bar"></div>
+                </div>
+            </div>
+
+                <!-- Final Revealed Greeting Message Card -->
+                <div id="greeting-card-wrapper" class="hidden-card">
+                    <div class="greeting-card glass-panel" id="reveal-card">
+                        <div class="sparkles-container">
+                            <span class="sparkle size-1">✨</span>
+                            <span class="sparkle size-2">⭐</span>
+                            <span class="sparkle size-3">✨</span>
+                        </div>
+                        <header class="greeting-card-header">
+                            <i class="fa-solid fa-quote-left quote-decoration"></i>
+                            <h2 id="view-title">Happy Birthday, ครีม!</h2>
+                            <p id="view-date" class="greeting-card-date"></p>
+                        </header>
+                        <article class="greeting-card-body">
+                            <p id="view-message">Loading message...</p>
+                        </article>
+                        <footer class="greeting-card-footer">
+                            <p class="signature" data-i18n="signature">— Created with Love & Respect for Cream</p>
+                            <button id="btn-back-creator" class="btn-outline-small" data-i18n="btnBackCreator">
+                                <i class="fa-solid fa-paint-brush"></i> Build Your Own
+                            </button>
+                        </footer>
+                    </div>
+                </div>
+
+                <!-- Glassmorphic Letter Popup Modal Overlay -->
+                <div id="letter-popup-overlay" class="letter-overlay-gate">
+                    <div class="letter-popup-wrapper">
+                        <button id="btn-close-letter" class="letter-close-btn" title="Close Letter Card">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                        
+                        <!-- Premium floating hint telling user to click open -->
+                        <div class="letter-open-hint" id="letter-open-hint">
+                            <i class="fa-solid fa-envelope-open-text pulse"></i>
+                            <span data-i18n="letterOpenHint">แตะตราประทับขี้ผึ้งหรือซองจดหมายเพื่อเปิดอ่าน ✉️</span>
+                        </div>
+                        
+                        <!-- Premium CSS 3D Interactive Envelope -->
+                        <div class="interactive-envelope" id="letter-envelope-container">
+                            <!-- Envelope back cover -->
+                            <div class="envelope-back"></div>
+                            
+                            <!-- Sliding letter paper sheet inside -->
+                            <div class="envelope-paper glass-panel" id="letter-paper">
+                                <div class="letter-stamp-seal"><i class="fa-solid fa-envelope-open-text"></i></div>
+                                <div class="letter-inner-content">
+                                    <h2 id="letter-popup-title">ถึงครีมคนพิเศษ</h2>
+                                    <div class="letter-body-scroll">
+                                        <div id="letter-popup-body">Loading your secret quantum letter...</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Envelope front cover folds -->
+                            <div class="envelope-front"></div>
+                            
+                            <!-- Interactive rotating top flap -->
+                            <div class="envelope-flap" id="letter-envelope-flap"></div>
+                        </div>
+                    </div>
+                </div>
+        </main>
+    </div>
+
+    <!-- Main Module Entry -->
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>

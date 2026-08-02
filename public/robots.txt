@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://hbd-3d-craft.pages.dev/sitemap.xml
