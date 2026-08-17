@@ -12,26 +12,31 @@ import {
     isMobileViewport
 } from './render-quality.js';
 
-// Shaders for Volumetric Quantum Plasma Flame
+// Realistic Organic Teardrop Candle Flame Shader with Natural S-curve Flicker & Heat Glow
 const flameVertexShader = `
     uniform float uTime;
     varying vec2 vUv;
     varying vec3 vPosition;
+    varying vec3 vNormal;
     
     void main() {
         vUv = uv;
         vPosition = position;
+        vNormal = normal;
         
-        // Twisting plasma vortex: tip sways organically in electromagnetic fields
-        float angle = uTime * 2.5 + position.y * 3.0;
-        float r = 0.08 * (position.y + 0.1);
         vec3 pos = position;
-        pos.x += sin(angle) * r;
-        pos.z += cos(angle) * r;
         
-        // High-frequency magnetic pulse
-        float pulse = 1.0 + sin(uTime * 18.0) * 0.05 * position.y;
-        pos.y *= pulse;
+        // Organic natural heat convection swaying (gentle wind and thermal lift)
+        float swayFactor = smoothstep(0.0, 1.0, (pos.y + 0.1) / 0.28);
+        float swayX = sin(uTime * 3.5 + pos.y * 10.0) * 0.022 * swayFactor;
+        float swayZ = cos(uTime * 2.8 + pos.y * 8.0) * 0.016 * swayFactor;
+        
+        // Teardrop pulse and flicker
+        float flicker = sin(uTime * 14.0) * 0.04 * swayFactor;
+        
+        pos.x += swayX;
+        pos.z += swayZ;
+        pos.y += flicker;
         
         gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
     }
@@ -40,105 +45,45 @@ const flameVertexShader = `
 const flameFragmentShader = `
     varying vec2 vUv;
     varying vec3 vPosition;
+    varying vec3 vNormal;
     uniform float uTime;
     
-    // Simplex 3D Noise procedural generator in GLSL
-    vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
-    vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
-
-    float snoise(vec3 v){
-      const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
-      const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
-
-      vec3 i  = floor(v + dot(v, C.yyy) );
-      vec3 x0 =   v - i + dot(i, C.xxx) ;
-
-      vec3 g = step(x0.yzx, x0.xyz);
-      vec3 l = 1.0 - g;
-      vec3 i1 = min( g.xyz, l.zxy );
-      vec3 i2 = max( g.xyz, l.zxy );
-
-      vec3 x1 = x0 - i1 + 1.0 * C.xxx;
-      vec3 x2 = x0 - i2 + 2.0 * C.xxx;
-      vec3 x3 = x0 - D.yyy;
-
-      i = mod(i, 289.0 );
-      vec4 p = permute( permute( permute(
-                 i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
-               + i.y + vec4(0.0, i1.y, i2.y, 1.0 ))
-               + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
-
-      float n_ = 1.0/7.0;
-      vec3  ns = n_ * D.wyz - D.xzx;
-
-      vec4 j = p - 49.0 * floor(p * ns.z *ns.z);
-
-      vec4 x_ = floor(j * ns.z);
-      vec4 y_ = floor(j - 7.0 * x_ );
-
-      vec4 x = x_ *ns.x + ns.yyyy;
-      vec4 y = y_ *ns.x + ns.yyyy;
-      vec4 h = 1.0 - abs(x) - abs(y);
-
-      vec4 b0 = vec4( x.xy, y.xy );
-      vec4 b1 = vec4( x.zw, y.zw );
-
-      vec4 s0 = floor(b0)*2.0 + 1.0;
-      vec4 s1 = floor(b1)*2.0 + 1.0;
-      vec4 sh = -step(h, vec4(0.0));
-
-      vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
-      vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
-
-      vec3 p0 = vec3(a0.xy,h.x);
-      vec3 p1 = vec3(a0.zw,h.y);
-      vec3 p2 = vec3(a1.xy,h.z);
-      vec3 p3 = vec3(a1.zw,h.w);
-
-      vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
-      p0 *= norm.x;
-      p1 *= norm.y;
-      p2 *= norm.z;
-      p3 *= norm.w;
-
-      vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-      m = m * m;
-      return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1),
-                                    dot(p2,x2), dot(p3,x3) ) );
-    }
-    
     void main() {
-        // Map local cone height [-0.1, 0.1] to [0, 1]
-        float h = (vPosition.y + 0.1) / 0.20;
+        // Normalized height from candle wick base to tip [0.0 -> 1.0]
+        float h = clamp((vPosition.y + 0.09) / 0.26, 0.0, 1.0);
         
-        // Dynamic twisting simplex noise coordinate
-        vec3 noiseCoord = vec3(vPosition.x * 12.0, vPosition.y * 8.0 - uTime * 6.0, vPosition.z * 12.0);
-        float n = snoise(noiseCoord) * 0.5 + 0.5;
+        // Realistic candle flame color zones:
+        // 1. Blue combustion oxygen base (h = 0.0 -> 0.15)
+        // 2. Rich warm orange core (h = 0.15 -> 0.45)
+        // 3. Bright golden yellow body (h = 0.45 -> 0.85)
+        // 4. Brilliant white-hot incandescent center tip (h = 0.85 -> 1.0)
+        vec3 blueBase   = vec3(0.12, 0.38, 0.98); // Blue base
+        vec3 orangeCore = vec3(1.00, 0.42, 0.02); // Warm orange
+        vec3 goldenBody = vec3(1.00, 0.82, 0.15); // Golden yellow
+        vec3 whiteHot   = vec3(1.00, 0.98, 0.88); // White hot core
         
-        // Beautiful glowing color gradient (Cyan base, Hot Pink mid, High-energy Gold tip)
-        vec3 colorBlue = vec3(0.0, 0.95, 1.0);    // glowing electric blue
-        vec3 colorOrange = vec3(1.0, 0.0, 0.55);  // hot pink middle
-        vec3 colorGold = vec3(1.0, 0.95, 0.0);    // golden top tip
-        vec3 colorWhite = vec3(1.0, 1.0, 1.0);    // core white glow
-        
-        vec3 color = vec3(0.0);
-        
-        if (h < 0.25) {
-            color = mix(colorBlue, colorOrange, h / 0.25);
-        } else if (h < 0.7) {
-            color = mix(colorOrange, colorGold, (h - 0.25) / 0.45);
+        vec3 flameColor;
+        if (h < 0.18) {
+            flameColor = mix(blueBase, orangeCore, h / 0.18);
+        } else if (h < 0.55) {
+            flameColor = mix(orangeCore, goldenBody, (h - 0.18) / 0.37);
         } else {
-            color = mix(colorGold, colorWhite, (h - 0.7) / 0.3);
+            flameColor = mix(goldenBody, whiteHot, (h - 0.55) / 0.45);
         }
         
-        // Smooth edge alpha affected by Simplex noise
-        float edge = sin(vUv.x * 3.14159) * sin(vUv.y * 3.14159);
-        float alpha = smoothstep(0.0, 0.25, edge * n);
+        // Radial center core glow: inner is brilliant white, outer edge is translucent
+        float distFromCenter = length(vPosition.xz) / 0.07;
+        float coreGlow = smoothstep(0.8, 0.0, distFromCenter);
+        flameColor = mix(flameColor, whiteHot, coreGlow * (1.0 - h * 0.5) * 0.7);
         
-        // Fast dynamic micro-flicker for realistic heat convection
-        float flicker = 0.88 + sin(uTime * 40.0) * 0.12;
+        // Soft outer opacity falloff (teardrop natural contour)
+        float alpha = smoothstep(1.0, 0.1, distFromCenter);
+        alpha *= smoothstep(0.0, 0.12, h) * smoothstep(1.0, 0.7, h);
         
-        gl_FragColor = vec4(color, alpha * flicker * (1.2 - h * 0.4));
+        // Natural candle flame micro-shimmer
+        float shimmer = 0.92 + sin(uTime * 25.0 + h * 8.0) * 0.08;
+        
+        gl_FragColor = vec4(flameColor, clamp(alpha * shimmer * 1.5, 0.0, 1.0));
     }
 `;
 
@@ -1224,6 +1169,10 @@ function init3DScene() {
             photoFrameGroup.position.y = 1.8 + Math.sin(elapsed * 1.2) * 0.15;
             photoFrameGroup.rotation.y = -Math.PI / 4 + Math.sin(elapsed * 0.6) * 0.1;
             photoFrameGroup.rotation.z = Math.sin(elapsed * 0.8) * 0.05;
+        }
+
+        if (flameMaterial) {
+            flameMaterial.uniforms.uTime.value = elapsed;
         }
 
         // 1. Flicker Candle Flames & Spawn Particles
@@ -2332,14 +2281,30 @@ function getThemeRGBColors(themeName) {
 // Mount custom count of candles
 function setupViewerCandles() {
     candles = [];
-    const candleCount = activeConfig.candles || 5;
-    const candlePlacerRadius = 0.72;
-
-    // 20 sides instead of 8: at this scale an 8-gon candle reads as an octagon.
-    // Slight taper toward the top, like a real dipped/extruded wax candle.
+    // Realistic Candles builder
     const candleGeo = new THREE.CylinderGeometry(0.046, 0.052, 0.45, 20);
     const wickGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.08, 8);
-    const flameGeo = new THREE.ConeGeometry(0.07, 0.20, 12);
+    const waxCollarGeo = new THREE.SphereGeometry(0.05, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+
+    // Realistic Organic Teardrop Flame Geometry
+    const flameGeo = new THREE.SphereGeometry(0.065, 16, 16);
+    const flamePos = flameGeo.attributes.position;
+    for (let i = 0; i < flamePos.count; i++) {
+        let x = flamePos.getX(i);
+        let y = flamePos.getY(i);
+        let z = flamePos.getZ(i);
+        
+        if (y > 0.0) {
+            y *= 2.2;
+            const taper = 1.0 - (y / 0.16);
+            x *= Math.max(0.1, taper);
+            z *= Math.max(0.1, taper);
+        } else {
+            y *= 0.8;
+        }
+        flamePos.setXYZ(i, x, y + 0.05, z);
+    }
+    flameGeo.computeVertexNormals();
 
     const candleColors = [0x55ffaa, 0xffbb44, 0xff55aa, 0x44bbff, 0xdd88ff];
     const wickMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
@@ -2368,53 +2333,15 @@ function setupViewerCandles() {
         const stick = new THREE.Mesh(candleGeo, candleMat);
         stick.position.y = 0.225;
         stick.castShadow = true;
+        // Lean each candle a hair — realistic touch
+        stick.rotation.z = Math.sin(i * 2.4) * 0.03;
         candleGroup.add(stick);
 
-        // Polished copper base collar at y = 0.03
-        const copperCollarGeo = new THREE.CylinderGeometry(0.065, 0.065, 0.06, 24);
-        const copperCollarMat = new THREE.MeshStandardMaterial({
-            color: 0xd35400,
-            roughness: 0.08,
-            metalness: 0.95
-        });
-        const copperCollar = new THREE.Mesh(copperCollarGeo, copperCollarMat);
-        copperCollar.position.y = 0.03;
-        copperCollar.castShadow = true;
-        candleGroup.add(copperCollar);
-
-        // Polished chrome shaft collar below the wick at y = 0.44
-        const chromeCollarGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.04, 24);
-        const chromeCollarMat = new THREE.MeshStandardMaterial({
-            color: 0xcccccc,
-            roughness: 0.05,
-            metalness: 0.98
-        });
-        const chromeCollar = new THREE.Mesh(chromeCollarGeo, chromeCollarMat);
-        chromeCollar.position.y = 0.44;
-        chromeCollar.castShadow = true;
-        candleGroup.add(chromeCollar);
-
-        // Floating glowing neon Torus coil (emCoils) at y = 0.35
-        const coilGeo = new THREE.TorusGeometry(0.08, 0.016, 12, 32);
-        const coilMat = new THREE.MeshStandardMaterial({
-            color: 0x00f2fe,
-            emissive: 0x00f2fe,
-            emissiveIntensity: 1.5,
-            roughness: 0.1,
-            metalness: 0.9
-        });
-        const coil = new THREE.Mesh(coilGeo, coilMat);
-        coil.rotation.x = Math.PI / 2;
-        coil.position.y = 0.35;
-        candleGroup.add(coil);
-
-        emCoils.push({
-            mesh: coil,
-            baseY: 0.35,
-            speedY: 1.8 + Math.random() * 0.5,
-            offsetY: Math.random() * Math.PI,
-            rotSpeed: 1.0 + Math.random() * 1.5
-        });
+        const waxCollar = new THREE.Mesh(waxCollarGeo, candleMat);
+        waxCollar.position.y = 0.442;
+        waxCollar.scale.set(1.0, 0.42, 1.0);
+        waxCollar.castShadow = true;
+        candleGroup.add(waxCollar);
 
         const wick = new THREE.Mesh(wickGeo, wickMat);
         wick.position.y = 0.48;
