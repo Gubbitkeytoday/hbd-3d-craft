@@ -96,6 +96,7 @@ class App {
             font: 'outfit',
             photo: '',
             preset: 'midnight-gold',
+            cakeModel: 'classic-tiered',
             plate: 'ceramic',
             glaze: 'chocolate',
             topper: 'best-senpai',
