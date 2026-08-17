@@ -20,12 +20,12 @@ export function isMobileViewport() {
  * theme colors read as washed out.
  */
 export function applyCinematicRenderer(renderer, { exposure = 1.12, maxPixelRatio = 2 } = {}) {
+    const mobile = isMobileViewport();
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = exposure;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
+    renderer.shadowMap.enabled = !mobile;
+    renderer.setPixelRatio(mobile ? Math.min(window.devicePixelRatio, 1.25) : Math.min(window.devicePixelRatio, maxPixelRatio));
 }
 
 /**
@@ -63,31 +63,28 @@ export function attachStudioEnvironment(renderer, scene) {
  * @returns {{key: THREE.DirectionalLight, fill: THREE.DirectionalLight, rim: THREE.DirectionalLight, ambient: THREE.AmbientLight}}
  */
 export function setupStudioLighting(scene, { rimColor = 0xff0055, mobile = isMobileViewport() } = {}) {
-    // Low ambient: the environment map already supplies indirect light, so a
-    // strong AmbientLight here would only flatten the shading back out.
-    const ambient = new THREE.AmbientLight(0xffffff, 0.08);
+    const ambient = new THREE.AmbientLight(0xffffff, mobile ? 0.25 : 0.08);
     scene.add(ambient);
 
     const key = new THREE.DirectionalLight(0xfff2e0, 1.45);
     key.position.set(5, 10, 7);
-    key.castShadow = true;
-    const shadowRes = mobile ? 1024 : 2048;
-    key.shadow.mapSize.width = shadowRes;
-    key.shadow.mapSize.height = shadowRes;
-    // Tight frustum around the cake — a default 5-unit box wastes most of the
-    // shadow map on empty space and makes contact shadows mushy.
-    key.shadow.camera.left = -4;
-    key.shadow.camera.right = 4;
-    key.shadow.camera.top = 4;
-    key.shadow.camera.bottom = -4;
-    key.shadow.camera.near = 0.5;
-    key.shadow.camera.far = 25;
-    key.shadow.bias = -0.0004;
-    key.shadow.normalBias = 0.02;
-    key.shadow.radius = 3;
+    key.castShadow = !mobile;
+    if (!mobile) {
+        key.shadow.mapSize.width = 1024;
+        key.shadow.mapSize.height = 1024;
+        key.shadow.camera.left = -4;
+        key.shadow.camera.right = 4;
+        key.shadow.camera.top = 4;
+        key.shadow.camera.bottom = -4;
+        key.shadow.camera.near = 0.5;
+        key.shadow.camera.far = 25;
+        key.shadow.bias = -0.0004;
+        key.shadow.normalBias = 0.02;
+        key.shadow.radius = 3;
+    }
     scene.add(key);
 
-    const fill = new THREE.DirectionalLight(0x9dc4ff, 0.3);
+    const fill = new THREE.DirectionalLight(0x9dc4ff, 0.4);
     fill.position.set(-6, 4, -2);
     scene.add(fill);
 
@@ -99,38 +96,20 @@ export function setupStudioLighting(scene, { rimColor = 0xff0055, mobile = isMob
 }
 
 /**
- * Selective-looking bloom over the whole frame. This is what makes the candle
- * flames, the holographic rings and the neon topper actually glow instead of
- * just being bright pixels.
- *
- * With an OutputPass at the end, tone mapping and color space conversion move
- * from the renderer to the composer, so the look stays identical to the
- * non-composited path — just with glow added.
- *
- * @returns {{composer: EffectComposer, bloom: UnrealBloomPass, setSize: (w:number,h:number)=>void}}
+ * Selective-looking bloom over the whole frame.
  */
 export function createBloomComposer(renderer, scene, camera, { mobile = isMobileViewport() } = {}) {
     const size = renderer.getSize(new THREE.Vector2());
 
     const composer = new EffectComposer(renderer);
-    // Half-res bloom buffers on phones: the blur is wide enough that the
-    // resolution loss is invisible, and it roughly halves the pass cost.
-    composer.setPixelRatio(mobile ? 1 : Math.min(window.devicePixelRatio, 2));
+    composer.setPixelRatio(mobile ? 1.0 : Math.min(window.devicePixelRatio, 1.75));
     composer.setSize(size.x, size.y);
 
-    // Note: the composited output is opaque — OutputPass writes alpha 1 — so a
-    // scene using this needs its own scene.background instead of relying on a
-    // transparent canvas.
     composer.addPass(new RenderPass(scene, camera));
 
-    // RenderPass output is linear HDR here, so lit white frosting sits around
-    // 1.0. The threshold has to clear that or the cream and the cake stand
-    // bloom into a single white blob — only emissive things should glow.
-    // Deliberately restrained: enough to read as a glow around the flames and
-    // holo rings, not enough to haze the frame or tire the eyes.
     const bloom = new UnrealBloomPass(
-        new THREE.Vector2(size.x, size.y),
-        mobile ? 0.16 : 0.22, // strength
+        mobile ? new THREE.Vector2(Math.floor(size.x * 0.5), Math.floor(size.y * 0.5)) : new THREE.Vector2(size.x, size.y),
+        mobile ? 0.12 : 0.22, // strength
         0.4,                  // radius
         1.35                  // threshold
     );
@@ -143,7 +122,11 @@ export function createBloomComposer(renderer, scene, camera, { mobile = isMobile
         bloom,
         setSize(w, h) {
             composer.setSize(w, h);
-            bloom.setSize(w, h);
+            if (mobile) {
+                bloom.setSize(Math.floor(w * 0.5), Math.floor(h * 0.5));
+            } else {
+                bloom.setSize(w, h);
+            }
         }
     };
 }

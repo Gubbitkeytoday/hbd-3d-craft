@@ -456,6 +456,20 @@ export function initViewer(config) {
         });
     }
 
+    // Bind close greeting card button
+    const btnCloseCard = document.getElementById('btn-close-greeting-card');
+    if (btnCloseCard) {
+        btnCloseCard.addEventListener('click', () => {
+            const cardWrapper = document.getElementById('greeting-card-wrapper');
+            if (cardWrapper) {
+                cardWrapper.classList.remove('active-card');
+                cardWrapper.classList.add('hidden-card');
+            }
+            const btnCard = document.getElementById('btn-hud-card');
+            if (btnCard) btnCard.classList.remove('active');
+        });
+    }
+
     // Bind click/tap listener to the interactive envelope container to open it manually
     const envContainer = document.getElementById('letter-envelope-container');
     if (envContainer) {
@@ -628,9 +642,26 @@ export function destroyViewer() {
 
 // 1. RECEIVER VIEW HUD LISTENERS
 function setupHUDListeners() {
+    const btnCard = document.getElementById('btn-hud-card');
     const btnMic = document.getElementById('btn-hud-mic');
     const btnAudio = document.getElementById('btn-hud-audio');
     const btnReset = document.getElementById('btn-hud-reset');
+
+    if (btnCard) {
+        btnCard.onclick = () => {
+            const cardWrapper = document.getElementById('greeting-card-wrapper');
+            if (cardWrapper) {
+                if (cardWrapper.classList.contains('active-card')) {
+                    cardWrapper.classList.remove('active-card');
+                    cardWrapper.classList.add('hidden-card');
+                    btnCard.classList.remove('active');
+                } else {
+                    revealGreetingCard();
+                    btnCard.classList.add('active');
+                }
+            }
+        };
+    }
 
     if (btnMic) {
         // Toggle mic state
@@ -1348,12 +1379,21 @@ function updateCameraForViewport() {
     if (!camera) return;
     const aspect = window.innerWidth / window.innerHeight;
     if (aspect < 1.0) {
-        // Mobile portrait mode: extend camera distance so 3D scene fits mobile viewport
-        const distFactor = Math.max(0.48, aspect);
-        const zDist = 10 / (distFactor * 0.9);
-        camera.position.set(0, zDist * 0.45, zDist);
+        // Mobile portrait mode: pull back camera distance so 3D cake + topper fits mobile viewport
+        const zDist = Math.max(13, 6.2 / Math.max(0.35, aspect));
+        camera.position.set(0, zDist * 0.38, zDist);
+        if (controls) {
+            controls.target.set(0, 0.4, 0);
+            controls.minDistance = 6;
+            controls.maxDistance = 25;
+        }
     } else {
-        camera.position.set(0, 5, 10);
+        camera.position.set(0, 4.5, 9.5);
+        if (controls) {
+            controls.target.set(0, 0.5, 0);
+            controls.minDistance = 4;
+            controls.maxDistance = 20;
+        }
     }
 }
 
@@ -4337,22 +4377,28 @@ function revealGreetingCard() {
     wrapper.classList.remove('hidden-card');
     wrapper.classList.add('active-card');
 
+    const btnCard = document.getElementById('btn-hud-card');
+    if (btnCard) btnCard.classList.add('active');
+
     if (camera && controls) {
+        const aspect = window.innerWidth / window.innerHeight;
+        const targetZ = aspect < 1.0 ? Math.max(12.5, 5.8 / Math.max(0.35, aspect)) : 6.8;
+        const targetY = aspect < 1.0 ? 3.0 : 1.0;
         anime({
             targets: camera.position,
             x: 0,
-            y: 0.9,
-            z: 5.5,
-            duration: 2500,
+            y: targetY,
+            z: targetZ,
+            duration: 2000,
             easing: 'easeInOutCubic'
         });
         
         anime({
             targets: controls.target,
             x: 0,
-            y: 0.9,
+            y: 0.5,
             z: 0,
-            duration: 2500,
+            duration: 2000,
             easing: 'easeInOutCubic'
         });
     }
