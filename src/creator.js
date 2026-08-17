@@ -621,11 +621,54 @@ function setupFormListeners() {
                 envSealColor
             };
 
-            // Encode to Base64 (UTF-8 safe)
-            const encodedString = encodeCardData(dataToEncode);
+            const defaults = {
+                title: 'สุขสันต์วันเกิดย้อนหลังนะค้าบคุณพลอย! 🎂🖤',
+                message: 'Happy Belated Birthday นะค้าบคุณพลอย! 🎂✨ ถึงจะมาช้าไปนิด แต่ความหวังดีมีให้เสมอ ขอให้ปีนี้เป็นปีที่ดี มีรอยยิ้มเยอะๆ สุขภาพแข็งแรง และเท่/น่ารักขึ้นทุกวันเลยน้า 🎉🖤',
+                bdate: '2026-08-17',
+                theme: 'midnight-gold',
+                candles: 5,
+                music: 'happy-birthday-lofi',
+                plate: 'ceramic',
+                glaze: 'chocolate',
+                topper: 'best-senpai',
+                strawberries: 4,
+                cherries: 4,
+                rolls: 3,
+                sprinkles: true,
+                font: 'outfit',
+                photo: '',
+                letterEnabled: true,
+                letterTheme: 'royal',
+                letterTitle: 'ถึงคุณพลอยคนเท่ ✨',
+                letterBody: 'ถึงคุณพลอย,\n\nจดหมายลับใบนี้ลอยข้ามกาลเวลามา HBD ย้อนหลังนะค้าบ ✉️✨\n\nขอให้ปีนี้ใจดีกับคุณพลอยเยอะๆ พบเจอแต่เรื่องราวดีๆ กินของอร่อยทุกวัน และมีความสุขกับทุกสิ่งที่ทำเลยน้า\n\nสุขสันต์วันเกิดย้อนหลังนะค้าบ! 🖤🎂✨',
+                topperText: '',
+                decorHearts: false,
+                decorStars: true,
+                glazeColor: '',
+                creamColor: '',
+                plateColor: '',
+                candleColor: '',
+                topperColor: '',
+                envBaseColor: '',
+                envFlapColor: '',
+                envSealColor: ''
+            };
 
-            // Construct full URL link
-            const shareableUrl = `${window.location.origin}${window.location.pathname}#/view/${encodeURIComponent(recipientName)}?d=${encodedString}`;
+            // Only encode keys that differ from defaults to keep URL ultra short
+            const diffData = {};
+            for (const key in dataToEncode) {
+                if (dataToEncode[key] !== defaults[key]) {
+                    diffData[key] = dataToEncode[key];
+                }
+            }
+
+            const hasDiff = Object.keys(diffData).length > 0;
+            const encodedString = hasDiff ? encodeCardData(diffData) : '';
+
+            // Construct full URL link (Clean short URL if matching defaults)
+            const shareableUrl = encodedString 
+                ? `${window.location.origin}${window.location.pathname}#/view/${encodeURIComponent(recipientName)}?d=${encodedString}`
+                : `${window.location.origin}${window.location.pathname}#/view/${encodeURIComponent(recipientName)}`;
             
             // Populate modal
             if (shareUrlInput) shareUrlInput.value = shareableUrl;
