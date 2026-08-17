@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { applyDOMTranslations, getCurrentLang, saveLanguageSetting, translations } from './i18n.js';
 import {
     applyCinematicRenderer,
@@ -197,6 +198,7 @@ let previewScene = null;
 let previewLights = null;
 let previewBloom = null;
 let previewCamera = null;
+let previewControls = null;
 let previewAnimationId = null;
 let cakeGroup = null;
 let candleMeshes = [];
@@ -300,6 +302,11 @@ export function destroyCreator() {
                 previewEnvelopeLabel.material.dispose();
             }
             previewEnvelopeLabel = null;
+        }
+
+        if (previewControls) {
+            previewControls.dispose();
+            previewControls = null;
         }
 
         previewRenderer.dispose();
@@ -1564,16 +1571,25 @@ function init3DPreview() {
     // explicitly to match the surrounding panel rather than clearing to black.
     previewScene.background = new THREE.Color(0x0b0714);
     previewCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    previewCamera.position.set(0, 4.5, 9);
+    previewCamera.position.set(0, 4.0, 9.5);
 
     previewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     previewRenderer.setSize(width, height);
     applyCinematicRenderer(previewRenderer, {
         exposure: 0.98,
-        maxPixelRatio: isMobileViewport() ? 2 : 2.5
+        maxPixelRatio: isMobileViewport() ? 1.5 : 2.0
     });
 
     container.appendChild(previewRenderer.domElement);
+
+    // Interactive OrbitControls for 3D Creator Preview
+    previewControls = new OrbitControls(previewCamera, previewRenderer.domElement);
+    previewControls.enableDamping = true;
+    previewControls.dampingFactor = 0.05;
+    previewControls.target.set(0, 0.4, 0);
+    previewControls.minDistance = 4.0;
+    previewControls.maxDistance = 20.0;
+    previewControls.maxPolarAngle = Math.PI / 2 + 0.1;
 
     // Studio IBL — gives the glaze, cherries and cake stand real reflections
     attachStudioEnvironment(previewRenderer, previewScene);
@@ -1598,7 +1614,7 @@ function init3DPreview() {
     rebuildFloatingSprinkles();
 
     // Initial Camera Focus
-    previewCamera.lookAt(new THREE.Vector3(0, 0.5, 0));
+    previewCamera.lookAt(new THREE.Vector3(0, 0.4, 0));
 
     // Bloom post-processing so flames, rings and the neon topper actually glow
     previewBloom = createBloomComposer(previewRenderer, previewScene, previewCamera);
@@ -1611,6 +1627,10 @@ function init3DPreview() {
 
         const elapsed = clock.getElapsedTime();
         const delta = clock.getDelta();
+
+        if (previewControls) {
+            previewControls.update();
+        }
 
         // Rotate Cake Group slowly
         if (cakeGroup) {
@@ -1684,6 +1704,7 @@ function init3DPreview() {
 
     // Resize Handler
     window.addEventListener('resize', onPreviewResize);
+    setTimeout(onPreviewResize, 100);
 }
 
 function onPreviewResize() {
