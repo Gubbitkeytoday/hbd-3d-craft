@@ -87,6 +87,7 @@ class App {
     decodeCardData(base64String) {
         const defaults = {
             recipientName: 'คุณพลอย',
+            bdate: '2026-08-17',
             title: 'สุขสันต์วันเกิดย้อนหลังนะค้าบคุณพลอย! 🎂🖤',
             message: 'Happy Belated Birthday นะค้าบคุณพลอย! 🎂✨ ถึงจะมาช้าไปนิด แต่ความหวังดีมีให้เสมอ ขอให้ปีนี้เป็นปีที่ดี มีรอยยิ้มเยอะๆ สุขภาพแข็งแรง และเท่/น่ารักขึ้นทุกวันเลยน้า 🎉🖤',
             theme: 'midnight-gold',
