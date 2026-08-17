@@ -51,7 +51,7 @@ class App {
         const pathPart = hash.replace('#/view/', '');
         const queryIndex = pathPart.indexOf('?');
         
-        let recipientName = 'ครีม';
+        let recipientName = 'คุณพลอย';
         let encodedData = '';
 
         if (queryIndex !== -1) {
@@ -61,17 +61,17 @@ class App {
         } else if (pathPart && pathPart !== '#/' && pathPart !== '') {
             recipientName = decodeURIComponent(pathPart);
         } else {
-            recipientName = 'ครีม';
+            recipientName = 'คุณพลอย';
         }
 
         // Decode URL Configuration data
         const cardConfig = this.decodeCardData(encodedData);
-        if (!cardConfig.recipientName || cardConfig.recipientName === 'Senpai') {
+        if (!cardConfig.recipientName || cardConfig.recipientName === 'Senpai' || cardConfig.recipientName === 'ครีม') {
             cardConfig.recipientName = recipientName;
         }
 
         // Apply visual theme from the encoded greeting configuration
-        this.applyTheme(cardConfig.theme || 'neon-rose');
+        this.applyTheme(cardConfig.theme || 'midnight-gold');
 
         // Initialize the interactive 3D WebGL card
         initViewer(cardConfig);
@@ -86,14 +86,15 @@ class App {
     // Helper: Safely compresses/decompresses custom state using Base64 URI encoder
     decodeCardData(base64String) {
         const defaults = {
-            title: 'สุขสันต์วันเกิดครีม!',
-            message: 'สุขสันต์วันเกิดนะครีม! 🎂 ขอให้ปีนี้เป็นปีที่ดีที่สุดของครีม สุขภาพแข็งแรง สมหวังในทุกเรื่องที่ตั้งใจ และมีความสุขมาก ๆ ทุกวันเลยนะ ✨🍰',
-            theme: 'neon-rose',
+            recipientName: 'คุณพลอย',
+            title: 'สุขสันต์วันเกิดย้อนหลังนะค้าบคุณพลอย! 🎂🖤',
+            message: 'Happy Belated Birthday นะค้าบคุณพลอย! 🎂✨ ถึงจะมาช้าไปนิด แต่ความหวังดีมีให้เสมอ ขอให้ปีนี้เป็นปีที่ดี มีรอยยิ้มเยอะๆ สุขภาพแข็งแรง และเท่/น่ารักขึ้นทุกวันเลยน้า 🎉🖤',
+            theme: 'midnight-gold',
             candles: 5,
             music: 'happy-birthday-lofi',
             font: 'outfit',
             photo: '',
-            preset: '',
+            preset: 'midnight-gold',
             plate: 'ceramic',
             glaze: 'chocolate',
             topper: 'best-senpai',
@@ -102,12 +103,12 @@ class App {
             rolls: 3,
             sprinkles: true,
             letterEnabled: true,
-            letterTheme: 'cyber',
-            letterTitle: 'ถึงครีมคนพิเศษ',
-            letterBody: 'ถึงครีมที่รัก,\n\nอยากส่งจดหมายลับใบนี้ลอยมาในอวกาศเค้กวันเกิด 3 มิติ เพื่อบอกว่าครีมเป็นคนที่พิเศษมาก ๆ\n\nขอให้ปีนี้เต็มไปด้วยความสุข รอยยิ้ม และความทรงจำหวาน ๆ นะ ✨🍩🪐',
+            letterTheme: 'royal',
+            letterTitle: 'ถึงคุณพลอยคนเท่ ✨',
+            letterBody: 'ถึงคุณพลอย,\n\nจดหมายลับใบนี้ลอยข้ามกาลเวลามา HBD ย้อนหลังนะค้าบ ✉️✨\n\nขอให้ปีนี้ใจดีกับคุณพลอยเยอะๆ พบเจอแต่เรื่องราวดีๆ กินของอร่อยทุกวัน และมีความสุขกับทุกสิ่งที่ทำเลยน้า\n\nสุขสันต์วันเกิดย้อนหลังนะค้าบ! 🖤🎂✨',
             topperText: '',
             decorHearts: false,
-            decorStars: false,
+            decorStars: true,
             glazeColor: '',
             creamColor: '',
             plateColor: '',

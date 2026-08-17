@@ -550,9 +550,9 @@ function setupFormListeners() {
     // Share link generation
     if (btnGenerate) {
         btnGenerate.addEventListener('click', () => {
-            const recipientName = document.getElementById('recipient-name').value.trim() || 'ครีม';
-            const title = document.getElementById('wish-title').value.trim() || 'สุขสันต์วันเกิดครีม!';
-            const message = document.getElementById('wish-message').value.trim() || 'สุขสันต์วันเกิดนะครีม! 🎂';
+            const recipientName = document.getElementById('recipient-name').value.trim() || 'คุณพลอย';
+            const title = document.getElementById('wish-title').value.trim() || 'สุขสันต์วันเกิดย้อนหลังนะค้าบคุณพลอย! 🎂🖤';
+            const message = document.getElementById('wish-message').value.trim() || 'Happy Belated Birthday นะค้าบคุณพลอย! 🎂✨';
             const bdate = document.getElementById('birth-date')?.value || '2026-08-28';
             const theme = document.querySelector('.theme-btn.active').dataset.theme || 'neon-rose';
             const candles = parseInt(document.getElementById('candle-count').value) || 5;

@@ -78,12 +78,12 @@ export const translations = {
         wishDetails: "ข้อมูลคำอวยพร",
         decorCake: "ตกแต่งหน้าเค้ก",
         customColors: "ปรับแต่งสีสัน",
-        recipientLabel: "ชื่อผู้รับ (ครีม)",
-        recipientPlh: "เช่น ครีม",
+        recipientLabel: "ชื่อผู้รับ (คุณพลอย)",
+        recipientPlh: "เช่น คุณพลอย",
         titleLabel: "หัวข้ออวยพร",
-        titlePlh: "เช่น สุขสันต์วันเกิดครีม!",
+        titlePlh: "เช่น สุขสันต์วันเกิดคุณพลอย!",
         messageLabel: "ข้อความอวยพรส่วนตัว",
-        messagePlh: "เขียนข้อความหวาน ๆ และอบอุ่นเพื่อส่งมอบสิ่งดี ๆ ให้ครีม...",
+        messagePlh: "เขียนข้อความหวาน ๆ และอบอุ่นเพื่อส่งมอบสิ่งดี ๆ ให้คุณพลอย...",
         fontLabel: "ฟอนต์เขียนการ์ดอวยพร",
         photoLabel: "ลิงก์รูปถ่ายความทรงจำ (ถ้ามี)",
         photoPlh: "เช่น https://i.imgur.com/XYZ.jpg",
@@ -106,7 +106,7 @@ export const translations = {
         hudRelight: "จุดเทียนไขใหม่อีกครั้ง",
         tapToOpen: "แตะเพื่อเปิดจดหมาย",
         readyTitle: "ลิงก์การ์ดวันเกิด 3D ของคุณสร้างเสร็จแล้ว!",
-        readyHint: "คัดลอกลิงก์ด้านล่างเพื่อส่งต่อให้ครีม ลิงก์นี้เก็บข้อมูลการตกแต่งทั้งหมดไว้ในตัวมันเอง จึงเปิดได้ฟรีตลอดชีพโดยไม่ต้องใช้ฐานข้อมูล!",
+        readyHint: "คัดลอกลิงก์ด้านล่างเพื่อส่งต่อให้คุณพลอย ลิงก์นี้เก็บข้อมูลการตกแต่งทั้งหมดไว้ในตัวมันเอง จึงเปิดได้ฟรีตลอดชีพโดยไม่ต้องใช้ฐานข้อมูล!",
         readyCopyBtn: "คัดลอกลิงก์การ์ดอวยพร",
         dragRotate: "คลิกค้างแล้วลากเพื่อหมุนเค้กแบบ 3D",
         topperColor: "สีขอบและป้ายเค้ก",
@@ -118,9 +118,9 @@ export const translations = {
         envFlapColor: "สีฝาซองสามเหลี่ยม",
         envSealColor: "สีตราประทับขี้ผึ้งหลอม",
         letterOpenHint: "แตะตราประทับขี้ผึ้งหรือซองจดหมายเพื่อเปิดอ่าน ✉️",
-        signature: "— สร้างสรรค์ด้วยความรักเพื่อครีม",
+        signature: "— สร้างสรรค์ด้วยความรักเพื่อคุณพลอย",
         btnBackCreator: "สร้างการ์ดของคุณเอง",
-        appSubtitle: "ออกแบบการ์ดวันเกิด 3 มิติแบบโต้ตอบที่จะตราตรึงใจแด่ครีม",
+        appSubtitle: "ออกแบบการ์ดวันเกิด 3 มิติแบบโต้ตอบที่จะตราตรึงใจแด่คุณพลอย",
         themeLabel: "ธีม & จานสีทัศนศิลป์",
         musicLabel: "เพลงบรรเลงประกอบฉาก",
         letterEnabledTitle: "ซองจดหมายลับ 3 มิติ",
@@ -291,7 +291,7 @@ function translateSelectOptions(dict) {
     const topper = document.getElementById("topper-style");
     if (topper && topper.options.length >= 5) {
         topper.options[0].text = currentLang === "th" ? "Happy Birthday" : "Happy Birthday";
-        topper.options[1].text = currentLang === "th" ? "แด่ครีมที่รัก" : currentLang === "ja" ? "大好きなครีมへ" : "To My Dear Cream";
+        topper.options[1].text = currentLang === "th" ? "แด่คนโปรดคนพิเศษ" : currentLang === "ja" ? "大好きな人へ" : "To My Favorite";
         topper.options[2].text = currentLang === "th" ? "แด่ครูพี่เลี้ยงสุดเทพ" : currentLang === "ja" ? "最高の後輩より" : "Best Mentor Ever";
         topper.options[3].text = currentLang === "th" ? "แด่หัวหน้าสุดเท่" : currentLang === "ja" ? "頼れるボスへ" : "To the Coolest Boss";
         topper.options[4].text = currentLang === "th" ? "คุณคือที่หนึ่งเสมอ" : currentLang === "ja" ? "あなたがナンバーワン" : "You are Number One";

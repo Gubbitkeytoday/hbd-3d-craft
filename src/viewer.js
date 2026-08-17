@@ -380,16 +380,16 @@ let starMaterial = null;
 let starData = [];
 let photoFrameGroup = null;
 
-const blessings = [
+const defaultBlessings = [
     "Wishing you joy! 💖",
     "You are the best! ⭐",
     "Have a sweet year! 🎂",
-    "Sparkle on, ครีม! ✨",
+    "Sparkle on, คุณพลอย! ✨",
     "May your dreams come true! 🌈",
     "Cheers to another amazing year! 🥂",
     "You inspire us daily! 👑",
     "Health and happiness always! 🌸",
-    "สุขสันต์วันเกิดนะครีม! 🎉"
+    "สุขสันต์วันเกิดนะคุณพลอย! 🎉"
 ];
 
 export function initViewer(config) {
@@ -2787,7 +2787,7 @@ function setupFloatingPhotoFrame() {
         ctx.font = 'bold 20px "Outfit", sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('To My Favorite', 128, 205);
-        ctx.fillText('ครีม! 💖', 128, 230);
+        ctx.fillText(`${activeConfig?.recipientName || 'คุณพลอย'}! 💖`, 128, 230);
         
         const tex = new THREE.CanvasTexture(canvas);
         return tex;
@@ -3937,7 +3937,19 @@ function popGift(giftGroup, event) {
         playChimeEffect();
     }, 100);
     
-    const text = blessings[Math.floor(Math.random() * blessings.length)];
+    const rName = activeConfig?.recipientName || 'คุณพลอย';
+    const blessingsList = [
+        "Wishing you joy! 💖",
+        "You are the best! ⭐",
+        "Have a sweet year! 🎂",
+        `Sparkle on, ${rName}! ✨`,
+        "May your dreams come true! 🌈",
+        "Cheers to another amazing year! 🥂",
+        "You inspire us daily! 👑",
+        "Health and happiness always! 🌸",
+        `สุขสันต์วันเกิดนะ ${rName}! 🎉`
+    ];
+    const text = blessingsList[Math.floor(Math.random() * blessingsList.length)];
     logToCyberConsole('DECRYPTING GIFT DATA CAPSULE... BLESSING READ: ' + text.toUpperCase(), 'cyan');
 
     confetti({
