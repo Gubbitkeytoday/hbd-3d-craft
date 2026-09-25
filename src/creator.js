@@ -10,6 +10,7 @@
 import { applyDOMTranslations, getCurrentLang, saveLanguageSetting, translations } from './i18n.js';
 import { mountPreview, updatePreview, destroyPreview, hasWebGL, noteInteraction } from './creator-scene.js';
 import { buildShareUrl } from './card-link.js';
+import { buildTemplates } from './card-templates.js';
 import { loadCardFont } from './fonts.js';
 
 // Looks: one tap sets the whole cake. Keys are form control names.
@@ -253,25 +254,20 @@ function isBelated(bdate) {
     return days >= 1 && days <= BELATED_WINDOW_DAYS;
 }
 
-function templates() {
-    const name = nameValue();
-    const sender = els.f.sender.value.trim();
-    const relation = radioValue('relation') || 'friend';
-    const belated = isBelated(els.f.bdate.value);
-    const work = relation === 'colleague';
-    const rel = { friend: 'Friend', partner: 'Partner', family: 'Family', colleague: 'Work' }[relation] || 'Friend';
-
-    const titleKey = work ? (belated ? 'tplTitleWorkBelated' : 'tplTitleWork') : (belated ? 'tplTitleBelated' : 'tplTitle');
-    const prefix = belated ? t(work ? 'tplMsgBelatedWork' : 'tplMsgBelated') : '';
-    let letterBody = t(`tplLetter${rel}`, { name });
-    if (sender) letterBody += `\n\n${t(work ? 'tplLetterSignWork' : 'tplLetterSign', { sender })}`;
+/** Inputs the shared template builder needs; also what a link carries instead of the text. */
+function templateParams() {
     return {
-        title: t(titleKey, { name }),
-        message: prefix + t(`tplMsg${rel}`),
-        letterTitle: t('tplLetterTitle', { name }),
-        letterBody,
-        belated
+        name: nameValue(),
+        sender: els.f.sender.value.trim(),
+        relation: radioValue('relation') || 'friend',
+        belated: isBelated(els.f.bdate.value),
+        lang: getCurrentLang()
     };
+}
+
+function templates() {
+    const params = templateParams();
+    return { ...buildTemplates(params), belated: params.belated };
 }
 
 /** Re-renders every templated field the sender has not edited. */
@@ -691,7 +687,11 @@ function shareText() {
 }
 
 async function makeLink() {
-    return buildShareUrl(readConfig());
+    // Untouched fields travel as a "template" flag and are rebuilt by the
+    // receiver from the same inputs, which is most of the link's length.
+    const { relation, belated, lang } = templateParams();
+    const templated = TEMPLATED.filter((key) => !dirty[key]);
+    return buildShareUrl({ ...readConfig(), relation, belated, lang, templated });
 }
 
 async function openShareSheet() {

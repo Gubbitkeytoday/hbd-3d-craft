@@ -34,7 +34,7 @@ class App {
         // Clean up previous states to avoid memory/Three.js render leaks
         this.cleanupCurrentView();
 
-        if (hash.startsWith('#/view/')) {
+        if (hash.startsWith('#/view/') || hash.startsWith('#/c/')) {
             // Receiver View: decode the link while the viewer chunk downloads.
             this.creatorView.classList.remove('active-view');
             this.receiverView.classList.add('active-view');
@@ -62,7 +62,7 @@ class App {
     }
 
     async mountReceiverView(decoded, token) {
-        // Links: #/view/?z=1.<deflate> (current) or #/view/<name>?d=<base64>
+        // Links: #/c/<compact> (current), #/view/?z=1.<deflate> or #/view/<name>?d=<base64>
         // (legacy). Both are decoded, then forced through the sanitizer.
         const { config, defaults } = await decoded;
         if (token !== this.routeToken) return;
