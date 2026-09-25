@@ -1101,3 +1101,44 @@ html[lang="ja"] .rcv-title { word-break: auto-phrase; }
 /* The reveal frame holds the letters, the name and the table: the word
    sits over the empty ceiling instead of on the foil. */
 .rcv[data-backdrop="party"] .rcv-surprise { top: 21%; }
+
+/* ---------- Dark beat: vignette + film grain (CSS only, no render pass) ----------
+   Night-for-night look while the room is dark (review-dark.md P1b). Both
+   fade out in 250 ms at the switch cut so the reveal is clean and bright. */
+.rcv[data-backdrop="party"] .rcv-stage::before,
+.rcv[data-backdrop="party"] .rcv-stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.rcv[data-backdrop="party"] .rcv-stage::before {
+    background: radial-gradient(ellipse 75% 70% at 55% 48%, transparent 40%, rgba(4, 6, 12, 0.55) 100%);
+}
+.rcv[data-backdrop="party"] .rcv-stage::after {
+    background-image: var(--rcv-grain, none);
+    background-size: 128px 128px;
+    inset: -128px;
+    animation: rcvGrain 1s steps(12) infinite;
+    animation-play-state: paused;
+}
+.rcv.is-dark[data-backdrop="party"] .rcv-stage::before { opacity: 1; }
+.rcv.is-dark[data-backdrop="party"] .rcv-stage::after { opacity: 0.04; animation-play-state: running; }
+@media (min-width: 900px) and (hover: hover) {
+    /* Desktop: soft-light grain reads as film; phones keep plain opacity
+       (blend-mode compositing costs frames on low-end Android). */
+    .rcv[data-backdrop="party"] .rcv-stage::after { mix-blend-mode: soft-light; }
+    .rcv.is-dark[data-backdrop="party"] .rcv-stage::after { opacity: 0.16; }
+}
+@keyframes rcvGrain {
+    0% { transform: translate(0, 0); } 17% { transform: translate(-37px, 21px); }
+    33% { transform: translate(52px, -44px); } 50% { transform: translate(-18px, 63px); }
+    67% { transform: translate(71px, 12px); } 83% { transform: translate(-60px, -29px); }
+    100% { transform: translate(0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    /* Static grain: texture without flicker. */
+    .rcv[data-backdrop="party"] .rcv-stage::after { animation: none !important; }
+}

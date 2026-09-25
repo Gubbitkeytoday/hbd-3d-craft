@@ -67,6 +67,18 @@ const CAKE_IN_MS = 4400;
 const SONG_DRIFT_DEG = 8;      // the camera never stands still through the song
 const ROOM_TIMEOUT_MS = 20000; // then the card falls back to the classic stage
 
+// Eye adaptation in the dark (review-dark.md P1a): we come in from the bright
+// gate card, so the room starts ~-1.7 EV and the eyes open up over ~2 s;
+// at the 5 s nudge they are "fully adapted" (+0.4 EV). Bright cues (city,
+// switch) are compensated so they read from the first frame.
+const ADAPT_START = 0.3;
+const ADAPT_MS = 2200;
+const ADAPT_FULL = 1.35;
+const ADAPT_FULL_MS = 1500;
+const ENTRY_HFOV_DEG = 64;     // landscape doorway lens, chosen by horizontal fov
+const ENTRY_YAW_DEG = 3;       // a touch toward the window, away from the black TV
+const CITY_DARK_BOOST = 1.2;   // the window as the key light of the dark room
+
 // Fallback reveal framing (room.shots.reveal wins when the room provides
 // one): from the doorway, aim between the foil letters (x -0.3, y ~1.85,
 // z -2.36 m) and the cake (y ~0.9, z -0.8 m), so letters, name, table and
@@ -165,6 +177,8 @@ const lens = { v: 45 };        // camera fov, tweened between shots (projection 
 const roomLight = { v: 0 };    // 0 dark .. 1 party lights
 const roomDim = { v: 0 };      // 0 lit .. 1 "cake is coming" dim
 const exposureKick = { v: 1 }; // auto-exposure overshoot after the switch
+const adapt = { v: 1 };        // dark adaptation multiplier (1 outside the dark beat)
+let adaptCues = null;          // fallback highlight compensation (see applyAdaptCues)
 let appliedRoom = null;
 let cakeMaterials = [];        // { mat, env } for dimming the environment on the cake
 let darkLowerThird = false;
@@ -294,7 +308,7 @@ export function destroyViewer() {
     prepToken++;
     phase = 'idle';
     clearTimers();
-    anime.remove([dim, glow, spin, shift, roomLight, roomDim, exposureKick, lens]);
+    anime.remove([dim, glow, spin, shift, roomLight, roomDim, exposureKick, lens, adapt]);
     if (camera) anime.remove(camera.position);
     if (controls) anime.remove(controls.target);
     candles.forEach((c) => { anime.remove(c.flame.scale); anime.remove(c.flame.rotation); });
@@ -339,12 +353,31 @@ function applyBackdropDom() {
     const rv = $('receiver-view');
     if (!rv) return;
     rv.dataset.backdrop = partyMode ? 'party' : backdrop.name;
+    if (partyMode && !rv.style.getPropertyValue('--rcv-grain')) rv.style.setProperty('--rcv-grain', `url("${grainTile()}")`);
     const set = (k, v) => (v ? rv.style.setProperty(k, v) : rv.style.removeProperty(k));
     set('--rcv-backdrop', backdropCss(backdrop.name));
     set('--rcv-bd-ink', backdrop.ink);
     set('--rcv-bd-soft', backdrop.soft);
     set('--rcv-bd-accent', backdrop.accent);
     set('--rcv-bd-mid', backdrop.mid);
+}
+
+let grainUrl = '';
+/** A 128 px monochrome noise tile for the dark-phase film grain (made once, ~10 KB). */
+function grainTile() {
+    if (grainUrl) return grainUrl;
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(128, 128);
+    for (let i = 0; i < img.data.length; i += 4) {
+        const v = (Math.random() * 255) | 0;
+        img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+        img.data[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    grainUrl = c.toDataURL('image/png');
+    return grainUrl;
 }
 
 function disposeScene() {
@@ -369,7 +402,7 @@ function disposeScene() {
     hitMeshes = [];
     embers = smoke = sparkles = stars = floorGlow = balloons = gifts = null;
     appliedShift = null;
-    room = roomShots = appliedRoom = null;
+    room = roomShots = appliedRoom = adaptCues = null;
     cakeMaterials = [];
 
     const teardown = () => {
@@ -794,6 +827,44 @@ async function prepareScene(token) {
 
 class PrepCancelled extends Error {}
 
+/**
+ * Keeps the motivated highlights readable while the eyes adapt: the city
+ * window x adapt^-0.5, the switch ring and halo x adapt^-0.7 (review-dark
+ * P1a). Uses room.setAdaptation() when the room provides it; otherwise
+ * scales the two known materials after room.update() (colours only).
+ */
+function applyAdaptCues() {
+    const dark = phase === 'dark';
+    const a = dark ? Math.min(1, adapt.v) : 1;
+    if (room.setAdaptation) {
+        room.setAdaptation(a);
+        return;
+    }
+    if (!adaptCues) {
+        const city = room.group.getObjectByName('city');
+        const sw = room.group.getObjectByName('light-switch');
+        const halo = sw?.getObjectByName('switch-halo');
+        const led = sw?.children.find((c) => c.geometry?.type === 'RingGeometry');
+        adaptCues = {
+            city: city?.material?.color ? { mat: city.material, base: city.material.color.clone() } : null,
+            halo: halo?.material?.color ? { mat: halo.material, base: halo.material.color.clone() } : null,
+            led: led?.material?.color ? led.material : null,
+            last: -1
+        };
+    }
+    // The window is the one motivated key light of the dark room: a little
+    // hotter while it is dark, back to the bake at the flip.
+    const key = dark ? a : 2;
+    if (key === adaptCues.last) return;
+    adaptCues.last = key;
+    const kCity = dark ? CITY_DARK_BOOST * Math.pow(a, -0.5) : 1;
+    const kSwitch = Math.pow(a, -0.7);
+    if (adaptCues.city) adaptCues.city.mat.color.copy(adaptCues.city.base).multiplyScalar(kCity);
+    if (adaptCues.halo) adaptCues.halo.mat.color.copy(adaptCues.halo.base).multiplyScalar(kSwitch);
+    // The room rewrites the LED colour every update(), so this scales its value.
+    if (adaptCues.led) adaptCues.led.color.multiplyScalar(kSwitch);
+}
+
 function warmEverything() {
     const culled = [];
     scene.traverse((obj) => {
@@ -857,6 +928,7 @@ async function buildRoom(alive, mobile, onProgress) {
         throw new PrepCancelled();
     }
     room = built;
+    adaptCues = null;
     scene.remove(cakeGroup);
     if (room.seatCake) {
         room.seatCake(cakeGroup);
@@ -1515,6 +1587,22 @@ function fitRoomShots() {
         const f = shot.fov;
         if (typeof f === 'number') fov = f;
         else if (f && typeof f === 'object') fov = (portrait ? f.portrait : f.landscape) ?? fov;
+        if (name === 'entry' && !portrait) {
+            // A fixed vfov at 2:1 was ~80 deg across and pulled in the table,
+            // the cake and the black TV. The doorway frames window + switch.
+            const v = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(ENTRY_HFOV_DEG / 2)) / aspect);
+            fov = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(v), 30, 50);
+        }
+        if (name === 'entry' && !portrait) {
+            // Tilt down a little: window, balloon silhouettes and the switch
+            // fill the frame; the foil letters leave through the top edge.
+            const dir = target.clone().sub(pos);
+            dir.applyAxisAngle(AXIS_Y, THREE.MathUtils.degToRad(ENTRY_YAW_DEG));
+            const flat = Math.hypot(dir.x, dir.z);
+            const pitch = Math.atan2(dir.y, flat) - THREE.MathUtils.degToRad(4);
+            dir.y = Math.tan(pitch) * flat;
+            target.copy(pos).add(dir);
+        }
         if (portrait && name === 'cake') {
             // A phone cannot hold the 2.4 m foil row from the table (it
             // would need a ~76 deg lens), so it was cut to "BIRTHDA". Step
@@ -1751,7 +1839,10 @@ function loop(now) {
     sparkles?.update(dt);
     updateDecor(dt);
     room?.update(dt, elapsed);
-    if (room) applyLens();
+    if (room) {
+        applyLens();
+        applyAdaptCues();
+    }
     if (phase === 'dark') placeSwitchMarker();
     if (phase === 'song') updateLyrics();
     updateMic(dt);
@@ -1784,11 +1875,15 @@ function applyLights(dt) {
             const envK = (0.08 + 0.92 * L) * (1 - 0.55 * D);
             for (const { mat, env } of cakeMaterials) mat.envMapIntensity = env * envK;
         }
-        roomK = (0.1 + 0.9 * L) * (1 - 0.6 * D);
+        // No unmotivated light on the cake in the dark: the party lights reveal it.
+        roomK = L * (1 - 0.6 * D);
         // Dark-adapted eyes: exposure sits higher in the dark (the room's
         // suggestion), and the switch then overshoots before it settles.
-        const ex = room.exposure || { dark: 1.25, lit: 1 };
-        kick = exposureKick.v * THREE.MathUtils.lerp(ex.dark, ex.lit, L);
+        const ex = room.exposure || { dark: 1.1, lit: 1 };
+        // Portrait frames are ~15% bright window, which lifted the whole dark
+        // frame and flattened the reveal on phones; expose the dark lower there.
+        const darkEx = window.innerWidth < window.innerHeight ? ex.dark * 0.8 : ex.dark;
+        kick = exposureKick.v * THREE.MathUtils.lerp(darkEx, ex.lit, L) * adapt.v;
         const pass = bloomComposer?.bloom;
         if (pass) pass.strength = lightBase.bloom * (1 + (exposureKick.v - 1) * 0.9);
     }
@@ -1975,6 +2070,10 @@ function startDark({ fromReplay = false } = {}) {
     anime.remove([roomLight, roomDim, exposureKick, dim, glow]);
     setLens(roomShots.entry.fov);
     warmSurpriseText();
+    // Eyes adjusting: from the bright gate card into the dark room.
+    anime.remove(adapt);
+    adapt.v = reduceMotion ? 0.8 : ADAPT_START;
+    anime({ targets: adapt, v: 1, duration: reduceMotion ? 600 : ADAPT_MS, easing: 'easeOutCubic' });
     roomLight.v = 0;
     roomDim.v = 0;
     exposureKick.v = 1;
@@ -2032,6 +2131,9 @@ function escalateDark() {
     setDarkHint('rcvDarkHint2');
     $('rcv-switch')?.classList.add('is-urgent');
     darkLowerThird = true;
+    // "Eyes fully adapted": +0.4 EV, which also rescues dim phone screens.
+    anime.remove(adapt);
+    anime({ targets: adapt, v: ADAPT_FULL, duration: reduceMotion ? 600 : ADAPT_FULL_MS, easing: 'easeInOutSine' });
     if (reduceMotion || !room.switchWorld) return;
     const pos = camera.position.clone();
     const look = controls.target.clone().sub(pos);
@@ -2113,7 +2215,8 @@ function lightsOn() {
     const rv = $('receiver-view');
     rv?.classList.remove('is-dark');
     // Hard cut, like a real switch; the "camera" then adapts.
-    anime.remove([roomLight, exposureKick]);
+    anime.remove([roomLight, exposureKick, adapt]);
+    adapt.v = 1;
     roomLight.v = 1;
     exposureKick.v = reduceMotion ? 1.05 : 1.35;
     anime({ targets: exposureKick, v: 1, duration: reduceMotion ? 1200 : 700, easing: 'easeOutCubic' });

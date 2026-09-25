@@ -30,7 +30,7 @@ export function createBakeUniforms() {
         uPartyWB: { value: new THREE.Color(0.93, 1.0, 1.12) },
         // Night is blue-ish: the dark bake (city glow + a warm corridor) is
         // cooled so the flip goes cool -> warm, not warm -> warmer.
-        uDarkTint: { value: new THREE.Color(0.78, 0.86, 1.08) },
+        uDarkTint: { value: new THREE.Color(0.55, 0.72, 1.3) },
         uEnvK: { value: 0.1 },
         uCandlePos: { value: new THREE.Vector3() },
         uCandleCol: { value: new THREE.Color(0, 0, 0) },
@@ -43,6 +43,7 @@ uniform sampler2D uLmParty;
 uniform vec2 uLmK;
 uniform vec3 uPartyWB;
 uniform vec3 uDarkTint;
+uniform float uDarkK;
 uniform float uEnvK;
 uniform vec3 uCandlePos;
 uniform vec3 uCandleCol;
@@ -56,7 +57,7 @@ const FRAGMENT_BAKE = /* glsl */`
 {
     vec3 lmD = texture2D( lightMap, vLightMapUv ).rgb;
     vec3 lmP = texture2D( uLmParty, vLightMapUv ).rgb;
-    irradiance = lmD * lmD * uLmK.x * uDarkTint + lmP * lmP * uLmK.y * uPartyWB;
+    irradiance = lmD * lmD * uLmK.x * uDarkK * uDarkTint + lmP * lmP * uLmK.y * uPartyWB;
     vec3 toC = uCandlePos - geometryPosition;
     float d2 = dot( toC, toC );
     float nl = dot( geometryNormal, toC * inversesqrt( max( d2, 1e-4 ) ) ) * 0.7 + 0.3;
@@ -74,10 +75,13 @@ const FRAGMENT_BAKE = /* glsl */`
  * Turns a (glTF) MeshStandardMaterial into a baked-room material. Its
  * lightMap must already hold the DARK map on uv1 (TEXCOORD_1).
  */
-export function makeBaked(material, uniforms) {
+export function makeBaked(material, uniforms, { darkK = 1 } = {}) {
     material.lightMapIntensity = 0; // the stock add is replaced below
+    // Per-material share of the DARK bake (a uniform: same program for all).
+    const own = { uDarkK: { value: darkK } };
+    material.userData.bakeUniforms = own;
     material.onBeforeCompile = (shader) => {
-        Object.assign(shader.uniforms, uniforms);
+        Object.assign(shader.uniforms, uniforms, own);
         shader.fragmentShader = shader.fragmentShader
             .replace('#include <common>', `#include <common>\n${FRAGMENT_PARS}`)
             .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${FRAGMENT_BAKE}`);

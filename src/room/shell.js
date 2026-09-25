@@ -41,7 +41,7 @@ export function createCity(url) {
         tex.needsUpdate = true;
     };
     img.src = url;
-    const mat = new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(1.5, 1.5, 1.55), fog: false, side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(2.1, 2.1, 2.17), fog: false, side: THREE.DoubleSide });
     const geo = cityArc(CITY);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name = 'city';

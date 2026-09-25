@@ -154,8 +154,13 @@ export async function loadBakedRoom({ quality, uniforms, signal, onProgress }) {
             // Glossy parquet mirrored the pink bunting/balloons as blotches:
             // keep its reflection a sheen, not a mirror.
             if (/floor|parquet/.test(name)) mat.envMapIntensity = 0.45;
+            // The greige feature wall behind the letters: dark enough that the
+            // unlit foil does not silhouette, lifted a touch for the lit room.
+            if (name === 'wall_accent') mat.color.setScalar(1.2);
             mat.lightMap = dark;
-            makeBaked(mat, uniforms);
+            // The sheers (10 cm from the bake's window light) and the ceiling
+            // over the glass baked brighter than a real room reads at night.
+            makeBaked(mat, uniforms, { darkK: /curtain/.test(name) ? 0.15 : /ceiling/.test(name) ? 0.45 : 1 });
         }
         bakedMaterials.add(mat);
     });

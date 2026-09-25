@@ -65,7 +65,7 @@ export function createFairyLights(strings, { wireMaterial, color = 0xffc98a, ran
     mesh.frustumCulled = false;
     bulbs.forEach((b, i) => mesh.setMatrixAt(i, _m.compose(b.p, _q.identity(), _s.setScalar(1))));
     const base = new THREE.Color(color);
-    const off = new THREE.Color(0x2a1d12);
+    const off = new THREE.Color(0x0c0a0a); // unlit glass, no warm dots
     let lit = 0;
     let dim = 0;
 
@@ -166,6 +166,7 @@ export function createBunting(runs, { palette, stringMaterial }) {
     update(0, 0);
     return {
         group: new THREE.Group().add(mesh, string),
+        materials: [mat],
         update,
         dispose() { flagGeo.dispose(); mat.dispose(); tex.dispose(); string.geometry.dispose(); }
     };
@@ -263,9 +264,11 @@ export function createNameSign(name, { color = 0xffb3cf, height = 0.4, maxWidth 
     group.add(glow, board, caps, tube);
     return {
         mesh: group, width: w, height: h, materials: [boardMat, capMat],
+        /** k = 0: off (tube barely visible, no glow); ~3: full neon. */
         setLevel(k) {
-            tubeMat.color.copy(base).multiplyScalar(0.1 + k);
-            tubeMat.opacity = Math.min(1, 0.3 + k);
+            k = Math.max(0, k);
+            tubeMat.color.copy(base).multiplyScalar(k > 0.001 ? 0.02 + k : 0.02);
+            tubeMat.opacity = Math.min(1, 0.25 + k);
             glowMat.color.copy(base).multiplyScalar(0.35 * Math.min(k, 3) / 3);
         },
         dispose() {

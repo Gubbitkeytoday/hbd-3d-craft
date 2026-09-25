@@ -4,7 +4,8 @@
  * state, because three's program key counts lights per type: switching the
  * room on only animates intensity/colour, never visibility or castShadow.
  *
- *   candle  PointLight  warm, over the cake; the only real light in the dark
+ *   candle  PointLight  warm, over the cake; off until setCandles(level > 0)
+ *           (no candle burns in the dark room: the window is the only source)
  *   pendant SpotLight   key over the table (shadow on tier 2 only)
  *   fill    HemisphereLight  city-blue in the dark, warm ceiling/floor bounce lit
  *
@@ -20,7 +21,7 @@ const S2 = ROOM_SCALE * ROOM_SCALE;
 
 /** Rig values per state (metre-scale candela). Lerped by setLights/setDim. */
 const DARK = {
-    candle: 0.6, pendant: 0, hemiSky: 0x33487a, hemiGround: 0x1a1216, hemi: 0.45
+    candle: 0, pendant: 0, hemiSky: 0x33487a, hemiGround: 0x0a0a10, hemi: 0.12
 };
 const LIT = {
     candle: 0.35, pendant: 15, hemiSky: 0xffe2c2, hemiGround: 0x6b4a36, hemi: 1.05
@@ -66,7 +67,7 @@ export function createRig({ quality, shadows }) {
 
     let lit = 0;
     let dim = 0;
-    let candleLevel = 1;
+    let candleLevel = 0;
     let flicker = 1;
 
     function apply() {

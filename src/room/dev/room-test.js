@@ -74,6 +74,10 @@ function setState(name) {
     const [l, d] = states[name] || states.dark;
     room.setLights(l);
     room.setDim(d);
+    // As in the receiver: no candle burns until the dim beat (lit here = after it).
+    const candlesOn = name === 'dim' || name === 'lit';
+    room.setCandles(candlesOn ? 1 : 0);
+    candles.candles.forEach((c) => { c.flame.visible = candlesOn; });
     renderer.toneMappingExposure = THREE.MathUtils.lerp(room.exposure.dark, room.exposure.lit, l) * 1.05;
 }
 setState(qs.get('state') || 'dark');

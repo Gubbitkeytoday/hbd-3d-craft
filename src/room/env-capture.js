@@ -61,7 +61,7 @@ async function warmUploads(renderer, scene, camera, mark) {
     }
 }
 
-export async function captureRoomEnvironment(renderer, scene, position, { size = 256, near = 0.5, far = 200, mark = () => {} } = {}) {
+export async function captureRoomEnvironment(renderer, scene, position, { size = 256, near = 0.5, far = 200, mark = () => {}, warm = true } = {}) {
     const rt = new THREE.WebGLCubeRenderTarget(size, { type: THREE.HalfFloatType, generateMipmaps: false });
     const cam = new THREE.CubeCamera(near, far, rt);
     cam.position.copy(position);
@@ -78,7 +78,7 @@ export async function captureRoomEnvironment(renderer, scene, position, { size =
         cam.updateCoordinateSystem();
     }
     cam.updateMatrixWorld(true);
-    await warmUploads(renderer, scene, cam.children[0], mark);
+    if (warm) await warmUploads(renderer, scene, cam.children[0], mark);
     const prevTarget = renderer.getRenderTarget();
     const prevXr = renderer.xr.enabled;
     renderer.xr.enabled = false;

@@ -20,7 +20,8 @@
  *
  * Extras beyond the brief contract, all optional for the caller:
  *   room.lights { candle, pendant, hemi }   the constant rig (world space)
- *   room.setCandles(level)                  0..1 flames still burning
+ *   room.setCandles(level)                  0..1 flames burning (default 0 = off)
+ *   room.setCandleLight(on)                 shorthand for setCandles(on ? 1 : 0)
  *   room.trackEnvMaterials(root, base)      scale root's envMapIntensity with the lights
  *   room.envMap                             PMREM capture of the lit room (also scene.environment)
  *   room.exposure { dark, lit }             suggested toneMappingExposure per state
@@ -153,7 +154,9 @@ function paintPhotoPlaceholder(colors, name, sender) {
 }
 
 /** Dark-state lift of the DARK lightmap (see applyState). */
-const DARK_GAIN = 1.85;
+const DARK_GAIN = 1.15;
+/** Party-bake exposure match (the greige feature wall darkened the lit frame). */
+const PARTY_GAIN = 1.35;
 
 /* ------------------------------------------------------------------ */
 
@@ -262,6 +265,7 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     } catch { /* falls back to scene.environment */ }
     abortIfNeeded();
     const foilMat = createFoilMaterial(config.theme, studioEnv);
+    const foilBase = foilMat.color.clone();
     disposers.push(() => foilMat.dispose());
     const letterRows = [];
     for (const [text, y] of [['HAPPY', LETTERS.row1Y], ['BIRTHDAY', LETTERS.row2Y]]) {
@@ -292,6 +296,8 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         { a: new THREE.Vector3(-X + 0.03, 2.48, -Z + 0.05), b: new THREE.Vector3(-X + 0.03, 2.48, 1.2), sag: 0.24 }
     ], { palette: pal.paper, stringMaterial: wireMat });
     room.add(bunting.group);
+    // Its paper reflected the lit capture at full strength in the dark (bug).
+    bunting.materials.forEach((m) => trackEnv(m, 0.8));
     disposers.push(() => bunting.dispose());
 
     await step(0.3, 'bunting');
@@ -466,6 +472,9 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     }
 
     // --- State -----------------------------------------------------------
+    let envMap = null;
+    let envDark = null;
+    const prevEnvironment = scene.environment;
     let lit = 0;
     let dim = 0;
     const emissive = baked ? baked.emissive : [];
@@ -477,33 +486,52 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         // DARK_GAIN: the physically dark bake is "eye-adapted" so the dark
         // room stays readable (brief: >= ~12 % frame luma) without exposure
         // tricks that would also blow out the candles.
-        bake.uLmK.value.set((bake.emaxDark ?? 1) * Math.PI * DARK_GAIN * (1 - 0.5 * lit), (bake.emaxParty ?? 1) * Math.PI * party);
-        const envK = THREE.MathUtils.lerp(0.07, 1, lit) * (1 - 0.6 * dim * lit);
+        bake.uLmK.value.set((bake.emaxDark ?? 1) * Math.PI * DARK_GAIN * (1 - 0.5 * lit), (bake.emaxParty ?? 1) * Math.PI * PARTY_GAIN * party);
+        // Dark: the dark capture at 0.6 (city reflections). Lit: the lit
+        // capture, ramping in with the lights.
+        const useDark = lit < 0.001 && envDark;
+        const env = useDark ? envDark : envMap;
+        if (env && (scene.environment === envMap || scene.environment === envDark || scene.environment === prevEnvironment)) {
+            if (scene.environment !== env) scene.environment = env;
+        }
+        const envK = useDark ? 0.6 : THREE.MathUtils.lerp(0.07, 1, lit) * (1 - 0.6 * dim * lit);
         bake.uEnvK.value = envK;
         envTracked.forEach((base, mat) => { mat.envMapIntensity = base * envK; });
-        // Foil mirrors a bright studio: keep it nearly black in the dark.
-        foilMat.envMapIntensity = 2 * THREE.MathUtils.lerp(0.025, 1, lit) * (1 - 0.55 * dim * lit);
+        // Foil mirrors a bright studio: in the dark it is a dim film at the
+        // wall's tone (pure black would silhouette), no glints. clearcoat
+        // stays > 0 so the program (USE_CLEARCOAT) never changes.
+        foilMat.envMapIntensity = 2 * lit * lit * (1 - 0.55 * dim * lit);
+        foilMat.color.copy(foilBase).multiplyScalar(0.1 + 0.9 * lit);
+        foilMat.clearcoat = 0.001 + 0.999 * lit;
         emissive.forEach((m) => { m.emissiveIntensity = m.userData.emitBase * party; });
         fairy.setLit(lit);
         fairy.setDim(dim);
-        sign?.setLevel((0.12 + 2.8 * lit) * (1 - 0.25 * dim));
-        latexUniforms.uRimK.value = 0.12 + 0.3 * lit;
+        // Off (unlit acrylic, no glow) until the switch; the tube powers with the room.
+        sign?.setLevel(2.92 * lit * (1 - 0.25 * dim));
+        latexUniforms.uRimK.value = 0.42 * lit;
         lightSwitch.setOn(lit > 0.02);
     }
 
-    // --- Environment capture (lit room) --------------------------------------
-    let envMap = null;
-    const prevEnvironment = scene.environment;
+    // --- Environment captures ---------------------------------------------------
+    // Two PMREMs of this room from above the table, same size: the lit party
+    // and the dark room (the city window is its only light). In the dark the
+    // TV, parquet, glass and latex become dark mirrors of the city; at the
+    // switch the texture swaps. Same size = same program key: three re-runs
+    // getProgram for each material once (a cache hit, no compile), verified
+    // with renderer.info.programs before/after.
+    const capturePos = new THREE.Vector3(TABLE.x * S, 1.25 * S, (TABLE.z + 0.4) * S);
+    const captureOpts = { size: q >= 2 ? 256 : 128, near: 0.05 * S, far: 12 * S, mark };
     try {
         lit = 1;
         applyState();
         await step(0.86);
         mark('env:start');
-        envMap = await captureRoomEnvironment(renderer, scene,
-            new THREE.Vector3(TABLE.x * S, 1.25 * S, (TABLE.z + 0.4) * S),
-            { size: q >= 2 ? 256 : 128, near: 0.05 * S, far: 12 * S, mark });
+        envMap = await captureRoomEnvironment(renderer, scene, capturePos, captureOpts);
+        lit = 0;
+        applyState();
+        envDark = await captureRoomEnvironment(renderer, scene, capturePos, { ...captureOpts, warm: false });
+        envDark.name = 'party-room-env-dark';
         mark('env:done');
-        scene.environment = envMap;
     } catch (err) {
         if (import.meta.env.DEV) console.warn('[party-room] env capture failed', err);
     }
@@ -604,13 +632,17 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         },
         dispose() {
             if (disposed) return;
-            if (scene.environment === envMap) scene.environment = prevEnvironment;
+            if (scene.environment === envMap || scene.environment === envDark) scene.environment = prevEnvironment;
             envMap?.dispose();
+            envDark?.dispose();
             disposeAll();
         },
         // extras
         lights: { candle: rig.candle, pendant: rig.pendant, hemi: rig.hemi },
+        // Candle light (room rig + the analytic glow on the baked walls). Off
+        // by default: call setCandles(n / total) as candles ignite / go out.
         setCandles: (level) => rig.setCandles(THREE.MathUtils.clamp(level, 0, 1)),
+        setCandleLight: (on) => rig.setCandles(on ? 1 : 0),
         trackEnvMaterials(root, base = 1) {
             root.traverse((o) => {
                 const mats = Array.isArray(o.material) ? o.material : [o.material];
@@ -621,7 +653,7 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         seatCake,
         envMap,
         baked: !!baked,
-        exposure: { dark: 1.25, lit: 1.0 },
+        exposure: { dark: 1.1, lit: 1.0 },
         timeline,
         get lit() { return lit; },
         get dim() { return dim; }

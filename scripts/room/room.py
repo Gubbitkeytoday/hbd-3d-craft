@@ -253,11 +253,11 @@ def smooth(ob, angle=40):
 # Build
 # --------------------------------------------------------------------------
 
-def tinted_plaster():
-    """Poly Haven plaster, re-tinted to a warm cream (Thai condo paint)."""
+def tinted_plaster(name='plaster_warm', base=(0.80, 0.785, 0.75)):
+    """Poly Haven plaster, re-tinted (linear base colour +- its own variation)."""
     import numpy as np
     src = os.path.join(CACHE, 'plastered_wall_04', 'plastered_wall_04_diff_1k.jpg')
-    out = os.path.join(CACHE, 'plaster_warm.png')
+    out = os.path.join(CACHE, f'{name}.png')
     if os.path.exists(out):
         return out
     img = bpy.data.images.load(src)
@@ -265,7 +265,7 @@ def tinted_plaster():
     lum = px[:, :3] @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
     mean = lum.mean()
     # Keep the plaster's variation (+-), put it on a warm off-white base.
-    base = np.array([0.80, 0.785, 0.75], dtype=np.float32)  # linear, light neutral-warm
+    base = np.array(base, dtype=np.float32)
     var = (lum - mean)[:, None] * 0.55
     px[:, :3] = np.clip(base + var, 0, 1)
     img.pixels[:] = px.ravel()
@@ -377,6 +377,10 @@ def stage_build():
     pl = os.path.join(CACHE, 'plastered_wall_04')
     wall = textured_mat('wall_plaster', tinted_plaster(), os.path.join(pl, 'plastered_wall_04_nor_gl_1k.jpg'), None, normal_strength=0.35)
     wall.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.92
+    # Feature wall behind the foil letters (greige): the letters pop when
+    # lit and do not read as silhouettes against a pale wall in the dark.
+    accent = textured_mat('wall_accent', tinted_plaster('plaster_accent', (0.47, 0.445, 0.42)), os.path.join(pl, 'plastered_wall_04_nor_gl_1k.jpg'), None, normal_strength=0.35)
+    accent.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.9
     ceiling = new_mat('ceiling_paint', (0.88, 0.87, 0.84), 0.95)
     trim = new_mat('trim_paint', (0.86, 0.84, 0.8), 0.45)
     frame_m = new_mat('window_frame', (0.05, 0.05, 0.055), 0.35, 0.8)
@@ -399,7 +403,7 @@ def stage_build():
     wx0, wx1, wy0, wy1 = WIN['x0'], WIN['x1'], WIN['y0'], WIN['y1']
     def bq(name, x0, x1, y0, y1, z=-Z, mat=None):
         quad(name, (x0, y0, z), (x1, y0, z), (x1, y1, z), (x0, y1, z), mat or wall, EXP, tile=3.2)
-    bq('wall_back_a', -X, wx0, 0, H)
+    bq('wall_back_a', -X, wx0, 0, H, mat=accent)
     bq('wall_back_b', wx1, X, 0, H)
     bq('wall_back_top', wx0, wx1, wy1, H)
     bq('wall_back_low', wx0, wx1, 0, wy0)
@@ -659,12 +663,27 @@ def stage_build():
     bm = bmesh.new(); bm.from_mesh(hb.data); bmesh.ops.reverse_faces(bm, faces=bm.faces); bm.to_mesh(hb.data); bm.free()
     # Corridor spill: a door-sized area light in the opening, facing in
     # (direct light bakes clean; bounced light from a lit hallway was noise).
-    cor = light('dark_corridor', 'AREA', B((dx0 + dx1) / 2, dy1 / 2, Z + 0.02), 7, kelvin(3000), LDARK, rot=(math.pi / 2, 0, 0))
-    cor.data.shape = 'RECTANGLE'
-    cor.data.size = dx1 - dx0
-    cor.data.size_y = dy1
+    # The front door is closed behind us: only a thin gap of hallway light
+    # on the floor (behind the camera). The window is the one real source:
+    # cool ~8000 K spill through the glass, on top of the city emission.
+    gap = light('dark_door_gap', 'AREA', B((dx0 + dx1) / 2, 0.006, Z - 0.01), 0.35, kelvin(4000), LDARK, rot=(math.pi / 2, 0, 0))
+    gap.data.shape = 'RECTANGLE'
+    gap.data.size = dx1 - dx0 - 0.1
+    gap.data.size_y = 0.01
+    # 1.2 m outside and larger than the opening, so it reads like sky/city
+    # glow (near-parallel) instead of a lamp that over-lights the sheers and
+    # the ceiling next to the glass.
+    win = light('dark_window', 'AREA', B((wx0 + wx1) / 2, (wy0 + wy1) / 2 - 0.2, -Z - 1.2), 26, (0.5, 0.66, 1.0), LDARK, rot=(-math.pi / 2, 0, 0))
+    win.data.shape = 'RECTANGLE'
+    win.data.size = (wx1 - wx0) * 1.6
+    win.data.size_y = (wy1 - wy0) * 1.3
+    # A light, not a white card in the window: the camera and reflections
+    # see the city behind it.
+    win.visible_camera = False
+    win.visible_glossy = False
+    win.visible_transmission = False
     sw = L['switch']
-    light('dark_switch', 'POINT', B(sw['x'], sw['y'], sw['z'] + 0.02), 0.08, kelvin(2200), LDARK, size=0.01)
+    light('dark_switch', 'POINT', B(sw['x'], sw['y'], sw['z'] + 0.02), 0.12, kelvin(2200), LDARK, size=0.01)
 
     # --- party lights
     for i, (dxp, dzp) in enumerate(L['downlights']):
@@ -794,6 +813,19 @@ def render(path, res, samples):
     sc.render.image_settings.file_format = 'PNG'
     sc.render.filepath = path
     bpy.ops.render.render(write_still=True)
+
+
+def stage_relight():
+    """Moves the DARK window light in the saved scene (no rebuild, so the
+    lightmap UVs and the PARTY bake stay valid); then bake --states dark."""
+    bpy.ops.wm.open_mainfile(filepath=BLEND)
+    wx0, wx1, wy0, wy1 = WIN['x0'], WIN['x1'], WIN['y0'], WIN['y1']
+    win = bpy.data.objects['dark_window']
+    win.location = B((wx0 + wx1) / 2, (wy0 + wy1) / 2 - 0.2, -Z - 1.2)
+    win.data.energy = float(opt('--power', '26'))
+    win.data.size = (wx1 - wx0) * 1.6
+    win.data.size_y = (wy1 - wy0) * 1.3
+    bpy.ops.wm.save_as_mainfile(filepath=BLEND)
 
 
 def stage_preview():
@@ -975,7 +1007,7 @@ def stage_poster():
     emissive teardrops with a 1850 K point light each."""
     bpy.ops.wm.open_mainfile(filepath=BLEND)
     setup_cycles()
-    party_emit, candles = [], []
+    party_emit, candles, flames = [], [], []
     props = os.path.join(CACHE, 'props.glb')
     if os.path.exists(props):
         before = set(bpy.data.objects)
@@ -994,6 +1026,7 @@ def stage_poster():
                 f = bpy.context.active_object
                 f.scale = (1, 1, 2.4)
                 f.data.materials.append(flame_m)
+                flames.append(f)
                 l = light(f'candle_{o.name}', 'POINT', loc + Vector((0, 0, 0.012)), 0.5, kelvin(1850), bpy.context.scene.collection, size=0.004)
                 candles.append(l)
             elif o.name.startswith(('fairy-bulbs', 'name-sign')):
@@ -1004,10 +1037,10 @@ def stage_poster():
     sc = bpy.context.scene
     for st in opt('--states', 'dark,lit').split(','):
         set_state(st)
-        for o in party_emit:
+        for o in party_emit + candles + flames:
             o.hide_render = st == 'dark'
         sc.view_settings.exposure = float(opt('--dark-exposure', '0.4')) if st == 'dark' else float(opt('--lit-exposure', '-0.2'))
         render(os.path.join(CACHE, f'poster-{st}.png'), opt('--res', '1280x800'), int(opt('--samples', '256')))
 
 
-{'build': stage_build, 'preview': stage_preview, 'bake': stage_bake, 'export': stage_export, 'poster': stage_poster}[STAGE]()
+{'build': stage_build, 'relight': stage_relight, 'preview': stage_preview, 'bake': stage_bake, 'export': stage_export, 'poster': stage_poster}[STAGE]()

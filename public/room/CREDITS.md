@@ -76,9 +76,3 @@ https://polyhaven.com/license. Attribution is not required; we credit the author
 - Night-city skyline image (`city-night.webp`): procedurally painted by `scripts/room/make_city.py`.
 - Balloons, foil letters, bunting, fairy lights, gifts, party hats, confetti: procedural at runtime (`src/room/party/`).
 - Text on the name sign and the foil letters is drawn with the project's self-hosted fonts (Outfit, Noto Sans Thai; SIL Open Font License 1.1, via @fontsource). No font file is added for the room.
-
-## Code
-
-| File | Source | License |
-|---|---|---|
-| vendor/meshopt_decoder.module.js | meshoptimizer by Arseny Kapoulkine, copied unmodified from `three/examples/jsm/libs/` (three.js r160) | MIT |
