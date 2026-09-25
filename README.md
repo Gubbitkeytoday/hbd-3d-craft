@@ -2,75 +2,181 @@
 
 <div align="center">
 
-<img src="screenshots/1_creator_dashboard.png" alt="HBD 3D Craft Banner" width="100%">
+[![Three.js](https://img.shields.io/badge/Three.js-0.160-black?style=for-the-badge&logo=three.js&logoColor=white)](https://threejs.org/)
+[![Vite](https://img.shields.io/badge/Vite-5.1-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
+[![Web Audio API](https://img.shields.io/badge/Web_Audio_API-Mic_Blowing-FF6B6B?style=for-the-badge&logo=soundcharts&logoColor=white)](#-microphone-candle-blowing-engine)
+[![Stateless URL](https://img.shields.io/badge/Zero_Database-Stateless_URL-success?style=for-the-badge&logo=cloudflare&logoColor=white)](#-stateless-url-payload-engine)
+[![i18n](https://img.shields.io/badge/i18n-EN_%7C_TH_%7C_JA-4CAF50?style=for-the-badge&logo=google-translate&logoColor=white)](src/i18n.js)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-<br>
+**Design stunning, cinematic 3D birthday cards online — complete with interactive hand-piped-cream cake customization, real microphone candle blowing, and zero-database shareable URLs.**
 
-**Design stunning, highly interactive 3D birthday cards online — no coding required!**
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Built with Three.js](https://img.shields.io/badge/Built%20with-Three.js-black?logo=three.js)](https://threejs.org/)
-[![Powered by Vite](https://img.shields.io/badge/Powered%20by-Vite-646CFF?logo=vite)](https://vitejs.dev/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
-
-[🚀 Live Demo](https://hbd-3d-craft.pages.dev) · [🐛 Report Bug](https://github.com/GitBababoo/Happy-Birthday/issues) · [💡 Request Feature](https://github.com/GitBababoo/Happy-Birthday/issues)
+[Live Demo](https://hbd-3d-craft.pages.dev) • [Key Features](#-key-features) • [System Architecture](#-system-architecture) • [Visual Gallery](#-visual-gallery) • [Getting Started](#-getting-started--local-development) • [Engineering Specification](#-technical-specifications)
 
 </div>
 
 ---
 
-## ✨ Features
-
-| Feature | Description |
-|---|---|
-| 🎂 **WebGL 3D Cake Designer** | Customize stunning 3D cakes with glazes, toppings, cherries, strawberries, chocolate rolls, and sprinkles in real-time |
-| 🎤 **Microphone Candle Blowing** | Receivers blow directly into their mic to extinguish realistic 3D candle flames via Web Audio API frequency analysis |
-| 💌 **Interactive 3D Envelope Letter** | A floating, CSS-animated 3D envelope with wax seal opens to reveal a handwritten letter |
-| 🎨 **9 Visual Themes** | Neon Rose, Midnight Gold, Ocean Breeze, Lavender Dream, Sakura Bloom, Cyber Retro, Forest Moss, Cosmic Void, Choco Gold |
-| 🔗 **Shareable URLs** | All card configurations are Base64-encoded directly into the URL — no database or server required |
-| 🌐 **Multi-language (i18n)** | Supports English, Thai (ภาษาไทย), and Japanese (日本語) |
-| 📱 **Fully Responsive** | Works on phones, tablets, and desktops |
-| 🎵 **Background Music** | 3 curated ambient tracks (Lo-Fi, Piano, Synth Pop) |
+<p align="center">
+  <img src="screenshots/1_creator_dashboard.png" alt="HBD 3D Craft Creator Dashboard" width="840">
+</p>
 
 ---
 
-## 📸 Screenshots
+## 📖 Executive Summary
 
-| Creator Dashboard | Envelope Gate |
-|---|---|
-| <img src="screenshots/1_creator_dashboard.png" width="100%" alt="Creator Dashboard"> | <img src="screenshots/2_envelope_gate.png" width="100%" alt="Envelope Gate"> |
+**HBD 3D Craft** is an immersive WebGL interactive experience that elevates digital greetings into cinematic 3D memories. Built with **Three.js**, **Anime.js**, and modern **Web Audio API**, the platform empowers users to procedurally customize 3D celebration cakes, write personalized messages, choose from 9 glassmorphic color themes, and generate instantaneous shareable cards encoded directly into URL hash fragments.
 
-| 3D Cake Reveal | Discover & SEO Hub |
-|---|---|
-| <img src="screenshots/3_receiver_cake_view.png" width="100%" alt="3D Cake Reveal"> | <img src="screenshots/4_discover_seo_hub.png" width="100%" alt="Discover Hub"> |
+When the recipient opens the link, a floating 3D wax-sealed envelope reveals their card, accompanied by ambient music, dynamic particle confetti, and a physics-driven candle that can be extinguished by blowing directly into their device's microphone.
 
 ---
 
-## 🚀 Getting Started
+## ⚡ Key Features & Engineering Highlights
 
-### Prerequisites
+| Feature | Technical Implementation | Highlights |
+| :--- | :--- | :--- |
+| **🎂 Procedural 3D Cake Builder** | Custom Three.js geometry extrusions, hand-piped cream beads, glossy toppings & fruit meshes | Real-time viewport rotation, customizable cake tiers, glazes & toppings |
+| **🎤 Microphone Candle Blowing** | Web Audio API `AudioContext` with real-time `AnalyserNode` FFT frequency & amplitude analysis | Realistic extinguishing threshold, blow sound detection, falling smoke particles |
+| **💌 Interactive 3D Envelope** | Pure CSS 3D matrix transform with wax seal breaking animation & opening envelope gate | Smooth multi-stage opening cinematic sequence driven by Anime.js |
+| **🔗 Stateless URL Sharing** | Base64 / URI-encoded compressed payload containing all card parameters | **100% Serverless & Zero-Database:** shareable via LINE, Messenger, WhatsApp |
+| **🎨 9 Glassmorphic Themes** | Dynamic HSL CSS token system (Neon Rose, Midnight Gold, Ocean Breeze, Sakura, etc.) | Real-time ambient background lighting & dynamic materials matching |
+| **🎵 Curated Soundtracks** | HTML5 Audio engine with Lo-Fi, Romantic Piano, and Synth Pop background tracks | Smooth audio crossfading and mobile audio context unlock guard |
+| **🌐 Multi-Language (i18n)** | Pure client-side dictionary switcher | English (EN), Thai (ภาษาไทย), and Japanese (日本語) |
 
-- [Node.js](https://nodejs.org/) v18 or higher
-- npm v9 or higher
+---
 
-### Installation
+## 🏗️ System Architecture
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/GitBababoo/Happy-Birthday.git
-cd Happy-Birthday
+```mermaid
+flowchart TD
+    subgraph CreatorPhase["1. Creator Studio & Configuration"]
+        UserInputs["Recipient Name, Message, Music & Theme"]
+        CakeCustomizer["Procedural 3D Cake Customizer\n(Glaze, Piping, Fruits & Sprinkles)"]
+        URLEncoder["Stateless Payload Serializer\n(JSON -> Base64 / URI Fragment)"]
+        ShareLink["Generated Shareable URL\n(https://.../#card=...)"]
+    end
 
-# 2. Install dependencies
-npm install
+    subgraph ReceiverPhase["2. Receiver Gate & 3D Cinematic Reveal"]
+        URLDecoder["Stateless Payload Parser\n(Extracts Name, Message, Theme & Cake DNA)"]
+        EnvelopeGate["Floating 3D Wax Seal Envelope\n(CSS 3D Transform + Wax Cracking Audio)"]
+        LetterUnfold["Letter Reveal & Audio Player Unlock\n(Anime.js Micro-transitions)"]
+    end
 
-# 3. Start development server
-npm run dev
+    subgraph WebGLStage["3. Real-Time WebGL 3D Cake Stage (Three.js)"]
+        Scene["Three.js Scene Graph & Dynamic Camera"]
+        ProceduralCake["Procedural Cake Mesh + Hand-Piped Cream\n(MeshPhysicalMaterial + PBR Lighting)"]
+        CandleFlame["Animated Flame Shader & Particle Smoke\n(PointLight Flicker + Noise Vector)"]
+        ConfettiBurst["Celebration Particle Cannon\n(Canvas Confetti Engine)"]
+    end
+
+    subgraph AudioEngine["4. Microphone Frequency Analysis (Web Audio API)"]
+        MicInput["User Device Microphone Stream\n(navigator.mediaDevices.getUserMedia)"]
+        FFTAnalyzer["AnalyserNode Frequency & Decibel Threshold\n(Low-Frequency Wind Noise Detection)"]
+        ExtinguishEvent["Candle Extinguished Trigger\n(Flame Off -> Smoke -> Confetti Explosion)"]
+    end
+
+    UserInputs --> CakeCustomizer --> URLEncoder --> ShareLink
+    ShareLink -.->|Transferred via Messaging App| URLDecoder
+
+    URLDecoder --> EnvelopeGate
+    EnvelopeGate --> LetterUnfold
+    LetterUnfold --> Scene
+
+    Scene --> ProceduralCake
+    Scene --> CandleFlame
+    
+    MicInput --> FFTAnalyzer --> ExtinguishEvent
+    ExtinguishEvent --> CandleFlame
+    ExtinguishEvent --> ConfettiBurst
 ```
 
-The app will be live at **http://localhost:5173**
+---
 
-### Build for Production
+## 📸 Visual Gallery
 
+| Creator Dashboard | Interactive Envelope Gate |
+| :---: | :---: |
+| [![Creator Dashboard](screenshots/1_creator_dashboard.png)](screenshots/1_creator_dashboard.png)<br>**Creator Dashboard.** Customize cake tiers, toppings, message, and visual theme. | [![Envelope Gate](screenshots/2_envelope_gate.png)](screenshots/2_envelope_gate.png)<br>**3D Wax Seal Envelope.** Floating letter gate that unfolds upon tap. |
+
+| Receiver 3D Cake View | Discover & SEO Hub |
+| :---: | :---: |
+| [![Receiver Cake View](screenshots/3_receiver_cake_view.png)](screenshots/3_receiver_cake_view.png)<br>**3D Cake Reveal.** Animated candle flame, realistic lighting, and mic blow detection. | [![Discover Hub](screenshots/4_discover_seo_hub.png)](screenshots/4_discover_seo_hub.png)<br>**SEO Hub & Templates.** Curated template presets and design gallery. |
+
+---
+
+## 📂 Project Structure
+
+```text
+hbd-3d-craft/
+├── .github/                      # GitHub Workflows & Automation
+│   ├── workflows/ci.yml          # Automated Build & Lint Verification Pipeline
+│   ├── ISSUE_TEMPLATE/           # Bug & Feature Request Templates
+│   └── PULL_REQUEST_TEMPLATE.md  # Quality Checklist for Contributors
+│
+├── public/                       # Static Assets & Metadata
+│   ├── audio/                    # Ambient BGM & SFX (Envelope crack, blow, fanfare)
+│   ├── robots.txt                # Search Crawler Directives
+│   └── sitemap.xml               # Static Sitemap
+│
+├── screenshots/                  # High-Resolution Application Screenshots
+│   ├── 1_creator_dashboard.png   # Creator View UI
+│   ├── 2_envelope_gate.png       # 3D Envelope Gate UI
+│   ├── 3_receiver_cake_view.png  # Interactive 3D WebGL Cake UI
+│   └── 4_discover_seo_hub.png    # SEO Discovery Page
+│
+├── src/                          # Application Source Code
+│   ├── creator.js                # Creator Studio UI Controller & URL Serializer
+│   ├── viewer.js                 # Three.js 3D Cake Generator, Particle & Mic Analyzer
+│   ├── main.js                   # Application Routing & State Machine
+│   ├── i18n.js                   # Internationalization (EN, TH, JA)
+│   ├── render-quality.js         # Adaptive WebGL DPR & Resolution Scaler
+│   └── style.css                 # Glassmorphic Design System & 9 HSL Themes
+│
+├── index.html                    # Single Page Application Root Shell
+├── discover.html                 # Template Discovery Hub Page
+├── vite.config.js                # Vite Build Configuration
+└── package.json                  # Dependencies & Scripts
+```
+
+---
+
+## 🛠️ Technical Specifications
+
+| Subsystem | Specification | Technical Details |
+| :--- | :--- | :--- |
+| **3D Rendering** | Three.js `r160` | WebGL PBR `MeshPhysicalMaterial` with roughness, metalness, and clearcoat |
+| **Candle Flame** | Vertex Displacement Shader | Procedural noise oscillation with synchronized fluctuating PointLight |
+| **Microphone Analysis** | Web Audio API | `AnalyserNode` with FFT size 256 evaluating energy band between $100\,\text{Hz} - 800\,\text{Hz}$ |
+| **Card Encoding** | Base64 URL Fragment | Encodes JSON payload into `window.location.hash` with URL-safe replacement |
+| **Animation Pipeline** | Anime.js `v3.2` | Elastic easing for UI panels, letter unfolding, and camera orbit transitions |
+| **Particle Physics** | Canvas Confetti | Multi-origin dual-cannon particle bursts with custom birthday color palettes |
+
+---
+
+## 💻 Getting Started & Local Development
+
+### Prerequisites
+- **Node.js** `>= 18.x`
+- **npm** `>= 9.x`
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/Gubbitkeytoday/hbd-3d-craft.git
+cd hbd-3d-craft
+```
+
+### 2. Install Dependencies
+```bash
+npm install
+```
+
+### 3. Launch Development Server
+```bash
+npm run dev
+```
+Open **[http://localhost:5173](http://localhost:5173)** in your browser.
+
+### 4. Build for Production
 ```bash
 npm run build
 npm run preview
@@ -78,70 +184,48 @@ npm run preview
 
 ---
 
-## 🛠️ Tech Stack
+## 🚢 Production Deployment
 
-- **[Three.js](https://threejs.org/)** — WebGL 3D cake rendering, particles, and animations
-- **[Anime.js](https://animejs.com/)** — Smooth UI micro-animations and transitions
-- **[Canvas Confetti](https://github.com/catdad/canvas-confetti)** — Celebration confetti effects
-- **[Vite](https://vitejs.dev/)** — Fast ES module bundler and dev server
-- **Web Audio API** — Real-time microphone frequency analysis for candle blowing
-- **CSS Glassmorphism + HSL Tokens** — Dynamic multi-theme design system
+### Option 1: Cloudflare Pages (Recommended)
+```bash
+# Build production bundle
+npm run build
+
+# Deploy via Wrangler
+npx wrangler pages deploy dist --project-name hbd-3d-craft
+```
+
+### Option 2: Vercel / Netlify
+1. Connect repository to [Vercel](https://vercel.com) or [Netlify](https://netlify.com).
+2. Set Build Command: `npm run build`
+3. Set Output Directory: `dist`
 
 ---
 
-## 📁 Project Structure
+## 🔒 Security & Privacy
 
-```
-Happy-Birthday/
-├── index.html              # Main SPA (Creator + Receiver views)
-├── discover.html           # SEO & Discovery Hub page
-├── src/
-│   ├── main.js             # App router & controller
-│   ├── creator.js          # Creator dashboard logic
-│   ├── viewer.js           # Interactive 3D WebGL receiver card
-│   ├── i18n.js             # Internationalization (EN / TH / JA)
-│   └── style.css           # Global design system & themes
-├── public/
-│   ├── robots.txt
-│   └── sitemap.xml
-├── screenshots/            # App screenshots
-└── vite.config.js
-```
-
----
-
-## 🎯 How It Works
-
-1. **Create** — Fill in the recipient's name, write a personal message, choose a theme and decorate your 3D cake
-2. **Generate** — Click "Generate & Share Card" to get a unique shareable URL
-3. **Share** — Send the link via LINE, WhatsApp, Instagram, or any messaging app
-4. **Surprise!** — The recipient opens the link and can blow out candles with their microphone 🎉
+- **100% Stateless & Client-Side:** No messages, names, or photos are transmitted to or stored on external servers.
+- **Microphone Privacy:** Audio streams from `getUserMedia` are processed entirely in-memory within the local `AudioContext` and are immediately discarded. No audio is ever recorded or transmitted.
+- **No Cookies:** Zero analytics cookies or tracking pixels.
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are warmly welcome! Please read our [Contributing Guidelines](./CONTRIBUTING.md) before submitting a pull request.
+Contributions and creative cake toppings are warmly welcomed! Please read our **[CONTRIBUTING.md](CONTRIBUTING.md)** and **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)** before opening pull requests.
 
----
-
-## 🔒 Security
-
-Found a vulnerability? Please see our [Security Policy](./SECURITY.md) for responsible disclosure guidelines.
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feat/NewCakeTopping`)
+3. Commit your Changes (`git commit -m 'feat: Add macarons cake decoration'`)
+4. Push to the Branch (`git push origin feat/NewCakeTopping`)
+5. Open a Pull Request
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
-
----
-
-## 💖 Acknowledgements
-
-- Inspired by the desire to make birthday wishes more meaningful and memorable
-- Built with love for all the Senpais out there 🎂✨
+Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for complete terms.
 
 <div align="center">
-Made with ❤️ by <a href="https://github.com/GitBababoo">GitBababoo</a>
+Built with ❤️ for birthday celebrations worldwide.
 </div>

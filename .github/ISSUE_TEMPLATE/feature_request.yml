@@ -1,0 +1,23 @@
+name: 🚀 Feature Request
+description: Propose a new 3D topping, sound effect, or theme for HBD 3D Craft
+title: "[FEAT]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for submitting a feature idea for HBD 3D Craft!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Feature Motivation
+      description: What new creative element would you like to see?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Detailed description of how the feature should look or work.
+    validations:
+      required: true

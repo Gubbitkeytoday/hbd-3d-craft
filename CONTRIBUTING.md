@@ -1,34 +1,34 @@
 # Contributing to HBD 3D Craft
 
-First off, thank you for considering contributing to HBD 3D Craft! It's people like you who make this project such a fun and interactive experience for everyone.
+Thank you for contributing to **HBD 3D Craft**! We welcome new 3D toppings, animations, color themes, sound design, and internationalization translations.
 
-When contributing to this repository, please first discuss the change you wish to make via issue, email, or any other method with the owners of this repository before making a change.
+---
 
-Please note we have a [Code of Conduct](./CODE_OF_CONDUCT.md), please follow it in all your interactions with the project.
+## 🌿 Git Branching Strategy
 
-## How Can I Contribute?
+- `feat/feature-name`: New toppings, themes, or visual effects
+- `fix/bug-name`: Bug fixes and mobile rendering patches
+- `perf/optimization`: WebGL or memory optimizations
+- `docs/update`: Documentation improvements
 
-### Reporting Bugs
-If you find a bug, please create a new issue. Include:
-* A clear description of the bug.
-* Steps to reproduce the behavior.
-* Expected behavior vs. actual behavior.
-* Screenshots or screen recordings if applicable.
+---
 
-### Suggesting Enhancements
-We welcome ideas for new features (like new 3D decorations, themes, or music tracks). Please submit them as issues with the label `enhancement`.
+## 💬 Conventional Commits
 
-### Pull Requests
-1. Fork the repository and create your branch from `main`.
-2. Install dependencies with `npm install`.
-3. If you've added code that should be tested, add tests.
-4. Ensure your code is clean and matches the project formatting style.
-5. Issue a Pull Request with a clear description of the changes.
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-## Development Guidelines
+```text
+feat(cake): add procedural macarons topping mesh
+fix(audio): handle safari web audio user-gesture lock
+perf(webgl): optimize instanced mesh matrix updates
+docs(readme): update system architecture diagrams
+```
 
-* **WebGL/Three.js**: Keep code optimized for mobile devices (e.g. limit shadow maps, keep polygon counts low).
-* **Styles**: Maintain responsive styling using CSS HSL variable design tokens.
-* **i18n**: If adding UI components, ensure translation tokens are updated in `src/i18n.js`.
+---
 
-Thank you for your support!
+## 🛠️ Local Development & Pre-Flight Checklist
+
+1. Clone and install dependencies: `npm install`
+2. Start dev server: `npm run dev`
+3. Verify production build: `npm run build`
+4. Test microphone detection on desktop and mobile browsers

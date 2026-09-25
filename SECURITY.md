@@ -1,19 +1,22 @@
 # Security Policy
 
-## Supported Versions
+## 🛡️ Supported Versions
 
-We actively support and fix security vulnerabilities on the following versions:
+We maintain the latest `main` branch.
 
-| Version | Supported |
-| ------- | --------- |
-| 1.0.x   | Yes       |
-| < 1.0.0 | No        |
+---
 
-## Reporting a Vulnerability
+## 🚨 Responsible Disclosure
 
-We take the security of HBD 3D Craft seriously. If you find a security vulnerability, please do not report it publicly via GitHub issues. Instead, follow these steps:
+If you discover any security issue, DOM injection, or vulnerability:
 
-1. Send an email to the project maintainers outlining the details of the vulnerability.
-2. Include description, steps to reproduce, and any proof-of-concept material.
+1. **Do NOT open a public issue.**
+2. Contact the maintainers directly or open a GitHub Security Advisory.
+3. We respond within **48 hours**.
 
-We will acknowledge receipt of your vulnerability report within 48 hours and work to issue a security fix promptly.
+---
+
+## 🔒 Privacy Architecture
+
+- **Stateless Operation:** No user data, recipient names, or messages are ever transmitted to any database or backend server.
+- **In-Memory Audio Processing:** Microphone audio streams are analyzed strictly for amplitude and frequency thresholds in local memory and are never recorded or stored.
