@@ -1,4 +1,7 @@
 import './style.css';
+import './styles/icons.css';
+import './styles/creator.css';
+import './styles/receiver.css';
 
 // Each route loads its own module, so a recipient opening a card never
 // downloads the creator and vice versa. three.js lands in a shared chunk.
