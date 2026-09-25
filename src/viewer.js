@@ -9,88 +9,23 @@ import {
     setupStudioLighting,
     tuneMaterialsForEnvironment,
     createBloomComposer,
-    isMobileViewport
+    isMobileViewport,
+    tintRimLight
 } from './render-quality.js';
 import {
     buildCakeModel,
     getCakeLayout,
     createHolographicScannerTexture
 } from './cake-models.js';
+import { buildCandles } from './cake/candles.js';
 
-// Realistic Organic Teardrop Candle Flame Shader with Natural S-curve Flicker & Heat Glow
-const flameVertexShader = `
-    uniform float uTime;
-    varying vec2 vUv;
-    varying vec3 vPosition;
-    varying vec3 vNormal;
-    
-    void main() {
-        vUv = uv;
-        vPosition = position;
-        vNormal = normal;
-        
-        vec3 pos = position;
-        
-        // Organic natural heat convection swaying (gentle wind and thermal lift)
-        float swayFactor = smoothstep(0.0, 1.0, (pos.y + 0.1) / 0.28);
-        float swayX = sin(uTime * 3.5 + pos.y * 10.0) * 0.022 * swayFactor;
-        float swayZ = cos(uTime * 2.8 + pos.y * 8.0) * 0.016 * swayFactor;
-        
-        // Teardrop pulse and flicker
-        float flicker = sin(uTime * 14.0) * 0.04 * swayFactor;
-        
-        pos.x += swayX;
-        pos.z += swayZ;
-        pos.y += flicker;
-        
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-    }
-`;
-
-const flameFragmentShader = `
-    varying vec2 vUv;
-    varying vec3 vPosition;
-    varying vec3 vNormal;
-    uniform float uTime;
-    
-    void main() {
-        // Normalized height from candle wick base to tip [0.0 -> 1.0]
-        float h = clamp((vPosition.y + 0.09) / 0.26, 0.0, 1.0);
-        
-        // Realistic candle flame color zones:
-        // 1. Blue combustion oxygen base (h = 0.0 -> 0.15)
-        // 2. Rich warm orange core (h = 0.15 -> 0.45)
-        // 3. Bright golden yellow body (h = 0.45 -> 0.85)
-        // 4. Brilliant white-hot incandescent center tip (h = 0.85 -> 1.0)
-        vec3 blueBase   = vec3(0.12, 0.38, 0.98); // Blue base
-        vec3 orangeCore = vec3(1.00, 0.42, 0.02); // Warm orange
-        vec3 goldenBody = vec3(1.00, 0.82, 0.15); // Golden yellow
-        vec3 whiteHot   = vec3(1.00, 0.98, 0.88); // White hot core
-        
-        vec3 flameColor;
-        if (h < 0.18) {
-            flameColor = mix(blueBase, orangeCore, h / 0.18);
-        } else if (h < 0.55) {
-            flameColor = mix(orangeCore, goldenBody, (h - 0.18) / 0.37);
-        } else {
-            flameColor = mix(goldenBody, whiteHot, (h - 0.55) / 0.45);
-        }
-        
-        // Radial center core glow: inner is brilliant white, outer edge is translucent
-        float distFromCenter = length(vPosition.xz) / 0.07;
-        float coreGlow = smoothstep(0.8, 0.0, distFromCenter);
-        flameColor = mix(flameColor, whiteHot, coreGlow * (1.0 - h * 0.5) * 0.7);
-        
-        // Soft outer opacity falloff (teardrop natural contour)
-        float alpha = smoothstep(1.0, 0.1, distFromCenter);
-        alpha *= smoothstep(0.0, 0.12, h) * smoothstep(1.0, 0.7, h);
-        
-        // Natural candle flame micro-shimmer
-        float shimmer = 0.92 + sin(uTime * 25.0 + h * 8.0) * 0.08;
-        
-        gl_FragColor = vec4(flameColor, clamp(alpha * shimmer * 1.5, 0.0, 1.0));
-    }
-`;
+// One warm light for all candles (replaces a PointLight per candle: every lit
+// material paid per-pixel for each of up to ten lights). It stays visible and
+// just dims to 0, because toggling a light's visibility changes the light
+// count and forces every material to recompile mid-animation.
+const CANDLE_LIGHT_PER_FLAME = 1.2;
+let candleLight = null;
+let candleLightLevel = 0;
 
 // State management for Receiver Viewer Mode
 let renderer = null;
@@ -103,7 +38,7 @@ let animationId = null;
 let cakeGroup = null;
 
 // Dynamic arrays
-let candles = [];       // { group, flame, light, isLit }
+let candles = [];       // { group, flame, isLit }
 let balloons = [];      // { mesh, floatSpeed, swaySpeed, swayOffset }
 let gifts = [];         // { mesh, floatSpeed, swaySpeed, swayOffset, rotSpeed }
 let notes = [];         // { mesh, floatSpeed, swaySpeed, swayOffset, rotSpeed }
@@ -677,7 +612,7 @@ function stopBirthdaySynth() {
         synthIntervalId = null;
     }
     synthOscillators.forEach(osc => {
-        try { osc.stop(); } catch (e) {}
+        try { osc.stop(); } catch { /* already stopped */ }
     });
     synthOscillators = [];
 }
@@ -953,8 +888,8 @@ function init3DScene() {
     // Apply environment reflections to everything that was just built, and
     // tint the rim light with the card's own cream color.
     tuneMaterialsForEnvironment(cakeGroup, 0.6);
-    if (sceneLights && activeConfig?.creamColor) {
-        sceneLights.rim.color.set(activeConfig.creamColor);
+    if (sceneLights) {
+        tintRimLight(sceneLights.rim, getThemeRGBColors(activeConfig?.theme).cream);
     }
 
     camera.lookAt(new THREE.Vector3(0, 0.5, 0));
@@ -1065,21 +1000,9 @@ function init3DScene() {
             photoFrameGroup.rotation.z = Math.sin(elapsed * 0.8) * 0.05;
         }
 
-        if (flameMaterial) {
-            flameMaterial.uniforms.uTime.value = elapsed;
-        }
-
-        // 1. Flicker Candle Flames & Spawn Particles
+        // 1. Candle embers (flicker and sway run in the flame shader)
         candles.forEach(candle => {
             if (candle.isLit) {
-                const scaleTime = elapsed * 10 + candle.group.position.x * 20;
-                candle.flame.scale.y = 1.0 + Math.sin(scaleTime) * 0.2;
-                candle.flame.scale.x = 1.0 + Math.cos(scaleTime * 1.5) * 0.15;
-                candle.flame.scale.z = 1.0 + Math.sin(scaleTime * 1.2) * 0.15;
-                
-                candle.light.intensity = 1.8 + Math.sin(scaleTime * 2.0) * 0.3;
-
-                // Candle Embers Spawn
                 if (Math.random() < 0.08) {
                     const ember = new THREE.Mesh(emberGeo, emberMat);
                     const worldPos = new THREE.Vector3();
@@ -1116,6 +1039,17 @@ function init3DScene() {
             }
         });
         embers = embers.filter(e => e.life > 0);
+
+        // Shared candle light: eases toward (lit flames x per-flame intensity)
+        // so blowing one out dims the glow, then flickers on top.
+        if (candleLight) {
+            let lit = 0;
+            for (const c of candles) if (c.isLit) lit++;
+            const target = lit * CANDLE_LIGHT_PER_FLAME;
+            candleLightLevel += (target - candleLightLevel) * Math.min(1, delta * 6);
+            candleLight.intensity = candleLightLevel *
+                (0.9 + Math.sin(elapsed * 13.0) * 0.06 + Math.sin(elapsed * 29.0 + 1.3) * 0.04);
+        }
         // Update celebrationConfetti particles (V4.6 volumetric confetti updates)
         celebrationConfetti.forEach(particle => {
             particle.angle += particle.orbitSpeed * delta;
@@ -1351,99 +1285,20 @@ function setupViewerCandles() {
         getCakeLayout(activeConfig.cakeModel || 'classic-tiered');
     const candleCount = Math.min(10, Math.max(1, parseInt(activeConfig.candles, 10) || 5));
 
-    // Realistic Candles builder
-    const candleGeo = new THREE.CylinderGeometry(0.046, 0.052, 0.45, 20);
-    const wickGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.08, 8);
-    const waxCollarGeo = new THREE.SphereGeometry(0.05, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+    if (flameMaterial) flameMaterial.dispose();
+    const built = buildCandles(cakeGroup, { candlePlacerRadius, candleBaseY, isHeartShape }, {
+        count: candleCount,
+        candleColor: activeConfig.candleColor || ''
+    });
+    flameMaterial = built.flameMaterial;
+    candles = built.candles.map(({ group, flame }) => ({ group, flame, isLit: true }));
 
-    // Realistic Organic Teardrop Flame Geometry
-    const flameGeo = new THREE.SphereGeometry(0.065, 16, 16);
-    const flamePos = flameGeo.attributes.position;
-    for (let i = 0; i < flamePos.count; i++) {
-        let x = flamePos.getX(i);
-        let y = flamePos.getY(i);
-        let z = flamePos.getZ(i);
-        
-        if (y > 0.0) {
-            y *= 2.2;
-            const taper = 1.0 - (y / 0.16);
-            x *= Math.max(0.1, taper);
-            z *= Math.max(0.1, taper);
-        } else {
-            y *= 0.8;
-        }
-        flamePos.setXYZ(i, x, y + 0.05, z);
-    }
-    flameGeo.computeVertexNormals();
-
-    const candleColors = [0x55ffaa, 0xffbb44, 0xff55aa, 0x44bbff, 0xdd88ff];
-    const wickMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
-
-    // Initialize shared GLSL flame material
-    if (!flameMaterial) {
-        flameMaterial = new THREE.ShaderMaterial({
-            vertexShader: flameVertexShader,
-            fragmentShader: flameFragmentShader,
-            uniforms: {
-                uTime: { value: 0.0 }
-            },
-            transparent: true,
-            side: THREE.DoubleSide,
-            depthWrite: false
-        });
-    }
-
-    for (let i = 0; i < candleCount; i++) {
-        const angle = (i / candleCount) * Math.PI * 2;
-        const candleGroup = new THREE.Group();
-
-        const cColor = activeConfig.candleColor ? new THREE.Color(activeConfig.candleColor) : candleColors[i % candleColors.length];
-        const candleMat = new THREE.MeshStandardMaterial({ color: cColor, roughness: 0.5 });
-
-        const stick = new THREE.Mesh(candleGeo, candleMat);
-        stick.position.y = 0.225;
-        stick.castShadow = true;
-        stick.rotation.z = Math.sin(i * 2.4) * 0.03;
-        candleGroup.add(stick);
-
-        const waxCollar = new THREE.Mesh(waxCollarGeo, candleMat);
-        waxCollar.position.y = 0.442;
-        waxCollar.scale.set(1.0, 0.42, 1.0);
-        waxCollar.castShadow = true;
-        candleGroup.add(waxCollar);
-
-        const wick = new THREE.Mesh(wickGeo, wickMat);
-        wick.position.y = 0.48;
-        candleGroup.add(wick);
-
-        const flame = new THREE.Mesh(flameGeo, flameMaterial);
-        flame.position.y = 0.58;
-        flame.name = 'flame';
-        candleGroup.add(flame);
-
-        const fireLight = new THREE.PointLight(0xffb800, 2.0, 4);
-        fireLight.position.set(0, 0.7, 0);
-        // A point-light shadow re-renders the scene six times per candle,
-        // which is the single most expensive thing on the page. The key
-        // light already casts the cake's shadow.
-        candleGroup.add(fireLight);
-
-        let cX = Math.cos(angle) * candlePlacerRadius;
-        let cZ = Math.sin(angle) * candlePlacerRadius;
-        if (isHeartShape) {
-            cZ = (Math.sin(angle) * 0.85 - 0.2) * candlePlacerRadius;
-        }
-
-        candleGroup.position.set(cX, candleBaseY, cZ);
-        cakeGroup.add(candleGroup);
-
-        candles.push({
-            group: candleGroup,
-            flame: flame,
-            light: fireLight,
-            isLit: true
-        });
-    }
+    // No shadow: a point-light shadow re-renders the scene six times, and the
+    // key light already casts the cake's shadow.
+    candleLight = new THREE.PointLight(0xffa24a, 0, 5, 2);
+    candleLight.position.set(built.center.x, candleBaseY + 0.62, built.center.z);
+    cakeGroup.add(candleLight);
+    candleLightLevel = candleCount * CANDLE_LIGHT_PER_FLAME;
 }
 
 // Floating colorful 3D balloons setup
@@ -3086,17 +2941,10 @@ function extinguishCandle(candleObj) {
         duration: 400,
         easing: 'easeOutQuint',
         complete: () => {
-            candleObj.light.visible = false;
             checkAllExtinguished();
         }
     });
-
-    anime({
-        targets: candleObj.light,
-        intensity: 0,
-        duration: 400,
-        easing: 'easeOutQuint'
-    });
+    // The shared candle light dims itself in the render loop.
 }
 
 // Re-light all candles (Reset button)
@@ -3117,8 +2965,6 @@ function relightCandles() {
 
     candles.forEach(candle => {
         candle.isLit = true;
-        candle.light.visible = true;
-        candle.light.intensity = 2.0;
         
         anime({
             targets: candle.flame.scale,
@@ -3126,7 +2972,9 @@ function relightCandles() {
             y: 1.0,
             z: 1.0,
             duration: 800,
-            easing: 'elastic(1, 0.5)'
+            // Was 'elastic(1, 0.5)', which isn't an anime.js easing: it threw
+            // and aborted the relight after the first candle.
+            easing: 'easeOutElastic(1, 0.5)'
         });
     });
 

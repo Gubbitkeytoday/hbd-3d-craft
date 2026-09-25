@@ -88,11 +88,26 @@ export function setupStudioLighting(scene, { rimColor = 0xff0055, mobile = isMob
     fill.position.set(-6, 4, -2);
     scene.add(fill);
 
-    const rim = new THREE.DirectionalLight(new THREE.Color(rimColor), 2.2);
+    const rim = new THREE.DirectionalLight(0xffffff, RIM_INTENSITY);
     rim.position.set(-1.5, 3.5, -7);
+    tintRimLight(rim, rimColor);
     scene.add(rim);
 
     return { ambient, key, fill, rim };
+}
+
+const RIM_INTENSITY = 2.2;
+
+/**
+ * Tints the rim light while keeping its brightness constant. A pale accent at
+ * full intensity grazed the glossy plate edge hard enough to bloom into a
+ * white blob; a dark one switched the rim off entirely.
+ */
+export function tintRimLight(rim, color) {
+    const c = new THREE.Color(color);
+    const luminance = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    rim.color.copy(c);
+    rim.intensity = RIM_INTENSITY * THREE.MathUtils.clamp(0.2 / Math.max(luminance, 0.05), 0.3, 1.2);
 }
 
 /**

@@ -45,30 +45,31 @@ export const CAKE_LAYOUTS = {
         isHeartShape: false
     },
     'vintage-heart': {
-        topDecorY: 0.9,
-        // The heart is ~2.5 units wide; ringing decorations at 0.95 bunched
-        // them into the middle and left the whole surface reading empty.
-        topDecorRadius: 1.42,
-        sprinkleRadius: 1.05,
-        candlePlacerRadius: 0.6,
-        candleBaseY: 0.88,
-        topperBaseY: 0.9,
+        // Glazed top at ~0.74. The heart is ~3.2 wide but its cleft comes
+        // within ~1.05 of the centre, and toppings are placed on a circle, so
+        // the ring has to clear the inner shell border at the cleft.
+        topDecorY: 0.75,
+        topDecorRadius: 0.8,
+        sprinkleRadius: 0.72,
+        candlePlacerRadius: 0.5,
+        candleBaseY: 0.73,
+        topperBaseY: 0.75,
         isHeartShape: true
     },
     'korean-bento': {
-        topDecorY: 0.78,
-        topDecorRadius: 1.5,
-        sprinkleRadius: 1.2,
-        candlePlacerRadius: 0.58,
-        candleBaseY: 0.77,
-        topperBaseY: 0.78,
+        topDecorY: 0.44,
+        topDecorRadius: 1.0,
+        sprinkleRadius: 0.9,
+        candlePlacerRadius: 0.52,
+        candleBaseY: 0.43,
+        topperBaseY: 0.44,
         isHeartShape: false
     },
     'triple-luxury': {
         topDecorY: 1.86,
-        topDecorRadius: 0.66,
-        sprinkleRadius: 0.6,
-        candlePlacerRadius: 0.44,
+        topDecorRadius: 0.72,
+        sprinkleRadius: 0.66,
+        candlePlacerRadius: 0.46,
         candleBaseY: 1.84,
         topperBaseY: 1.86,
         isHeartShape: false
@@ -104,84 +105,98 @@ function addToppings(group, layout, opts, tagged) {
     const { topDecorY, topDecorRadius, sprinkleRadius } = layout;
     const { strawberries, cherries, rolls, sprinkles, seed } = opts;
 
-    if (strawberries > 0) {
-        for (let i = 0; i < strawberries; i++) {
-            const s0 = 3.7 + i * 2.3;
-            const angle = (i / strawberries) * Math.PI * 2 + Math.sin(s0) * 0.07;
-            const r = topDecorRadius + Math.sin(s0 * 1.7) * 0.05;
+    // Fruit sits in clusters (a strawberry with a cherry tucked beside it)
+    // instead of a mechanical alternating ring, and wafer pairs take their own
+    // slots between clusters so nothing collides. Everything is jittered from
+    // the seeded rng, so the sender's preview and the recipient's card match.
+    const rng = makeRng((seed ^ 0x2c1b3c6d) >>> 0);
+    const clusters = Math.max(strawberries, cherries);
+    const slotCount = clusters + rolls;
+    // Bresenham-style spread: true for `k` of `n` evenly spaced indices.
+    const spread = (i, k, n) => k > 0 && Math.floor((i * k) / n) !== Math.floor(((i + 1) * k) / n);
+    const slotStep = slotCount > 0 ? (Math.PI * 2) / slotCount : 0;
+    const slotStart = rng() * Math.PI * 2;
+
+    let clusterIdx = 0;
+    const waferSlots = [];
+    for (let s = 0; s < slotCount; s++) {
+        const angle = slotStart + s * slotStep + (rng() - 0.5) * slotStep * 0.35;
+        if (spread(s, rolls, slotCount)) {
+            waferSlots.push(angle);
+            continue;
+        }
+        const i = clusterIdx++;
+        // Tuck the cluster slightly inside the rim so fruit never overhangs.
+        const r = topDecorRadius - 0.02 - rng() * 0.07;
+        const hasBerry = spread(i, strawberries, clusters);
+        const hasCherry = spread(i, cherries, clusters);
+
+        if (hasBerry) {
             const strawberry = createStrawberryMesh();
-            strawberry.position.set(
-                Math.cos(angle) * r,
-                topDecorY + Math.sin(s0 * 2.9) * 0.018,
-                Math.sin(angle) * r
-            );
-            strawberry.rotation.set(
-                0.12 + Math.sin(s0 * 1.4) * 0.09,
-                angle + Math.PI / 2 + Math.cos(s0) * 0.35,
-                Math.sin(s0 * 3.3) * 0.13
-            );
-            const s = 1.0 + Math.sin(s0 * 2.1) * 0.09;
-            strawberry.scale.set(s, s * (1 + Math.cos(s0) * 0.05), s);
+            strawberry.position.set(Math.cos(angle) * r, topDecorY, Math.sin(angle) * r);
+            // Most lie tipped over onto their side, as if set down by hand.
+            strawberry.rotation.set(0.2 + rng() * 0.5, rng() * Math.PI * 2, (rng() - 0.5) * 0.3);
+            const sc = 0.9 + rng() * 0.2;
+            strawberry.scale.set(sc, sc * (0.95 + rng() * 0.1), sc);
             if (tagged) strawberry.name = 'strawberry';
             group.add(strawberry);
         }
-    }
 
-    if (cherries > 0) {
-        for (let i = 0; i < cherries; i++) {
-            const s0 = 8.1 + i * 1.9;
-            const angleOffset = strawberries > 0 ? Math.PI / cherries : 0;
-            const angle = (i / cherries) * Math.PI * 2 + angleOffset + Math.sin(s0) * 0.06;
-            const r = topDecorRadius + Math.cos(s0 * 1.6) * 0.05;
+        if (hasCherry) {
+            // Beside the berry (tangential offset, a little inward), or on
+            // the slot itself when it's alone.
+            const side = rng() < 0.5 ? -1 : 1;
+            const off = hasBerry ? 0.15 + rng() * 0.04 : 0;
+            const tx = -Math.sin(angle) * off * side;
+            const tz = Math.cos(angle) * off * side;
+            const rc = hasBerry ? r - 0.06 : r;
             const cherry = createCherryMesh();
-            cherry.position.set(
-                Math.cos(angle) * r,
-                topDecorY + 0.04 + Math.sin(s0 * 2.4) * 0.015,
-                Math.sin(angle) * r
-            );
-            cherry.rotation.set(
-                Math.sin(s0 * 1.8) * 0.12,
-                angle - Math.PI / 2 + Math.cos(s0) * 0.4,
-                Math.sin(s0 * 2.6) * 0.16
-            );
-            cherry.scale.setScalar(0.94 + Math.sin(s0 * 3.1) * 0.1);
+            cherry.position.set(Math.cos(angle) * rc + tx, topDecorY + 0.05, Math.sin(angle) * rc + tz);
+            cherry.rotation.set((rng() - 0.5) * 0.25, rng() * Math.PI * 2, (rng() - 0.5) * 0.3);
+            cherry.scale.setScalar(0.9 + rng() * 0.15);
             if (tagged) cherry.name = 'cherry';
             group.add(cherry);
         }
     }
 
-    if (rolls > 0) {
+    if (waferSlots.length) {
+        // Rolled wafer sticks stand in pairs, pushed into the cream and
+        // splayed slightly outward — the way a pastry chef dresses a cake —
+        // rather than one stick poking out of the side. One InstancedMesh for
+        // all of them; the caps show the chocolate filling.
+        const ROLL_LEN = 0.4;
+        const ROLL_R = 0.026;
+        const rollGeo = new THREE.CylinderGeometry(ROLL_R, ROLL_R, ROLL_LEN, 20, 1);
+        rollGeo.translate(0, ROLL_LEN / 2, 0);
         const rollTexture = createWaferRollTexture();
-        const rollGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.75, 18);
-        const rollMat = new THREE.MeshStandardMaterial({
-            map: rollTexture,
-            roughness: 0.65,
-            metalness: 0.05
+        const sideMat = new THREE.MeshStandardMaterial({ map: rollTexture, roughness: 0.62, metalness: 0 });
+        sideMat.addEventListener('dispose', () => rollTexture.dispose());
+        const capMat = new THREE.MeshStandardMaterial({ color: 0x3a1d0c, roughness: 0.45 });
+
+        const rollsMesh = new THREE.InstancedMesh(rollGeo, [sideMat, capMat, capMat], waferSlots.length * 2);
+        const dummy = new THREE.Object3D();
+        const r = topDecorRadius - 0.08;
+        waferSlots.forEach((angle, w) => {
+            for (let k = 0; k < 2; k++) {
+                const side = k === 0 ? -1 : 1;
+                const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle));
+                const outward = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+                dummy.position.set(Math.cos(angle) * r, topDecorY - 0.04, Math.sin(angle) * r)
+                    .addScaledVector(tangent, side * ROLL_R * 1.15);
+                // Lean outward, splay apart, and vary each stick's height a touch.
+                const lean = 0.14 + rng() * 0.08;
+                const splay = side * (0.07 + rng() * 0.05);
+                dummy.quaternion.setFromAxisAngle(tangent, -lean)
+                    .premultiply(new THREE.Quaternion().setFromAxisAngle(outward, splay));
+                dummy.scale.set(1, 0.88 + rng() * 0.2, 1);
+                dummy.updateMatrix();
+                rollsMesh.setMatrixAt(w * 2 + k, dummy.matrix);
+            }
         });
-
-        for (let i = 0; i < rolls; i++) {
-            const angle = (i / rolls) * Math.PI * 2 + Math.PI / 8;
-            const rollGroup = new THREE.Group();
-
-            const rollMesh = new THREE.Mesh(rollGeo, rollMat);
-            rollMesh.castShadow = true;
-            rollGroup.add(rollMesh);
-
-            const s0 = 1.3 + i * 2.7;
-            const lean = 0.55 + Math.sin(s0) * 0.13;
-            const r = topDecorRadius * 1.08 + Math.sin(s0 * 1.5) * 0.04;
-            rollGroup.position.set(
-                Math.cos(angle) * r,
-                topDecorY - 0.25 + Math.sin(s0 * 2.2) * 0.03,
-                Math.sin(angle) * r
-            );
-            rollGroup.rotation.x = -Math.sin(angle) * lean;
-            rollGroup.rotation.z = Math.cos(angle) * lean;
-            rollGroup.rotation.y = -angle;
-            if (tagged) rollGroup.name = 'wafer-roll';
-
-            group.add(rollGroup);
-        }
+        rollsMesh.castShadow = true;
+        rollsMesh.receiveShadow = true;
+        if (tagged) rollsMesh.name = 'wafer-roll';
+        group.add(rollsMesh);
     }
 
     if (sprinkles) {

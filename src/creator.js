@@ -7,87 +7,14 @@ import {
     setupStudioLighting,
     tuneMaterialsForEnvironment,
     createBloomComposer,
-    isMobileViewport
+    isMobileViewport,
+    tintRimLight
 } from './render-quality.js';
 import {
     buildCakeModel,
     createHolographicScannerTexture
 } from './cake-models.js';
-
-// Realistic Organic Teardrop Candle Flame Shader with Natural S-curve Flicker & Heat Glow
-const flameVertexShader = `
-    uniform float uTime;
-    varying vec2 vUv;
-    varying vec3 vPosition;
-    varying vec3 vNormal;
-    
-    void main() {
-        vUv = uv;
-        vPosition = position;
-        vNormal = normal;
-        
-        vec3 pos = position;
-        
-        // Organic natural heat convection swaying (gentle wind and thermal lift)
-        float swayFactor = smoothstep(0.0, 1.0, (pos.y + 0.1) / 0.28);
-        float swayX = sin(uTime * 3.5 + pos.y * 10.0) * 0.022 * swayFactor;
-        float swayZ = cos(uTime * 2.8 + pos.y * 8.0) * 0.016 * swayFactor;
-        
-        // Teardrop pulse and flicker
-        float flicker = sin(uTime * 14.0) * 0.04 * swayFactor;
-        
-        pos.x += swayX;
-        pos.z += swayZ;
-        pos.y += flicker;
-        
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
-    }
-`;
-
-const flameFragmentShader = `
-    varying vec2 vUv;
-    varying vec3 vPosition;
-    varying vec3 vNormal;
-    uniform float uTime;
-    
-    void main() {
-        // Normalized height from candle wick base to tip [0.0 -> 1.0]
-        float h = clamp((vPosition.y + 0.09) / 0.26, 0.0, 1.0);
-        
-        // Realistic candle flame color zones:
-        // 1. Blue combustion oxygen base (h = 0.0 -> 0.15)
-        // 2. Rich warm orange core (h = 0.15 -> 0.45)
-        // 3. Bright golden yellow body (h = 0.45 -> 0.85)
-        // 4. Brilliant white-hot incandescent center tip (h = 0.85 -> 1.0)
-        vec3 blueBase   = vec3(0.12, 0.38, 0.98); // Blue base
-        vec3 orangeCore = vec3(1.00, 0.42, 0.02); // Warm orange
-        vec3 goldenBody = vec3(1.00, 0.82, 0.15); // Golden yellow
-        vec3 whiteHot   = vec3(1.00, 0.98, 0.88); // White hot core
-        
-        vec3 flameColor;
-        if (h < 0.18) {
-            flameColor = mix(blueBase, orangeCore, h / 0.18);
-        } else if (h < 0.55) {
-            flameColor = mix(orangeCore, goldenBody, (h - 0.18) / 0.37);
-        } else {
-            flameColor = mix(goldenBody, whiteHot, (h - 0.55) / 0.45);
-        }
-        
-        // Radial center core glow: inner is brilliant white, outer edge is translucent
-        float distFromCenter = length(vPosition.xz) / 0.07;
-        float coreGlow = smoothstep(0.8, 0.0, distFromCenter);
-        flameColor = mix(flameColor, whiteHot, coreGlow * (1.0 - h * 0.5) * 0.7);
-        
-        // Soft outer opacity falloff (teardrop natural contour)
-        float alpha = smoothstep(1.0, 0.1, distFromCenter);
-        alpha *= smoothstep(0.0, 0.12, h) * smoothstep(1.0, 0.7, h);
-        
-        // Natural candle flame micro-shimmer
-        float shimmer = 0.92 + sin(uTime * 25.0 + h * 8.0) * 0.08;
-        
-        gl_FragColor = vec4(flameColor, clamp(alpha * shimmer * 1.5, 0.0, 1.0));
-    }
-`;
+import { buildCandles } from './cake/candles.js';
 
 // Presets Configuration
 const presets = {
@@ -823,7 +750,7 @@ function createFloatingLabelSprite(text, colorStr) {
     ctx.stroke();
     
     // Strip raw emoji characters to guarantee zero font rendering blocks
-    const cleanText = text.replace(/[✉️]/g, '').trim();
+    const cleanText = text.replace(/✉️?/gu, '').trim();
     
     // Set text alignment to left to draw icon beside it
     ctx.shadowColor = colorStr;
@@ -1356,6 +1283,11 @@ function init3DPreview() {
     // Bloom post-processing so flames, rings and the neon topper actually glow
     previewBloom = createBloomComposer(previewRenderer, previewScene, previewCamera);
 
+    // Dev-only handle for headless render/debug scripts; stripped from builds.
+    if (import.meta.env.DEV) {
+        window.__hbdPreview = { scene: previewScene, camera: previewCamera, renderer: previewRenderer, bloom: previewBloom };
+    }
+
     // Animation Render Loop
     const clock = new THREE.Clock();
     
@@ -1386,17 +1318,7 @@ function init3DPreview() {
             cakeGroup.position.y = Math.sin(elapsed * 1.5) * 0.08;
         }
 
-        // Animate tiny candle flame shapes
-        candleMeshes.forEach(candle => {
-            const flame = candle.getObjectByName('flame');
-            if (flame) {
-                const scaleTime = elapsed * 8 + candle.position.x * 10;
-                flame.scale.y = 1.0 + Math.sin(scaleTime) * 0.15;
-                flame.scale.x = 1.0 + Math.cos(scaleTime * 1.2) * 0.1;
-                flame.scale.z = 1.0 + Math.sin(scaleTime * 1.5) * 0.1;
-            }
-        });
-
+        // Flame flicker and sway run in the flame shader off uTime.
         if (flameMaterial) {
             flameMaterial.uniforms.uTime.value = elapsed;
         }
@@ -1554,84 +1476,14 @@ function rebuildCake() {
         detail: isMobileViewport() ? 0.6 : 1
     });
 
-    // Realistic Candles builder
-    const candleGeo = new THREE.CylinderGeometry(0.046, 0.052, 0.45, 20);
-    const wickGeo = new THREE.CylinderGeometry(0.008, 0.008, 0.08, 8);
-    const waxCollarGeo = new THREE.SphereGeometry(0.05, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
-
-    // Realistic Organic Teardrop Flame Geometry
-    const flameGeo = new THREE.SphereGeometry(0.065, 16, 16);
-    const flamePos = flameGeo.attributes.position;
-    for (let i = 0; i < flamePos.count; i++) {
-        let x = flamePos.getX(i);
-        let y = flamePos.getY(i);
-        let z = flamePos.getZ(i);
-        
-        if (y > 0.0) {
-            y *= 2.2;
-            const taper = 1.0 - (y / 0.16);
-            x *= Math.max(0.1, taper);
-            z *= Math.max(0.1, taper);
-        } else {
-            y *= 0.8;
-        }
-        flamePos.setXYZ(i, x, y + 0.05, z);
-    }
-    flameGeo.computeVertexNormals();
-
-    const candleColors = [0x55ffaa, 0xffbb44, 0xff55aa, 0x44bbff, 0xdd88ff];
-    const wickMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 });
-
+    // Candles come from the same shared builder as the viewer's.
     if (flameMaterial) flameMaterial.dispose();
-    flameMaterial = new THREE.ShaderMaterial({
-        vertexShader: flameVertexShader,
-        fragmentShader: flameFragmentShader,
-        uniforms: {
-            uTime: { value: 0.0 }
-        },
-        transparent: true,
-        side: THREE.DoubleSide,
-        depthWrite: false
+    const builtCandles = buildCandles(cakeGroup, { candlePlacerRadius, candleBaseY, isHeartShape }, {
+        count: candleCount,
+        candleColor
     });
-
-    for (let i = 0; i < candleCount; i++) {
-        const angle = (i / candleCount) * Math.PI * 2;
-        const candleGroup = new THREE.Group();
-
-        const cColor = candleColor ? new THREE.Color(candleColor) : candleColors[i % candleColors.length];
-        const candleMat = new THREE.MeshStandardMaterial({ color: cColor, roughness: 0.5 });
-
-        const stick = new THREE.Mesh(candleGeo, candleMat);
-        stick.position.y = 0.225;
-        stick.castShadow = true;
-        stick.rotation.z = Math.sin(i * 2.4) * 0.03;
-        candleGroup.add(stick);
-
-        const waxCollar = new THREE.Mesh(waxCollarGeo, candleMat);
-        waxCollar.position.y = 0.442;
-        waxCollar.scale.set(1.0, 0.42, 1.0);
-        waxCollar.castShadow = true;
-        candleGroup.add(waxCollar);
-
-        const wick = new THREE.Mesh(wickGeo, wickMat);
-        wick.position.y = 0.48;
-        candleGroup.add(wick);
-
-        const flame = new THREE.Mesh(flameGeo, flameMaterial);
-        flame.position.y = 0.58;
-        flame.name = 'flame';
-        candleGroup.add(flame);
-
-        let cX = Math.cos(angle) * candlePlacerRadius;
-        let cZ = Math.sin(angle) * candlePlacerRadius;
-        if (isHeartShape) {
-            cZ = (Math.sin(angle) * 0.85 - 0.2) * candlePlacerRadius;
-        }
-
-        candleGroup.position.set(cX, candleBaseY, cZ);
-        cakeGroup.add(candleGroup);
-        candleMeshes.push(candleGroup);
-    }
+    flameMaterial = builtCandles.flameMaterial;
+    candleMeshes = builtCandles.candles.map((c) => c.group);
 
     // 3. Rebuild Floating 3D Envelope and Pointer if enabled
     const letterEnabled = document.getElementById('letter-enabled')?.checked ?? true;
@@ -1708,7 +1560,7 @@ function rebuildCake() {
     if (previewLights) {
         // Rim light follows the theme's accent so the silhouette always reads
         // against the dark background, whatever palette is picked.
-        previewLights.rim.color.set(creamColor || getThemeRGBColors().cream);
+        tintRimLight(previewLights.rim, getThemeRGBColors().cream);
     }
 }
 

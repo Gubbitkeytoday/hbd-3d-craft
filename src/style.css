@@ -5,8 +5,8 @@
 /* 1. ROOT & CUSTOM THEMES VARIABLE SYSTEM */
 :root {
     /* Fonts */
-    --font-primary: 'Outfit', sans-serif;
-    --font-display: 'Playfair Display', serif;
+    --font-primary: 'Outfit', 'Noto Sans Thai', sans-serif;
+    --font-display: 'Playfair Display', 'Noto Serif Thai', serif;
 
     /* Base Glassmorphism & Shadow Tokens */
     --glass-bg: rgba(255, 255, 255, 0.08);
@@ -1429,15 +1429,15 @@ body {
 }
 
 .font-serif h2 {
-    font-family: 'Playfair Display', serif !important;
+    font-family: 'Playfair Display', 'Noto Serif Thai', serif !important;
     font-style: italic !important;
 }
 .font-serif p, .font-serif .signature {
-    font-family: 'Playfair Display', serif !important;
+    font-family: 'Playfair Display', 'Noto Serif Thai', serif !important;
 }
 
 .font-handwriting h2 {
-    font-family: 'Great Vibes', cursive !important;
+    font-family: 'Great Vibes', 'Mali', cursive !important;
     font-weight: 400 !important;
     font-size: 3.5rem !important;
     font-style: normal !important;
@@ -1446,13 +1446,14 @@ body {
     -webkit-text-fill-color: transparent !important;
 }
 .font-handwriting p {
-    font-family: 'Great Vibes', cursive !important;
+    font-family: 'Great Vibes', 'Mali', cursive !important;
     font-size: 1.8rem !important;
-    line-height: 1.4 !important;
+    /* Thai glyphs (Mali fallback) need room for stacked tone marks */
+    line-height: 1.65 !important;
     font-weight: 400 !important;
 }
 .font-handwriting .signature {
-    font-family: 'Great Vibes', cursive !important;
+    font-family: 'Great Vibes', 'Mali', cursive !important;
     font-size: 1.8rem !important;
     font-weight: 400 !important;
 }
@@ -2229,14 +2230,14 @@ body {
 
 .envelope-paper.theme-romance h2 {
     color: #cc1124;
-    font-family: 'Great Vibes', cursive;
+    font-family: 'Great Vibes', 'Mali', cursive;
     font-size: 2.8rem;
     text-shadow: none;
 }
 
 .envelope-paper.theme-romance #letter-popup-body {
     color: #4a0e17;
-    font-family: 'Great Vibes', cursive;
+    font-family: 'Great Vibes', 'Mali', cursive;
     font-size: 1.8rem;
     letter-spacing: 0.5px;
 }

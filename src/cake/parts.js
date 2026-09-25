@@ -231,28 +231,54 @@ export function createHolographicScannerTexture(colorStr) {
     return new THREE.CanvasTexture(canvas);
 }
 
+/**
+ * Side of a rolled wafer stick: golden baked wafer spiralling around the
+ * tube with a chocolate cream stripe in the seam. The old texture was thick
+ * dark diagonals on beige, which at stick scale read as a striped matchstick.
+ * Painted per pixel so the spiral wraps seamlessly around the circumference
+ * (u) and the length (v).
+ */
 export function createWaferRollTexture() {
+    const W = 128;
+    const H = 256;
+    const TURNS = 3;
     const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
+    canvas.width = W;
+    canvas.height = H;
     const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(W, H);
 
-    ctx.fillStyle = '#edd1b8';
-    ctx.fillRect(0, 0, 128, 128);
+    const wafer = new THREE.Color(0xd99a52);
+    const waferLight = new THREE.Color(0xf0c47e);
+    const choco = new THREE.Color(0x3b1c0b);
+    const c = new THREE.Color();
+    const smooth = THREE.MathUtils.smoothstep;
 
-    ctx.strokeStyle = '#42250d';
-    ctx.lineWidth = 14;
-    for (let offset = -128; offset < 256; offset += 32) {
-        ctx.beginPath();
-        ctx.moveTo(offset, 0);
-        ctx.lineTo(offset + 128, 128);
-        ctx.stroke();
+    for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+            const t = ((x / W + (y / H) * TURNS) % 1 + 1) % 1;
+            // Baked colour: lighter mid-band on each wafer turn, fine grain
+            // across it, darker where it tucks under the next turn.
+            const band = Math.sin(t * Math.PI);
+            c.copy(wafer).lerp(waferLight, band * 0.6);
+            const grain = 0.94 + 0.06 * Math.sin((x / W) * Math.PI * 2 * 24 + y * 0.9);
+            c.multiplyScalar(grain * (0.85 + 0.15 * smooth(t, 0.0, 0.1)));
+            // Chocolate stripe in the seam, with soft edges.
+            const m = smooth(t, 0.8, 0.83) * (1 - smooth(t, 0.95, 0.98));
+            c.lerp(choco, m);
+            const k = (y * W + x) * 4;
+            img.data[k] = Math.round(Math.min(1, c.r) * 255);
+            img.data[k + 1] = Math.round(Math.min(1, c.g) * 255);
+            img.data[k + 2] = Math.round(Math.min(1, c.b) * 255);
+            img.data[k + 3] = 255;
+        }
     }
+    ctx.putImageData(img, 0, 0);
 
     const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(2, 1);
     return texture;
 }
 
@@ -458,47 +484,216 @@ export function createBeveledCylinder(radius, height, bevelRadius) {
  * The heart profile every heart-shaped part is derived from.
  *
  * Local extents for a given `scale` (with s = scale * 0.95):
- *   x ∈ [-2.15s, 2.15s]   y ∈ [-1.85s, 1.5s]
+ *   x ∈ [-1.78s, 1.78s]   y ∈ [-1.85s, 1.5s]
  * The y range is asymmetric, which matters — see HEART_CENTER_RATIO.
+ *
+ * Proportions are what make it read as a heart from a 30° camera: a cleft
+ * cut 0.55s deep between full round lobes, and sides that run almost straight
+ * into the point. The previous profile's lobes bulged 2.15s out over a very
+ * shallow, knife-sharp cleft, so from above it looked like two drums fused
+ * together with a crack between them.
  */
 export function getHeartShape(scale = 1.0) {
     const shape = new THREE.Shape();
     const s = scale * 0.95;
-    shape.moveTo(0, 0.45 * s);
-    shape.bezierCurveTo(0.1 * s, 0.9 * s, 0.8 * s, 1.5 * s, 1.45 * s, 1.5 * s);
-    shape.bezierCurveTo(2.15 * s, 1.5 * s, 2.15 * s, 0.85 * s, 2.15 * s, 0.45 * s);
-    shape.bezierCurveTo(2.15 * s, -0.35 * s, 1.2 * s, -1.15 * s, 0, -1.85 * s);
-    shape.bezierCurveTo(-1.2 * s, -1.15 * s, -2.15 * s, -0.35 * s, -2.15 * s, 0.45 * s);
-    shape.bezierCurveTo(-2.15 * s, 0.85 * s, -2.15 * s, 1.5 * s, -1.45 * s, 1.5 * s);
-    shape.bezierCurveTo(-0.8 * s, 1.5 * s, -0.1 * s, 0.9 * s, 0, 0.45 * s);
+    shape.moveTo(0, 0.95 * s);
+    shape.bezierCurveTo(0.14 * s, 1.24 * s, 0.46 * s, 1.5 * s, 0.9 * s, 1.5 * s);
+    shape.bezierCurveTo(1.42 * s, 1.5 * s, 1.78 * s, 1.12 * s, 1.78 * s, 0.6 * s);
+    shape.bezierCurveTo(1.78 * s, -0.12 * s, 0.62 * s, -1.08 * s, 0, -1.85 * s);
+    shape.bezierCurveTo(-0.62 * s, -1.08 * s, -1.78 * s, -0.12 * s, -1.78 * s, 0.6 * s);
+    shape.bezierCurveTo(-1.78 * s, 1.12 * s, -1.42 * s, 1.5 * s, -0.9 * s, 1.5 * s);
+    shape.bezierCurveTo(-0.46 * s, 1.5 * s, -0.14 * s, 1.24 * s, 0, 0.95 * s);
     return shape;
 }
 
 /**
- * geo.center() inside createHeartCakeGeometry shifts the profile up by this
- * fraction of s, because the heart's y range isn't symmetric about 0:
+ * Heart parts are centred on the profile's bounding box, which shifts it up
+ * by this fraction of s because the y range isn't symmetric about 0:
  *   centre = (1.5s + (-1.85s)) / 2 = -0.175s
  *
  * Every decoration that follows the heart perimeter has to apply the same
- * shift or it floats off the cake. The old piping ring didn't, and also
- * double-applied its scale — the base frill sat ~26% outside the sponge and a
- * quarter of a unit off in Z.
+ * shift or it floats off the cake. heartPerimeterPoints() does it for you.
  */
 export const HEART_CENTER_RATIO = 0.175;
 
+/**
+ * Dense, evenly spaced, slightly smoothed outline in shape space with outward
+ * normals, starting at the cleft and running over one lobe to the point.
+ *
+ * The Laplacian passes round the point and the cleft by well under a tenth of
+ * a unit. A mathematically sharp corner can't take a rounded top edge (the
+ * inset rings cross over each other there), and the sharp cleft is exactly
+ * what drew the old dark seam down the middle of the cake.
+ */
+function heartOutline(scale) {
+    const n = 480;
+    let pts = getHeartShape(scale).getSpacedPoints(n).slice(0, n).map((p) => [p.x, p.y]);
+    for (let pass = 0; pass < 28; pass++) {
+        pts = pts.map((p, i) => {
+            const a = pts[(i - 1 + n) % n];
+            const b = pts[(i + 1) % n];
+            return [p[0] * 0.5 + (a[0] + b[0]) * 0.25, p[1] * 0.5 + (a[1] + b[1]) * 0.25];
+        });
+    }
+
+    // The winding decides which side of the tangent is "out". A signed area
+    // is robust where a centroid test isn't (along the flanks of the cleft).
+    let area = 0;
+    for (let i = 0; i < n; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % n];
+        area += a[0] * b[1] - b[0] * a[1];
+    }
+    const sign = area < 0 ? -1 : 1;
+
+    const normals = [];
+    const lengths = [0];
+    for (let i = 0; i < n; i++) {
+        const a = pts[(i - 1 + n) % n];
+        const b = pts[(i + 1) % n];
+        const tx = b[0] - a[0];
+        const ty = b[1] - a[1];
+        const len = Math.hypot(tx, ty) || 1;
+        // CCW outline: outward = tangent rotated -90°
+        normals.push([(sign * ty) / len, (sign * -tx) / len]);
+        const c = pts[(i + 1) % n];
+        lengths.push(lengths[i] + Math.hypot(c[0] - pts[i][0], c[1] - pts[i][1]));
+    }
+    return { pts, normals, lengths, total: lengths[n] };
+}
+
+/**
+ * `count` points evenly spaced by arc length from the cleft, each with its
+ * outward normal. For even counts index count/2 lands exactly on the point,
+ * so decorations come out mirror-symmetric.
+ */
+function sampleHeart(scale, count) {
+    const { pts, normals, lengths, total } = heartOutline(scale);
+    const n = pts.length;
+    const out = [];
+    let k = 0;
+    for (let i = 0; i < count; i++) {
+        const target = (i / count) * total;
+        while (k < n - 1 && lengths[k + 1] < target) k++;
+        const f = (target - lengths[k]) / ((lengths[k + 1] - lengths[k]) || 1);
+        const a = pts[k];
+        const b = pts[(k + 1) % n];
+        const na = normals[k];
+        const nb = normals[(k + 1) % n];
+        const nx = na[0] + (nb[0] - na[0]) * f;
+        const ny = na[1] + (nb[1] - na[1]) * f;
+        const nl = Math.hypot(nx, ny) || 1;
+        out.push({
+            x: a[0] + (b[0] - a[0]) * f,
+            y: a[1] + (b[1] - a[1]) * f,
+            nx: nx / nl,
+            ny: ny / nl
+        });
+    }
+    return { samples: out, perimeter: total };
+}
+
+/**
+ * A heart slab: straight walls, a rounded top edge of radius `bevelSize`, a
+ * tighter one at the foot, and flat caps. Centred on its bounding box with
+ * the point facing +Z, like the ExtrudeGeometry version it replaces.
+ *
+ * Built by hand because ExtrudeGeometry emits non-indexed triangles: the
+ * walls shaded as flat facets and the bevel creased where the lobes meet.
+ * Here every ring shares vertices all the way round, so normals are smooth.
+ * Note the wall sits exactly on the outline (Extrude's bevel pushed it out
+ * by bevelSize).
+ */
 export function createHeartCakeGeometry(scale, height, bevelSize) {
-    const shape = getHeartShape(scale);
-    const geo = new THREE.ExtrudeGeometry(shape, {
-        depth: height - bevelSize * 2,
-        steps: 1,
-        bevelEnabled: true,
-        bevelSegments: 6,
-        bevelSize,
-        bevelThickness: bevelSize,
-        curveSegments: 56
-    });
-    geo.center();
-    geo.rotateX(-Math.PI / 2); // Point faces toward front (+Z)
+    const N = 168;
+    const { samples } = sampleHeart(scale, N);
+    const zShift = HEART_CENTER_RATIO * scale * 0.95;
+    const r = Math.min(bevelSize, height * 0.45);
+    const rb = r * 0.5;
+    const ARC = 6;
+
+    // Profile rows: [offset along the outward normal, height, cos, sin]
+    const prof = [];
+    for (let k = 0; k <= ARC; k++) {
+        const phi = -Math.PI / 2 + (k / ARC) * (Math.PI / 2);
+        prof.push([-rb + rb * Math.cos(phi), rb + rb * Math.sin(phi), Math.cos(phi), Math.sin(phi)]);
+    }
+    for (let k = 0; k <= ARC; k++) {
+        const phi = (k / ARC) * (Math.PI / 2);
+        prof.push([-r + r * Math.cos(phi), height - r + r * Math.sin(phi), Math.cos(phi), Math.sin(phi)]);
+    }
+    const rows = prof.length;
+
+    const pos = [];
+    const nor = [];
+    const uv = [];
+    const idx = [];
+    const toWorld = (p, d, h) => [p.x + p.nx * d, h - height / 2, -(p.y + p.ny * d + zShift)];
+
+    // Side: N + 1 columns so the UV seam (at the cleft, facing away) can wrap
+    for (let i = 0; i <= N; i++) {
+        const p = samples[i % N];
+        for (let j = 0; j < rows; j++) {
+            const [d, h, c, sn] = prof[j];
+            pos.push(...toWorld(p, d, h));
+            nor.push(p.nx * c, sn, -p.ny * c);
+            uv.push(i / N, h / height);
+        }
+    }
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < rows - 1; j++) {
+            const a = i * rows + j;
+            const b = (i + 1) * rows + j;
+            idx.push(a, b, b + 1, a, b + 1, a + 1);
+        }
+    }
+    const sideIndexCount = idx.length;
+
+    // Caps: flat, with their own vertices (planar UVs), triangulated from the
+    // innermost ring of the rounded edges.
+    const up = new THREE.Vector3();
+    const faceNormal = (a, b, c) => {
+        const va = new THREE.Vector3().fromArray(pos, a * 3);
+        const vb = new THREE.Vector3().fromArray(pos, b * 3).sub(va);
+        const vc = new THREE.Vector3().fromArray(pos, c * 3).sub(va);
+        return vb.cross(vc);
+    };
+    const cap = (row, dir) => {
+        const base = pos.length / 3;
+        const contour = [];
+        for (let i = 0; i < N; i++) {
+            const w = toWorld(samples[i], prof[row][0], prof[row][1]);
+            pos.push(...w);
+            nor.push(0, dir, 0);
+            uv.push(w[0] / 3 + 0.5, w[2] / 3 + 0.5);
+            contour.push(new THREE.Vector2(w[0], w[2]));
+        }
+        up.set(0, dir, 0);
+        THREE.ShapeUtils.triangulateShape(contour, []).forEach(([a, b, c]) => {
+            if (faceNormal(base + a, base + b, base + c).dot(up) >= 0) idx.push(base + a, base + b, base + c);
+            else idx.push(base + a, base + c, base + b);
+        });
+    };
+    cap(rows - 1, 1);
+    cap(0, -1);
+
+    // Side winding follows the outline's direction, so test one wall quad
+    // against its intended normal and flip the side if it faces inward.
+    const wall = ARC; // first vertex of the straight wall in column 0
+    const wantN = new THREE.Vector3().fromArray(nor, wall * 3);
+    if (faceNormal(wall, rows + wall, rows + wall + 1).dot(wantN) < 0) {
+        for (let t = 0; t < sideIndexCount; t += 3) {
+            const tmp = idx[t + 1];
+            idx[t + 1] = idx[t + 2];
+            idx[t + 2] = tmp;
+        }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
     return geo;
 }
 
@@ -548,44 +743,36 @@ export function roundedRectShape(width, depth, radius, PathClass = THREE.Shape) 
 
 /**
  * Samples the heart perimeter and returns world-space XZ points with matching
- * outward normals, already corrected for the centering shift.
+ * outward normals, already corrected for the centering shift. Points are
+ * evenly spaced by arc length starting at the cleft; for even counts index
+ * count/2 is the point of the heart.
  *
  * @param {number} scale  the same scale passed to createHeartCakeGeometry
- * @param {number} count  number of points (the closing duplicate is dropped)
+ * @param {number} count  number of points
  * @param {number} outset positive pushes outward, negative insets
+ * @returns {{x, z, nx, nz, tx, tz, angle}[]} n = outward normal, t = the
+ *   direction of travel; `rotation.y = angle` turns a mesh's +X outward
  */
 export function heartPerimeterPoints(scale, count, outset = 0) {
-    const s = scale * 0.95;
-    const zShift = HEART_CENTER_RATIO * s;
-    const pts = getHeartShape(scale).getSpacedPoints(count);
-
-    // getSpacedPoints returns count + 1 entries, the last one repeating the
-    // first. Keeping it stamped a doubled rosette at the cleft.
-    const ring = pts.slice(0, count);
-
-    return ring.map((pt, i) => {
-        const prev = ring[(i - 1 + count) % count];
-        const next = ring[(i + 1) % count];
-
-        // Outward normal = tangent rotated 90°, sign-corrected against the
-        // vector from the centroid so it never points into the cake.
-        let nx = -(next.y - prev.y);
-        let ny = next.x - prev.x;
-        const len = Math.hypot(nx, ny) || 1;
-        nx /= len;
-        ny /= len;
-        if (nx * pt.x + ny * (pt.y + zShift) < 0) {
-            nx = -nx;
-            ny = -ny;
-        }
-
-        const x = pt.x + nx * outset;
-        const y = pt.y + ny * outset;
+    const zShift = HEART_CENTER_RATIO * scale * 0.95;
+    const { samples } = sampleHeart(scale, count);
+    return samples.map((p, i) => {
+        // Tangent from the neighbours, in world XZ (shape y maps to -z)
+        const a = samples[(i - 1 + count) % count];
+        const b = samples[(i + 1) % count];
+        let tx = b.x - a.x;
+        let tz = -(b.y - a.y);
+        const tl = Math.hypot(tx, tz) || 1;
+        tx /= tl;
+        tz /= tl;
         return {
-            x,
-            z: -(y + zShift),
-            // Facing angle in the XZ plane, for orienting the decoration
-            angle: Math.atan2(-ny, nx)
+            x: p.x + p.nx * outset,
+            z: -(p.y + p.ny * outset + zShift),
+            nx: p.nx,
+            nz: -p.ny,
+            tx,
+            tz,
+            angle: Math.atan2(p.ny, p.nx)
         };
     });
 }
@@ -635,12 +822,15 @@ export function getPlateMaterial(plateStyle, customColor = '') {
             break;
         case 'ceramic':
         default:
+            // Glazed stoneware, not a mirror: a near-perfect clearcoat turned
+            // the theme-tinted rim light into a pinpoint on the plate edge
+            // bright enough to bloom into a white blob on light themes.
             mat = new THREE.MeshPhysicalMaterial({
                 color: 0xfbfbf8,
-                roughness: 0.15,
+                roughness: 0.3,
                 metalness: 0.02,
-                clearcoat: 0.9,
-                clearcoatRoughness: 0.05
+                clearcoat: 0.55,
+                clearcoatRoughness: 0.22
             });
             break;
     }
@@ -1339,11 +1529,16 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
 
     const group = new THREE.Group();
 
+    // Sized to complement the cake, not dominate it: the sign used to sit
+    // 1.25 above the top at full size, towering over the candles and reading
+    // as the whole silhouette. Now it stands at roughly twice candle height.
+    const SIGN_Y = 0.82;
     const rod = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.015, 0.015, 1.25, 8),
+        new THREE.CylinderGeometry(0.011, 0.011, SIGN_Y + 0.05, 8),
         new THREE.MeshStandardMaterial({ color: 0xe0e0e0, metalness: 0.9, roughness: 0.1 })
     );
-    rod.position.y = 0.6;
+    // Pushed ~5cm into the cake so it looks planted.
+    rod.position.y = (SIGN_Y + 0.05) / 2 - 0.05;
     rod.castShadow = true;
     group.add(rod);
 
@@ -1386,7 +1581,7 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
 
         const materials = [sideMat, sideMat, sideMat, sideMat, frontBackMat, frontBackMat];
         signMesh = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.04), materials);
-        signMesh.position.y = 1.25;
+        signMesh.position.y = SIGN_Y;
     } else if (topperStyle === 'best-senpai') {
         const heartShape = new THREE.Shape();
         heartShape.moveTo(0, 0.1);
@@ -1409,7 +1604,7 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
             clearcoatRoughness: 0.02,
             emissive: customRimColor ? new THREE.Color(customRimColor).multiplyScalar(0.25) : 0x3d0006
         }));
-        signMesh.position.y = 1.25;
+        signMesh.position.y = SIGN_Y;
     } else if (topperStyle === 'star') {
         const starShape = new THREE.Shape();
         const spikes = 5;
@@ -1433,7 +1628,7 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
             metalness: 0.92,
             emissive: customRimColor ? new THREE.Color(customRimColor).multiplyScalar(0.25) : 0x3f2f00
         }));
-        signMesh.position.y = 1.25;
+        signMesh.position.y = SIGN_Y;
     } else if (topperStyle === 'hbd') {
         const crownShape = new THREE.Shape();
         crownShape.moveTo(-0.5, -0.2);
@@ -1457,10 +1652,12 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
             metalness: 0.95,
             emissive: customRimColor ? new THREE.Color(customRimColor).multiplyScalar(0.25) : 0x331a00
         }));
-        signMesh.position.y = 1.25;
+        signMesh.position.y = SIGN_Y;
     }
 
     if (signMesh) {
+        // Text plaques stay larger so short names remain legible.
+        signMesh.scale.setScalar(customText ? 0.72 : 0.56);
         signMesh.castShadow = true;
         group.add(signMesh);
     }
@@ -1530,19 +1727,66 @@ export function addShellBorder(group, count, radius, y, seedBase, colorHex = 0xf
     }
 }
 
-/** Pipes ruffled buttercream frills along a heart perimeter. */
-export function addHeartPipingRing(group, scale, y, count = 38, colorHex = 0xfffafb, outset = 0, sizeScale = 1.4, detail = 1) {
-    const points = heartPerimeterPoints(scale, scaleCount(count, detail, 16), outset);
-    const mat = createButtercreamPipingMaterial(colorHex);
-    points.forEach((pt, i) => {
-        const seed = i * 2.1;
-        const cream = createPipedCreamMesh(colorHex, seed, detail, mat);
-        cream.position.set(pt.x, y + Math.sin(seed * 2.3) * 0.008, pt.z);
-        cream.rotation.set(0.12, pt.angle, 0.05);
-        const s = sizeScale + Math.sin(seed * 2.3) * 0.1;
-        cream.scale.set(s, s * 1.2, s);
-        group.add(cream);
+/**
+ * Shell border along a heart perimeter: star-nozzle teardrops laid
+ * head-to-tail, each tail tucked under the next head, baked into one mesh.
+ *
+ * Options:
+ *   count   shells at detail 1 (thinned by detail; shells grow to stay joined)
+ *   color   piping colour, or pass `material` to share one
+ *   outset  offset from the wall along the outward normal
+ *   size    shell scale (a size-1 shell is ~0.29 long)
+ *   tilt    leans the shells outward (+) over an edge, radians
+ *   zigzag  alternating yaw, radians: turns a plain border into the
+ *           back-and-forth "reverse shell" of Lambeth piping
+ *   reverse pipe in the opposite direction round the heart
+ */
+export function addHeartPipingRing(group, scale, y, {
+    count = 48, color = 0xfffafb, material = null, outset = 0, size = 1,
+    tilt = 0, zigzag = 0, reverse = false, detail = 1
+} = {}) {
+    const n = scaleCount(count, detail, 16);
+    const pts = heartPerimeterPoints(scale, n, outset);
+    const mat = material || createButtercreamPipingMaterial(color);
+
+    // Each shell must overlap the next by ~35% to read as one continuous
+    // border; on phones the count drops, so the shells get longer instead.
+    let spacing = 0;
+    for (let i = 0; i < n; i++) {
+        const b = pts[(i + 1) % n];
+        spacing += Math.hypot(b.x - pts[i].x, b.z - pts[i].z);
+    }
+    spacing /= n;
+    const s = Math.max(size, (spacing * 1.35) / 0.29);
+
+    // A few ridge-phase variants are plenty; building one per shell is waste
+    const variants = [0, 1.7, 3.1, 4.6].map((seed) => {
+        const m = createPipedShellMesh(color, seed, detail, mat);
+        return m.geometry;
     });
+
+    const X = new THREE.Vector3();
+    const Y = new THREE.Vector3();
+    const Z = new THREE.Vector3();
+    const N = new THREE.Vector3();
+    const m4 = new THREE.Matrix4();
+    const parts = pts.map((p, i) => {
+        const dir = reverse ? -1 : 1;
+        N.set(p.nx, 0, p.nz);
+        X.set(p.tx * dir, 0, p.tz * dir);
+        Y.set(0, Math.cos(tilt), 0).addScaledVector(N, Math.sin(tilt));
+        if (zigzag) X.applyAxisAngle(Y, i % 2 ? zigzag : -zigzag);
+        Z.crossVectors(X, Y).normalize();
+        const k = s * (1 + Math.sin(i * 2.31) * 0.05);
+        m4.makeBasis(X, Y, Z).scale(new THREE.Vector3(k, k, k));
+        m4.setPosition(p.x, y + Math.sin(i * 2.9) * 0.004, p.z);
+        return variants[i % variants.length].clone().applyMatrix4(m4);
+    });
+    variants.forEach((g) => g.dispose());
+
+    const mesh = partsToMesh(parts, mat);
+    group.add(mesh);
+    return mesh;
 }
 
 /** String of lustrous sugar pearls along a tier rim — one instanced draw. */
