@@ -1163,8 +1163,11 @@ function computeHero() {
     // (heart, bento) come closer so the cake stays the hero.
     const fit = THREE.MathUtils.clamp(cakeBounds.radius / 2.8, 0.72, 1.15);
     if (aspect < 1.0) {
-        // Portrait: pull back so the plate fits the width.
-        const z = Math.max(13, 6.2 / Math.max(0.35, aspect)) * fit;
+        // Portrait: pull back until the whole plate fits the *horizontal*
+        // field of view (the old fixed curve clipped the plate on phones).
+        const vfov = THREE.MathUtils.degToRad(camera?.fov ?? 45);
+        const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+        const z = Math.max(13 * fit, (cakeBounds.radius * 1.1) / Math.sin(hfov / 2));
         hero.pos.set(0, z * 0.38, z);
         hero.target.set(0, 0.4, 0);
         if (controls) { controls.minDistance = 5; controls.maxDistance = 25; }

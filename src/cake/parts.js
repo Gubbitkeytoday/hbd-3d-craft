@@ -1809,6 +1809,9 @@ function addCherryParts(group, cherryGeo) {
 
 export function createTopperMesh(topperStyle, customText = '', customRimColor = '', themeName = 'neon-rose') {
     if (topperStyle === 'none' && !customText) return null;
+    // The "Happy Birthday" option used to render a text-less metal crown that
+    // read as a dark blob in the dim scene; make it the plaque its label promises.
+    if (topperStyle === 'hbd' && !customText) customText = 'Happy Birthday';
 
     const group = new THREE.Group();
 
