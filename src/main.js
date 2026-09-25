@@ -131,11 +131,13 @@ function allowedValues(name) {
     return values;
 }
 
-// The creator's backdrop radios are the source of truth; until they exist
-// (or if the creator markup changes) the fixed, append-only list is used.
+// The fixed, append-only list is the source of truth (the link codec packs
+// its index); the creator's radios can only add to it, never hide a value a
+// link may legitimately carry (e.g. 'party' before its picker exists).
 function backdropValues() {
     const values = allowedValues('backdrop');
-    return values.size ? values : new Set(BACKDROP_NAMES);
+    BACKDROP_NAMES.forEach((name) => values.add(name));
+    return values;
 }
 
 // Share links are attacker-controllable input: everything decoded from one is

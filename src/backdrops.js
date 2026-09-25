@@ -41,6 +41,15 @@ const LIGHT_RIG = {
  */
 export const BACKDROPS = Object.freeze({
     night: { name: 'night', light: false },
+    // The surprise-party room (src/room/): a real 3D room instead of a
+    // painted backdrop. Renders opaque like night; `room: true` tells the
+    // scene to build createPartyRoom(). UI tokens are for text over the
+    // (dark, then warm-lit) room; the gate uses getPartyPoster().
+    party: {
+        name: 'party', light: false, room: true,
+        fog: 0x0a0706, mid: '#1c1411',
+        ink: '#fff6ee', soft: '#e8d5c6', accent: '#ffb35c'
+    },
     blush: {
         name: 'blush', light: true,
         top: '#fff8f5', mid: '#fbe7e5', bottom: '#f2d0d2', glow: 'rgba(255,255,255,0.92)',

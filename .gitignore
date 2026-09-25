@@ -15,3 +15,6 @@ lerna-debug.log*
 
 # Browser automation output
 .playwright-mcp/
+
+# Party-room asset cache (Poly Haven downloads, Blender intermediates)
+scripts/room/cache/

@@ -131,7 +131,8 @@ export const translations = {
         crThemeLabel: "Mood",
         // creator v2: backdrop picker
         crBackdropLabel: "Backdrop",
-        crBackdropHint: "The room behind the cake. Light ones look lovely in daytime chats.",
+        crBackdropHint: "Surprise room: they walk into a dark room and flip the lights on. Or pick a calm backdrop.",
+        crBgParty: "Surprise room",
         crBgNight: "Night",
         crBgBlush: "Blush",
         crBgCream: "Cream",
@@ -297,7 +298,21 @@ export const translations = {
         rcvSavePhoto: "Save photo",
         rcvSaveHint: "Press and hold the picture to save it",
         rcvBlessings: "Wishing you joy! 💖|May your dreams come true! 🌈|Have the sweetest year, {name}! 🎂|Health and happiness always! 🌸|Keep shining, {name}! ✨",
-        rcvNoWebGL: "Your browser can't show the 3D cake, but here is your card."
+        rcvNoWebGL: "Your browser can't show the 3D cake, but here is your card.",
+        // receiver: party room
+        rcvOpenSound: "Open with sound",
+        rcvOpenQuiet: "Open quietly",
+        rcvDarkHint: "Why is it so dark… try the light switch",
+        rcvDarkHint2: "Tap the light switch",
+        rcvAutoLight: "Got the lights for you",
+        rcvSkip: "Skip",
+        rcvSwitchLabel: "Turn on the lights",
+        rcvSurprise: "SURPRISE!",
+        rcvLiveSurprise: "The lights are on. Surprise!",
+        rcvCakeComing: "Here comes the cake",
+        rcvLyrics: "Happy birthday to you|Happy birthday to you|Happy birthday dear {name}|Happy birthday to you",
+        rcvSkipSong: "Skip song",
+        rcvReplaySurprise: "Watch the surprise again"
     },
     th: {
         appTitle: "HBD 3D Craft",
@@ -429,7 +444,8 @@ export const translations = {
         crThemeLabel: "โทนสี",
         // creator v2: backdrop picker
         crBackdropLabel: "พื้นหลัง",
-        crBackdropHint: "บรรยากาศรอบเค้ก โทนสว่างดูสดใส เปิดตอนกลางวันก็สวย",
+        crBackdropHint: "ห้องเซอร์ไพรส์: ผู้รับเดินเข้าห้องมืดแล้วกดเปิดไฟเอง หรือเลือกพื้นหลังเรียบๆ ก็ได้",
+        crBgParty: "ห้องเซอร์ไพรส์",
         crBgNight: "กลางคืน",
         crBgBlush: "ชมพูพาสเทล",
         crBgCream: "ครีม",
@@ -595,7 +611,21 @@ export const translations = {
         rcvSavePhoto: "บันทึกรูป",
         rcvSaveHint: "กดค้างที่รูปเพื่อบันทึก",
         rcvBlessings: "ขอให้มีความสุขมากๆ นะ 💖|ขอให้ทุกความฝันเป็นจริง 🌈|ขอให้ปีนี้หวานๆ นะ {name} 🎂|สุขภาพแข็งแรงตลอดไป 🌸|เปล่งประกายแบบนี้ตลอดไปนะ {name} ✨",
-        rcvNoWebGL: "เบราว์เซอร์นี้แสดงเค้ก 3 มิติไม่ได้ แต่นี่คือการ์ดของคุณ"
+        rcvNoWebGL: "เบราว์เซอร์นี้แสดงเค้ก 3 มิติไม่ได้ แต่นี่คือการ์ดของคุณ",
+        // receiver: party room
+        rcvOpenSound: "เปิดพร้อมเสียง",
+        rcvOpenQuiet: "เปิดแบบเงียบ",
+        rcvDarkHint: "ทำไมมืดจัง… ลองเปิดไฟดูสิ",
+        rcvDarkHint2: "แตะสวิตช์ไฟ",
+        rcvAutoLight: "เปิดไฟให้แล้วนะ",
+        rcvSkip: "ข้าม",
+        rcvSwitchLabel: "เปิดไฟ",
+        rcvSurprise: "เซอร์ไพรส์!",
+        rcvLiveSurprise: "ไฟติดแล้ว เซอร์ไพรส์!",
+        rcvCakeComing: "เค้กมาแล้ว",
+        rcvLyrics: "สุขสันต์วันเกิด|สุขสันต์วันเกิด|สุขสันต์วันเกิด {name}|สุขสันต์วันเกิด",
+        rcvSkipSong: "ข้ามเพลง",
+        rcvReplaySurprise: "ดูเซอร์ไพรส์อีกครั้ง"
     },
     ja: {
         appTitle: "HBD 3D Craft",
@@ -727,7 +757,8 @@ export const translations = {
         crThemeLabel: "ムード",
         // creator v2: backdrop picker
         crBackdropLabel: "背景",
-        crBackdropHint: "ケーキのまわりの空間。明るい背景は昼間のチャットにもぴったり。",
+        crBackdropHint: "サプライズルーム：暗い部屋で相手が自分で電気をつけます。シンプルな背景も選べます。",
+        crBgParty: "サプライズルーム",
         crBgNight: "夜",
         crBgBlush: "ブラッシュ",
         crBgCream: "クリーム",
@@ -893,7 +924,21 @@ export const translations = {
         rcvSavePhoto: "写真を保存",
         rcvSaveHint: "画像を長押しして保存",
         rcvBlessings: "たくさんの幸せを！💖|夢が叶いますように 🌈|{name}さん、素敵な一年を！🎂|いつまでも健康で幸せに 🌸|{name}さん、輝き続けてね ✨",
-        rcvNoWebGL: "このブラウザでは3Dケーキを表示できませんが、カードはこちらです。"
+        rcvNoWebGL: "このブラウザでは3Dケーキを表示できませんが、カードはこちらです。",
+        // receiver: party room
+        rcvOpenSound: "音ありで開ける",
+        rcvOpenQuiet: "音なしで開ける",
+        rcvDarkHint: "真っ暗…電気をつけてみて",
+        rcvDarkHint2: "スイッチをタップ",
+        rcvAutoLight: "電気をつけておいたよ",
+        rcvSkip: "スキップ",
+        rcvSwitchLabel: "電気をつける",
+        rcvSurprise: "サプライズ！",
+        rcvLiveSurprise: "電気がつきました。サプライズ！",
+        rcvCakeComing: "ケーキの登場",
+        rcvLyrics: "ハッピーバースデー トゥー ユー|ハッピーバースデー トゥー ユー|ハッピーバースデー ディア {name}|ハッピーバースデー トゥー ユー",
+        rcvSkipSong: "歌をスキップ",
+        rcvReplaySurprise: "サプライズをもう一度"
     }
 };
 

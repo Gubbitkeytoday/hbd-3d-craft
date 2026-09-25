@@ -11,6 +11,7 @@ import { applyDOMTranslations, getCurrentLang, saveLanguageSetting, translations
 import { mountPreview, updatePreview, destroyPreview, hasWebGL, noteInteraction } from './creator-scene.js';
 import { buildShareUrl } from './card-link.js';
 import { buildTemplates } from './card-templates.js';
+import { NEW_CARD_BACKDROP } from './backdrop-names.js';
 import { loadCardFont } from './fonts.js';
 
 // Looks: one tap sets the whole cake. Keys are form control names.
@@ -214,7 +215,7 @@ function readConfig() {
         message: f.message.value.trim(),
         theme: radioValue('theme'),
         // New cards always carry a backdrop; only old links (none) fall back to night.
-        backdrop: radioValue('backdrop') || 'blush',
+        backdrop: radioValue('backdrop') || NEW_CARD_BACKDROP,
         candles: intValue('candles'),
         music: radioValue('music'),
         font: radioValue('font'),
@@ -485,7 +486,7 @@ function refreshLookEdited() {
 function applyThemeClass() {
     const theme = radioValue('theme') || 'neon-rose';
     document.body.className = `theme-${theme}`;
-    els.root.dataset.backdrop = radioValue('backdrop') || 'blush';
+    els.root.dataset.backdrop = radioValue('backdrop') || NEW_CARD_BACKDROP;
 }
 
 /** The creator is a light page: match the browser chrome (restored on leave). */
@@ -849,7 +850,7 @@ async function refreshExampleLink() {
         title: t('tplTitle', { name }),
         message: t('tplMsgFriend'),
         theme: 'neon-rose',
-        backdrop: 'blush',
+        backdrop: NEW_CARD_BACKDROP,
         cakeModel: 'vintage-heart',
         plate: 'crystal',
         glaze: 'strawberry',

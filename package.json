@@ -8,7 +8,9 @@
     "build": "eslint . && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "icons": "node scripts/gen-icons.mjs"
+    "icons": "node scripts/gen-icons.mjs",
+    "room:fetch": "node scripts/room/fetch-assets.mjs && python scripts/room/make_city.py",
+    "room:optimize": "node scripts/room/optimize.mjs && node scripts/room/build-credits.mjs"
   },
   "dependencies": {
     "animejs": "^3.2.2",
@@ -26,8 +28,13 @@
     "@fortawesome/free-brands-svg-icons": "^7.3.1",
     "@fortawesome/free-regular-svg-icons": "^7.3.1",
     "@fortawesome/free-solid-svg-icons": "^7.3.1",
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
+    "@gltf-transform/functions": "^4.5.0",
     "eslint": "^9.39.5",
     "globals": "^17.12.0",
+    "meshoptimizer": "^1.2.0",
+    "sharp": "^0.35.4",
     "vite": "^5.1.0"
   }
 }

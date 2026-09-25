@@ -203,8 +203,9 @@
                             <fieldset class="cr-field cr-fieldset" id="cr-backdrop" aria-describedby="cr-backdrop-hint">
                                 <legend class="cr-label" data-i18n="crBackdropLabel">Backdrop</legend>
                                 <div class="cr-swatches cr-backdrops">
+                                    <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="party" checked><span class="cr-swatch-dot" style="--sw: url(/room/poster-lit.webp) center/cover, linear-gradient(160deg, #6b4a2e, #1c1411)"></span><span data-i18n="crBgParty">Surprise room</span></label>
                                     <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="night"><span class="cr-swatch-dot" style="--sw: linear-gradient(160deg, #3a2352, #0b0714)"></span><span data-i18n="crBgNight">Night</span></label>
-                                    <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="blush" checked><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #fff8f5, #fbe7e5 58%, #f2d0d2)"></span><span data-i18n="crBgBlush">Blush</span></label>
+                                    <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="blush"><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #fff8f5, #fbe7e5 58%, #f2d0d2)"></span><span data-i18n="crBgBlush">Blush</span></label>
                                     <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="cream"><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #fffdf7, #f9efdf 58%, #eedcc0)"></span><span data-i18n="crBgCream">Cream</span></label>
                                     <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="sky"><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #f8fbff, #e6f0fb 58%, #cfe0f3)"></span><span data-i18n="crBgSky">Sky</span></label>
                                     <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="mint"><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #f7fdf9, #e3f4ec 58%, #cbe7da)"></span><span data-i18n="crBgMint">Mint</span></label>
@@ -497,6 +498,7 @@
                         <span class="rcv-open-label" id="rcv-open-label"></span>
                         <span class="rcv-open-progress" aria-hidden="true"><span id="rcv-open-bar"></span></span>
                     </button>
+                    <button type="button" id="btn-open-quiet" class="rcv-quiet-btn"></button>
                     <p class="rcv-gate-sound" id="rcv-gate-sound"></p>
                 </div>
             </div>
@@ -507,6 +509,21 @@
             <!-- Heads-up display: one instruction at a time -->
             <div class="rcv-hud" id="rcv-hud" inert>
                 <p class="rcv-title" id="rcv-title"></p>
+
+                <!-- Party room: the dark doorway, the glowing switch, the SURPRISE hit, the song -->
+                <button type="button" id="rcv-switch" class="rcv-switch" hidden>
+                    <span class="rcv-switch-ring" aria-hidden="true"></span>
+                    <i class="fa-solid fa-hand-pointer rcv-switch-hand" aria-hidden="true"></i>
+                </button>
+                <p id="rcv-dark-hint" class="rcv-dark-hint" aria-live="polite" hidden></p>
+                <button type="button" id="btn-dark-skip" class="rcv-link-btn rcv-dark-skip" hidden></button>
+                <p id="rcv-surprise" class="rcv-surprise" aria-hidden="true"></p>
+                <p id="rcv-cake-coming" class="rcv-cake-coming" hidden></p>
+                <div id="rcv-lyrics" class="rcv-lyrics" hidden>
+                    <p id="rcv-lyric-line" aria-live="off"></p>
+                    <button type="button" id="btn-skip-song" class="rcv-link-btn rcv-skip-song" hidden></button>
+                </div>
+                <p id="rcv-live" class="rcv-sr" aria-live="assertive"></p>
 
                 <div class="rcv-controls">
                     <button type="button" id="btn-hud-audio" class="rcv-hud-btn" aria-pressed="true">

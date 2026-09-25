@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "generated": "2026-09-25T08:23:54.334Z",
+  "glb": {
+    "high": "room-high.glb",
+    "low": "room-low.glb"
+  },
+  "lightmaps": {
+    "dark": {
+      "high": "lm-dark-2k.webp",
+      "low": "lm-dark-1k.webp"
+    },
+    "party": {
+      "high": "lm-party-2k.webp",
+      "low": "lm-party-1k.webp"
+    }
+  },
+  "emax": {
+    "dark": 0.34236904978752136,
+    "party": 4.25
+  },
+  "bytes": {
+    "high": 1747408,
+    "low": 1042992
+  }
+}

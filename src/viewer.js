@@ -32,6 +32,14 @@ import { buildCakeModel, getCakeLayout, disposeCakeGroup } from './cake-models.j
 import { buildCandles } from './cake/candles.js';
 import { applyBackdrop, backdropCss, createContactShadow, fitContactShadow, paintBackdrop, resolveBackdrop } from './backdrops.js';
 import { loadCardFont } from './fonts.js';
+import { createAudioEngine } from './audio/engine.js';
+import { createSong, SONG_LENGTH, LYRIC_STARTS } from './audio/song.js';
+import * as cues from './audio/cues.js';
+
+// The party room (src/room/index.js, lazy chunk). Optional at build time:
+// without it, or if it fails to load, the card plays on the classic night stage.
+const ROOM_MODULES = import.meta.glob('./room/index.js');
+const loadRoomModule = ROOM_MODULES['./room/index.js'] || null;
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -44,7 +52,15 @@ const WISH_AUTO_ADVANCE_MS = 5000;
 const CLIMAX_SILENCE_MS = 380;
 const MIC_SUSTAIN_S = 0.12;   // a puff must last this long before it counts
 const MIC_CADENCE_S = 0.18;   // then one candle goes out per this interval
-const SONG_LENGTH = 13.5;
+
+// Party storyboard (ms). T0 = the switch tap; see research-surprise.md.
+const DARK_HINT_MS = 1100;     // the hint must be up within 1.2 s
+const DARK_ESCALATE_MS = 5000;
+const DARK_AUTO_FLIP_MS = 9000;
+const LIGHTS_ON_MS = 120;      // held beat of darkness after the click
+const SHOUT_MS = 150;
+const TOUR_MS = 1600;
+const CAKE_IN_MS = 4400;
 
 const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
 const IS_LINE_APP = /\bLine\//i.test(ua);
@@ -56,7 +72,9 @@ const IS_IOS = /iPad|iPhone|iPod/.test(ua) ||
 // ---------------------------------------------------------------------------
 
 let activeConfig = null;
-let phase = 'idle';            // idle | gate | intro | wish | blow | climax | message
+// idle | gate | intro | wish | blow | climax | message; the party room adds
+// dark (switch) | reveal (lights on, tour) | song before wish.
+let phase = 'idle';
 let reduceMotion = false;
 let domBound = false;
 
@@ -118,8 +136,27 @@ let backdrop = resolveBackdrop('night');
 let balloons = null;
 let gifts = null;
 
-let audio = null;
+let audio = null;              // createAudioEngine() result
+let song = null;
+let roomTone = null;
+let partyLoop = null;
 let muted = false;
+let quietMode = false;
+
+// Party room state. Light values are tweened here and pushed to the room as
+// uniforms once per frame (never a light count or material change).
+let partyMode = false;
+let room = null;
+let roomAbort = null;
+let roomShots = null;          // shots fitted to the current viewport
+const roomLight = { v: 0 };    // 0 dark .. 1 party lights
+const roomDim = { v: 0 };      // 0 lit .. 1 "cake is coming" dim
+const exposureKick = { v: 1 }; // auto-exposure overshoot after the switch
+let appliedRoom = null;
+let cakeMaterials = [];        // { mat, env } for dimming the environment on the cake
+let darkLowerThird = false;
+let songStartedAt = 0;         // performance.now() fallback clock for lyrics
+let lyricIndex = -1;
 const mic = { state: 'off', stream: null, analyser: null, data: null, floor: 0, samples: [], calibrating: false, above: 0, cadence: 0 };
 
 let focusBeforeCard = null;
@@ -153,7 +190,10 @@ function senderName() {
 /** Fills `el` from a translation template, wrapping each {placeholder} in a highlight span. */
 function fillTemplate(el, key, vars) {
     if (!el) return;
-    const raw = dict()[key] ?? translations.en[key] ?? '';
+    fillRaw(el, dict()[key] ?? translations.en[key] ?? '', vars);
+}
+
+function fillRaw(el, raw, vars) {
     el.textContent = '';
     raw.split(/(\{\w+\})/).forEach((part) => {
         const m = part.match(/^\{(\w+)\}$/);
@@ -210,13 +250,17 @@ function setOpen(el, open) {
 
 export function initViewer(config) {
     activeConfig = config || {};
-    backdrop = resolveBackdrop(activeConfig.backdrop);
+    partyMode = activeConfig.backdrop === 'party';
+    // The party room carries its own light; the cake rig and receiver chrome
+    // start from the night set (dark frosted pills read over both states).
+    backdrop = resolveBackdrop(partyMode ? 'night' : activeConfig.backdrop);
     applyBackdropDom();
     reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     phase = 'gate';
     isReady = false;
     opening = false;
     muted = false;
+    quietMode = false;
     decorEnabled = true;
 
     // The card's typeface downloads while the gate is read (on-demand font).
@@ -237,7 +281,7 @@ export function destroyViewer() {
     prepToken++;
     phase = 'idle';
     clearTimers();
-    anime.remove([dim, glow, spin, shift]);
+    anime.remove([dim, glow, spin, shift, roomLight, roomDim, exposureKick]);
     if (camera) anime.remove(camera.position);
     if (controls) anime.remove(controls.target);
     candles.forEach((c) => { anime.remove(c.flame.scale); anime.remove(c.flame.rotation); });
@@ -252,10 +296,15 @@ export function destroyViewer() {
     if (letterTimer) clearInterval(letterTimer);
     letterTimer = 0;
     if (audio) {
-        clearTimeout(audio.loopTimer);
-        audio.ctx.close().catch(() => {});
-        audio = null;
+        song?.stop(0.05);
+        partyLoop?.stop(0.05);
+        roomTone?.stop(0.05);
+        audio.close();
+        audio = song = roomTone = partyLoop = null;
     }
+    roomAbort?.abort();
+    roomAbort = null;
+    hideDarkUi();
 
     disposeScene();
     const container = $('greeting-canvas-container');
@@ -276,7 +325,7 @@ export function destroyViewer() {
 function applyBackdropDom() {
     const rv = $('receiver-view');
     if (!rv) return;
-    rv.dataset.backdrop = backdrop.name;
+    rv.dataset.backdrop = partyMode ? 'party' : backdrop.name;
     const set = (k, v) => (v ? rv.style.setProperty(k, v) : rv.style.removeProperty(k));
     set('--rcv-backdrop', backdropCss(backdrop.name));
     set('--rcv-bd-ink', backdrop.ink);
@@ -289,12 +338,12 @@ function disposeScene() {
     // Capture everything now; module state is reset immediately so a new
     // mount can start, while the GPU teardown may have to wait (below).
     const r = renderer;
-    const sc = scene;
     const cake = cakeGroup;
     const roots = ownedRoots;
     const bloom = bloomComposer;
     const env = envMap;
     const ctl = controls;
+    const rm = room;
     if (r) {
         r.domElement.removeEventListener('pointerdown', onPointerDown);
         r.domElement.removeEventListener('pointerup', onPointerUp);
@@ -307,12 +356,15 @@ function disposeScene() {
     hitMeshes = [];
     embers = smoke = sparkles = stars = floorGlow = balloons = gifts = null;
     appliedShift = null;
+    room = roomShots = appliedRoom = null;
+    cakeMaterials = [];
 
     const teardown = () => {
         if (cake) {
-            sc?.remove(cake);
+            cake.parent?.remove(cake);
             disposeCakeGroup(cake, { defer: false });
         }
+        try { rm?.dispose(); } catch (err) { console.warn('[viewer] room dispose failed', err); }
         roots.forEach((root) => {
             root.parent?.remove(root);
             disposeOwned(root);
@@ -362,7 +414,11 @@ function bindDomOnce() {
         applyDOMTranslations();
         translateReceiver();
     });
-    $('btn-open-envelope')?.addEventListener('click', onOpenClick);
+    $('btn-open-envelope')?.addEventListener('click', () => onOpenClick(false));
+    $('btn-open-quiet')?.addEventListener('click', () => onOpenClick(true));
+    $('rcv-switch')?.addEventListener('click', () => flipSwitch(false));
+    $('btn-dark-skip')?.addEventListener('click', () => flipSwitch(false));
+    $('btn-skip-song')?.addEventListener('click', endSong);
     $('btn-hud-audio')?.addEventListener('click', toggleMute);
     $('btn-hud-card')?.addEventListener('click', () => openCard());
     $('btn-hud-reset')?.addEventListener('click', replay);
@@ -413,7 +469,8 @@ function onKeyDown(e) {
     const onControl = tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' ||
         e.target?.getAttribute?.('role') === 'button';
     if (!onControl && (e.key === ' ' || e.key === 'Enter')) {
-        if (phase === 'wish') { e.preventDefault(); startBlow(); }
+        if (phase === 'dark') { e.preventDefault(); flipSwitch(false); }
+        else if (phase === 'wish') { e.preventDefault(); startBlow(); }
         else if (phase === 'blow') { e.preventDefault(); blowNextCandle(); }
     }
 }
@@ -434,24 +491,34 @@ function resetDom() {
     const hud = $('rcv-hud');
     if (hud) { hud.inert = true; hud.classList.remove('is-live'); }
     $('rcv-title')?.classList.remove('is-hero', 'is-docked');
-    ['rcv-wish', 'rcv-blow', 'rcv-mic-sheet', 'btn-hud-card', 'btn-hud-reset', 'btn-wish-ready'].forEach((id) => {
+    ['rcv-wish', 'rcv-blow', 'rcv-mic-sheet', 'btn-hud-card', 'btn-hud-reset', 'btn-wish-ready',
+        'rcv-lyrics', 'btn-skip-song', 'rcv-cake-coming'].forEach((id) => {
         const el = $(id);
         if (el) el.hidden = true;
     });
     setOpen($('rcv-card'), false);
     const lang = $('lang-switcher-receiver');
     if (lang) lang.value = getCurrentLang();
-    // The speaker always reflects the real state (v1 showed "muted" while playing).
-    const audioBtn = $('btn-hud-audio');
-    if (audioBtn) {
-        audioBtn.setAttribute('aria-pressed', 'true');
-        const icon = audioBtn.querySelector('i');
-        if (icon) icon.className = 'fa-solid fa-volume-high';
-    }
+    syncAudioButton();
     mic.state = 'off';
     const rv = $('receiver-view');
     rv?.classList.toggle('rcv-reduce', reduceMotion);
-    rv?.classList.remove('is-dim');
+    rv?.classList.remove('is-dim', 'is-dark', 'is-quiet');
+    hideDarkUi();
+    // Party gate: the dark room poster behind the envelope (when ROOM ships one).
+    if (gate) {
+        gate.style.removeProperty('--rcv-gate-poster');
+        if (partyMode) loadPoster(gate);
+    }
+}
+
+async function loadPoster(gate) {
+    try {
+        if (!loadRoomModule) return;
+        const mod = await loadRoomModule();
+        const url = mod.getPartyPoster?.('dark');
+        if (url && phase === 'gate') gate.style.setProperty('--rcv-gate-poster', `url("${url}")`);
+    } catch { /* the CSS gradient stays */ }
 }
 
 /** Every visible receiver string, re-run on language change. */
@@ -472,13 +539,25 @@ function translateReceiver() {
     if (seal) seal.textContent = firstGrapheme(sender) || '🎂';
     const sound = $('rcv-gate-sound');
     if (sound) sound.textContent = t('rcvGateSound');
+    const quiet = $('btn-open-quiet');
+    if (quiet) quiet.textContent = t('rcvOpenQuiet');
     updateOpenLabel();
+
+    // Party: dark room, switch, lyrics
+    $('rcv-switch')?.setAttribute('aria-label', t('rcvSwitchLabel'));
+    $('btn-dark-skip') && ($('btn-dark-skip').textContent = t('rcvSkip'));
+    $('btn-skip-song') && ($('btn-skip-song').textContent = t('rcvSkipSong'));
+    $('rcv-surprise') && ($('rcv-surprise').textContent = t('rcvSurprise'));
+    $('rcv-cake-coming') && ($('rcv-cake-coming').textContent = t('rcvCakeComing'));
+    if (phase === 'dark') setDarkHint($('rcv-dark-hint')?.dataset.key || 'rcvDarkHint');
+    lyricIndex = -1;
 
     // HUD
     fillTemplate($('rcv-title'), 'rcvHappyBirthday', { name });
     setHudLabel('btn-hud-audio', 'rcv-audio-label', t('rcvMusic'));
     setHudLabel('btn-hud-card', 'rcv-card-label', t('rcvShowCard'));
     setHudLabel('btn-hud-reset', 'rcv-reset-label', t('rcvReplay'));
+    $('rcv-replay-label') && ($('rcv-replay-label').textContent = partyMode ? t('rcvReplaySurprise') : t('rcvReplay'));
     $('rcv-wish-text') && ($('rcv-wish-text').textContent = t('rcvWish'));
     $('btn-wish-ready') && ($('btn-wish-ready').textContent = t('rcvWishReady'));
     $('rcv-mic-explain') && ($('rcv-mic-explain').textContent = t('rcvMicExplain'));
@@ -490,7 +569,6 @@ function translateReceiver() {
     // Card + end actions
     $('rcv-card-close-label') && ($('rcv-card-close-label').textContent = t('rcvClose'));
     $('rcv-letter-close-label') && ($('rcv-letter-close-label').textContent = t('rcvClose'));
-    $('rcv-replay-label') && ($('rcv-replay-label').textContent = t('rcvReplay'));
     $('rcv-save-label') && ($('rcv-save-label').textContent = t('rcvSavePhoto'));
     $('rcv-make-label') && ($('rcv-make-label').textContent = t('rcvMakeOwn'));
     $('btn-photo-close') && ($('btn-photo-close').textContent = t('rcvClose'));
@@ -509,7 +587,7 @@ function updateOpenLabel() {
     const btn = $('btn-open-envelope');
     const label = $('rcv-open-label');
     if (!btn || !label) return;
-    label.textContent = btn.dataset.state === 'waiting' ? t('rcvPreparing') : t('rcvOpen');
+    label.textContent = btn.dataset.state === 'waiting' ? t('rcvPreparing') : t(partyMode ? 'rcvOpenSound' : 'rcvOpen');
 }
 
 function setProgress(p) {
@@ -562,8 +640,9 @@ async function prepareScene(token) {
         container.appendChild(renderer.domElement);
         renderer.domElement.setAttribute('aria-hidden', 'true');
         scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x06020f, 0.015);
-        camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+        // The party room is a closed interior at x14 scale: no fog, far plane out past its walls.
+        scene.fog = partyMode ? null : new THREE.FogExp2(0x06020f, 0.015);
+        camera = new THREE.PerspectiveCamera(45, width / height, 0.1, partyMode ? 800 : 100);
         await step(0.12, 'renderer');
 
         // Async variant compiles the PMREM shaders off the main thread (was a
@@ -586,15 +665,30 @@ async function prepareScene(token) {
         measureCake();
         tuneMaterialsForEnvironment(cakeGroup, backdrop.light ? 0.85 : 0.6);
         await step(0.4, 'candles');
+        if (partyMode) {
+            try {
+                await buildRoom(alive, mobile, (p) => setProgress(0.2 + 0.26 * p));
+                // The dark room's ambience, synthesized now instead of in the tap.
+                await cues.prepareRoomTone(yieldToMain);
+            } catch (err) {
+                if (err instanceof PrepCancelled || !alive()) throw new PrepCancelled();
+                console.warn('[viewer] party room unavailable, using the classic stage:', err);
+                fallBackToClassic();
+            }
+        }
+        collectCakeMaterials();
         setupParticles();
-        setupStars();
-        setupFloorGlow(theme);
-        const shadow = createContactShadow(cakeBounds.radius);
-        fitContactShadow(shadow, cakeBounds.radius, cakeBounds.floorY);
-        scene.add(shadow);
-        ownedRoots.push(shadow);
-        await step(0.44, 'set');
-        setupDecor(theme);
+        let shadow = null;
+        if (!partyMode) {
+            setupStars();
+            setupFloorGlow(theme);
+            shadow = createContactShadow(cakeBounds.radius);
+            fitContactShadow(shadow, cakeBounds.radius, cakeBounds.floorY);
+            scene.add(shadow);
+            ownedRoots.push(shadow);
+            await step(0.44, 'set');
+            setupDecor(theme);
+        }
         await step(0.48, 'decor');
 
         controls = new OrbitControls(camera, renderer.domElement);
@@ -604,9 +698,11 @@ async function prepareScene(token) {
         controls.maxPolarAngle = Math.PI / 2 - 0.05;
         controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
         computeHero();
-        camera.position.copy(hero.pos);
-        controls.target.copy(hero.target);
-        camera.lookAt(hero.target);
+        // The party opens in the doorway; the warm-up frame below renders that view.
+        const startShot = partyMode && roomShots ? roomShots.entry : hero;
+        camera.position.copy(startShot.pos);
+        controls.target.copy(startShot.target);
+        camera.lookAt(startShot.target);
         controls.update();
         bloomComposer = createBloomComposer(renderer, scene, camera, { mobile });
         applyBackdrop(scene, renderer, bloomComposer, sceneLights, backdrop.name, {
@@ -622,6 +718,7 @@ async function prepareScene(token) {
             fill: sceneLights.fill.intensity,
             rim: sceneLights.rim.intensity,
             exposure: renderer.toneMappingExposure,
+            bloom: bloomComposer?.bloom?.strength ?? 0,
             // The wish dims the room. A pale backdrop cannot dim with it (it is
             // CSS), so the cake dims less there and a CSS vignette does the rest.
             dimK: backdrop.light ? 0.28 : 0.55
@@ -641,6 +738,14 @@ async function prepareScene(token) {
         // One hidden frame builds the shadow map and the last few programs
         // now rather than on the first visible frame.
         renderFrame();
+        // Party: the doorway view only sees part of the room, and three
+        // binds a program (uniform lookup, link check) on its first draw, so
+        // the reveal and the tour would pay for it. One more hidden frame
+        // with culling off draws everything once, now.
+        if (room) {
+            await step(0.96, 'warm');
+            warmEverything();
+        }
         await step(0.98, 'warm');
 
         governor = createQualityGovernor({
@@ -649,6 +754,10 @@ async function prepareScene(token) {
             onLevelChange: (level) => {
                 decorEnabled = level < QUALITY_LEVELS.DECOR_BUDGET;
                 updatePointScale();
+                if (room) {
+                    const base = roomQuality(isMobileViewport());
+                    room.setQuality?.(level >= QUALITY_LEVELS.SHADOWS_THROTTLED ? 0 : level >= QUALITY_LEVELS.DPR_MIN ? Math.min(base, 1) : base);
+                }
             }
         });
 
@@ -670,6 +779,117 @@ async function prepareScene(token) {
 }
 
 class PrepCancelled extends Error {}
+
+function warmEverything() {
+    const culled = [];
+    scene.traverse((obj) => {
+        if ((obj.isMesh || obj.isPoints || obj.isLine) && obj.frustumCulled) {
+            obj.frustumCulled = false;
+            culled.push(obj);
+        }
+    });
+    try {
+        renderFrame();
+    } finally {
+        culled.forEach((obj) => { obj.frustumCulled = true; });
+    }
+}
+
+/** 0 = low-end phone, 1 = phone, 2 = desktop (ROOM contract). */
+function roomQuality(mobile) {
+    if (!mobile) return 2;
+    const cores = navigator.hardwareConcurrency || 4;
+    const memory = navigator.deviceMemory || 4;
+    return cores <= 4 || memory <= 3 ? 0 : 1;
+}
+
+/**
+ * Builds the party room behind the gate (the room streams its assets and
+ * yields between steps), then stands the cake on its table. The room starts
+ * in its dark state, which is also the state precompiled below; the lit
+ * state is uniforms only.
+ */
+async function buildRoom(alive, mobile, onProgress) {
+    if (!loadRoomModule) throw new Error('src/room/index.js is not part of this build');
+    const mod = await loadRoomModule();
+    if (!alive()) throw new PrepCancelled();
+    roomAbort = new AbortController();
+    const built = await mod.createPartyRoom({
+        renderer, scene, camera,
+        quality: roomQuality(mobile),
+        config: activeConfig,
+        onProgress,
+        signal: roomAbort.signal
+    });
+    if (!alive()) {
+        built?.dispose?.();
+        throw new PrepCancelled();
+    }
+    room = built;
+    scene.remove(cakeGroup);
+    if (room.seatCake) {
+        room.seatCake(cakeGroup);
+    } else {
+        // Contract minimum: the anchor is the table top; the plate is at cakeBounds.floorY.
+        room.cakeAnchor.add(cakeGroup);
+        cakeGroup.position.y = -cakeBounds.floorY;
+    }
+    room.group.updateMatrixWorld(true);
+    // Environment reflections on the cake follow the room light (the room
+    // tracks them when it can; otherwise applyLights does).
+    if (room.trackEnvMaterials) room.trackEnvMaterials(cakeGroup, backdrop.light ? 0.85 : 0.6);
+    room.setCandles?.(0);
+    // The key light (and its shadow frustum, sized for the cake) follows the
+    // cake onto the table; fill and rim are directional, so only their
+    // direction matters.
+    const key = sceneLights.key;
+    const at = room.cakeAnchor.getWorldPosition(new THREE.Vector3());
+    key.target = room.cakeAnchor;
+    key.position.copy(at).add(new THREE.Vector3(5, 10, 7));
+    roomLight.v = 0;
+    roomDim.v = 0;
+    exposureKick.v = 1;
+    room.setLights(0);
+    room.setDim(0);
+    appliedRoom = '0|0';
+}
+
+/** The room failed: the card still plays, on the classic night stage. */
+function fallBackToClassic() {
+    try { room?.dispose(); } catch { /* ignore */ }
+    room = null;
+    roomShots = null;
+    partyMode = false;
+    if (cakeGroup && cakeGroup.parent !== scene) {
+        cakeGroup.parent?.remove(cakeGroup);
+        cakeGroup.position.set(0, 0, 0);
+        scene.add(cakeGroup);
+    }
+    if (candleLight && !candleLight.parent) cakeGroup.add(candleLight);
+    sceneLights.key.target = new THREE.Object3D();
+    sceneLights.key.position.set(5, 10, 7);
+    scene.fog = new THREE.FogExp2(0x06020f, 0.015);
+    camera.far = 100;
+    camera.fov = 45;
+    camera.updateProjectionMatrix();
+    applyBackdropDom();
+    translateReceiver();
+}
+
+/** Cake materials whose environment reflections follow the room light. */
+function collectCakeMaterials() {
+    cakeMaterials = [];
+    if (!partyMode || !cakeGroup || room?.trackEnvMaterials) return;
+    const seen = new Set();
+    cakeGroup.traverse((obj) => {
+        const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+        list.forEach((m) => {
+            if (!m || seen.has(m) || !('envMapIntensity' in m) || m.isShaderMaterial) return;
+            seen.add(m);
+            cakeMaterials.push({ mat: m, env: m.envMapIntensity });
+        });
+    });
+}
 
 /**
  * Program keys depend on the render target: the composer draws the scene
@@ -809,7 +1029,9 @@ function setupCandles() {
 
     candleLight = new THREE.PointLight(0xffa24a, 0, 5, 2);
     candleLight.position.set(built.center.x, layout.candleBaseY + 0.62, built.center.z);
-    cakeGroup.add(candleLight);
+    // The party room's rig already has the candle light (room.setCandles);
+    // a second point light would cost every lit shader a light for nothing.
+    if (!partyMode) cakeGroup.add(candleLight);
     candleLightLevel = 0;
 }
 
@@ -1202,6 +1424,10 @@ const AXIS_Z = new THREE.Vector3(0, 0, 1);
 // ---------------------------------------------------------------------------
 
 function computeHero() {
+    if (room) {
+        fitRoomShots();
+        return;
+    }
     const aspect = window.innerWidth / window.innerHeight;
     // Framing was tuned on the classic cake (radius ~2.8); smaller models
     // (heart, bento) come closer so the cake stays the hero.
@@ -1222,7 +1448,62 @@ function computeHero() {
     }
 }
 
-function tweenCamera(pos, target, duration, easing = 'easeInOutCubic') {
+/**
+ * Room shots, fitted to this viewport. Portrait phones get a wider lens (the
+ * room is authored landscape-first) and the cake shots back off until the
+ * plate fits the horizontal field of view.
+ */
+function fitRoomShots() {
+    const aspect = window.innerWidth / window.innerHeight;
+    camera.fov = aspect < 1 ? 58 : 45;
+    camera.updateProjectionMatrix();
+    const vfov = THREE.MathUtils.degToRad(camera.fov);
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+    const plate = cakeBounds.radius * 2;
+    roomShots = {};
+    for (const [name, shot] of Object.entries(room.shots)) {
+        const pos = shot.position.clone();
+        const target = shot.target.clone();
+        const need = name === 'cake' ? plate * 1.25 : name === 'closeUp' ? plate * 0.95 : 0;
+        if (need) {
+            const dir = pos.clone().sub(target);
+            const want = need / 2 / Math.tan(Math.min(hfov, vfov * 1.2) / 2);
+            if (want > dir.length()) pos.copy(target).addScaledVector(dir.normalize(), want);
+        }
+        roomShots[name] = { pos, target };
+    }
+    hero.pos.copy(roomShots.cake.pos);
+    hero.target.copy(roomShots.cake.target);
+    if (controls) {
+        const d = hero.pos.distanceTo(hero.target);
+        controls.minDistance = d * 0.45;
+        controls.maxDistance = d * 1.35;
+    }
+}
+
+/** Lets the recipient look around the cake a little, never behind the set. */
+function enableRoomOrbit(shot) {
+    if (!controls || !shot) return;
+    const off = tmpV.copy(shot.pos).sub(shot.target);
+    const az = Math.atan2(off.x, off.z);
+    const polar = Math.acos(THREE.MathUtils.clamp(off.y / off.length(), -1, 1));
+    controls.minAzimuthAngle = az - 0.45;
+    controls.maxAzimuthAngle = az + 0.45;
+    controls.minPolarAngle = Math.max(0.2, polar - 0.3);
+    controls.maxPolarAngle = Math.min(Math.PI / 2 - 0.05, polar + 0.22);
+    controls.enabled = true;
+}
+
+function lockRoomOrbit() {
+    if (!controls) return;
+    controls.enabled = false;
+    controls.minAzimuthAngle = -Infinity;
+    controls.maxAzimuthAngle = Infinity;
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = Math.PI / 2 - 0.05;
+}
+
+function tweenCamera(pos, target, duration, easing = 'easeInOutCubic', { unlock = true } = {}) {
     if (!camera || !controls) return;
     anime.remove(camera.position);
     anime.remove(controls.target);
@@ -1235,12 +1516,17 @@ function tweenCamera(pos, target, duration, easing = 'easeInOutCubic') {
     anime({ targets: camera.position, x: pos.x, y: pos.y, z: pos.z, duration, easing });
     anime({
         targets: controls.target, x: target.x, y: target.y, z: target.z, duration, easing,
-        complete: () => { if (controls) controls.enabled = true; }
+        complete: () => { if (controls && unlock) controls.enabled = true; }
     });
 }
 
 /** The framing used after the climax: slightly back and up so smoking wicks stay in view. */
 function afterglowPose() {
+    if (room && roomShots) {
+        // Party: back off toward the room so the balloon drop and the letters read.
+        const { cake, wide } = roomShots;
+        return { pos: cake.pos.clone().lerp(wide.pos, 0.28), target: cake.target.clone().lerp(wide.target, 0.12) };
+    }
     const dir = tmpV.copy(hero.pos).sub(hero.target);
     const pos = hero.target.clone().add(dir.multiplyScalar(1.06));
     pos.y += 0.35;
@@ -1272,7 +1558,10 @@ function onResize() {
     bloomComposer?.setSize(w, h);
     const wasHero = phase === 'gate' || phase === 'intro';
     computeHero();
-    if (wasHero && !anime.running.length) {
+    if (room && (phase === 'gate' || phase === 'dark') && !anime.running.length) {
+        camera.position.copy(roomShots.entry.pos);
+        controls.target.copy(roomShots.entry.target);
+    } else if (!room && wasHero && !anime.running.length) {
         camera.position.copy(hero.pos);
         controls.target.copy(hero.target);
     }
@@ -1307,7 +1596,8 @@ function loop(now) {
     lastFrameTime = now;
     elapsed += dt;
 
-    if (cakeGroup && !reduceMotion) cakeGroup.rotation.y += dt * 0.12 * spin.v;
+    // A real cake on a real table does not spin; the studio one still does.
+    if (cakeGroup && !reduceMotion && !room) cakeGroup.rotation.y += dt * 0.12 * spin.v;
     if (stars && !reduceMotion) stars.rotation.y += dt * 0.01;
     controls.update();
     if (flameMaterial?.uniforms?.uTime) flameMaterial.uniforms.uTime.value = elapsed;
@@ -1318,6 +1608,9 @@ function loop(now) {
     smoke?.update(dt);
     sparkles?.update(dt);
     updateDecor(dt);
+    room?.update(dt, elapsed);
+    if (phase === 'dark') placeSwitchMarker();
+    if (phase === 'song') updateLyrics();
     updateMic(dt);
     applyViewShift();
     governor?.sample(dt);
@@ -1332,22 +1625,51 @@ function renderFrame() {
 
 function applyLights(dt) {
     if (!sceneLights || !lightBase) return;
+    // Party room: the cake rig follows the room (faint in the dark, full
+    // under the party lights, candle-led in the dim) plus the auto-exposure
+    // overshoot after the switch. All plain uniforms.
+    let roomK = 1;
+    let kick = 1;
+    if (room) {
+        const L = roomLight.v;
+        const D = roomDim.v;
+        const key = `${L.toFixed(3)}|${D.toFixed(3)}`;
+        if (key !== appliedRoom) {
+            appliedRoom = key;
+            room.setLights(L);
+            room.setDim(D);
+            const envK = (0.08 + 0.92 * L) * (1 - 0.55 * D);
+            for (const { mat, env } of cakeMaterials) mat.envMapIntensity = env * envK;
+        }
+        roomK = (0.1 + 0.9 * L) * (1 - 0.6 * D);
+        // Dark-adapted eyes: exposure sits higher in the dark (the room's
+        // suggestion), and the switch then overshoots before it settles.
+        const ex = room.exposure || { dark: 1.25, lit: 1 };
+        kick = exposureKick.v * THREE.MathUtils.lerp(ex.dark, ex.lit, L);
+        const pass = bloomComposer?.bloom;
+        if (pass) pass.strength = lightBase.bloom * (1 + (exposureKick.v - 1) * 0.9);
+    }
     // dim: the wish beat (flames stay bright, the room falls away).
     // glow: the warm bloom at the climax.
-    const k = 1 - lightBase.dimK * dim.v + 0.6 * glow.v;
+    const k = (1 - lightBase.dimK * dim.v + 0.6 * glow.v) * roomK;
     sceneLights.key.intensity = lightBase.key * k;
     sceneLights.fill.intensity = lightBase.fill * k;
-    sceneLights.ambient.intensity = lightBase.ambient * (1 - 0.5 * dim.v + 0.8 * glow.v);
-    sceneLights.rim.intensity = lightBase.rim * (1 - 0.3 * dim.v);
-    renderer.toneMappingExposure = lightBase.exposure * (1 - 0.18 * dim.v + 0.12 * glow.v);
+    sceneLights.ambient.intensity = lightBase.ambient * (1 - 0.5 * dim.v + 0.8 * glow.v) * roomK;
+    sceneLights.rim.intensity = lightBase.rim * (1 - 0.3 * dim.v) * roomK;
+    renderer.toneMappingExposure = lightBase.exposure * kick * (1 - 0.18 * dim.v + 0.12 * glow.v);
 
     if (candleLight) {
         let lit = 0;
         for (const c of candles) if (c.isLit) lit++;
         const target = lit * CANDLE_LIGHT_PER_FLAME;
         candleLightLevel += (target - candleLightLevel) * Math.min(1, dt * 6);
-        candleLight.intensity = candleLightLevel *
-            (0.9 + Math.sin(elapsed * 13.0) * 0.06 + Math.sin(elapsed * 29.0 + 1.3) * 0.04);
+        if (room) {
+            // The room's candle light flickers itself; it only needs the level.
+            room.setCandles?.(candles.length ? candleLightLevel / (candles.length * CANDLE_LIGHT_PER_FLAME) : 0);
+        } else {
+            candleLight.intensity = candleLightLevel *
+                (0.9 + Math.sin(elapsed * 13.0) * 0.06 + Math.sin(elapsed * 29.0 + 1.3) * 0.04);
+        }
     }
 }
 
@@ -1381,9 +1703,15 @@ function spawnEmbers(dt) {
 // Beats
 // ---------------------------------------------------------------------------
 
-function onOpenClick() {
+function onOpenClick(quiet) {
     if (phase !== 'gate' || opening) return;
     opening = true;
+    // Quiet: everything plays, silently, until the speaker is tapped (then a
+    // 1.5 s fade-in). The surprise is carried by light, text and vibration.
+    quietMode = !!quiet;
+    muted = quietMode;
+    $('receiver-view')?.classList.toggle('is-quiet', quietMode);
+    syncAudioButton();
     // Must run synchronously inside the tap: iOS only unlocks audio here.
     unlockAudio();
     if (isReady) {
@@ -1412,6 +1740,10 @@ function leaveGate() {
 }
 
 function startReveal() {
+    if (room) {
+        startDark();
+        return;
+    }
     phase = 'intro';
     leaveGate();
     $('greeting-canvas-container')?.classList.add('is-live');
@@ -1441,6 +1773,8 @@ function startReveal() {
 
 function igniteCandles(done) {
     const stagger = ms(150);
+    if (room && audio) cues.matchStrike(audio, audio.now(), 0.1);
+    const lead = room ? ms(220) : 0;
     candles.forEach((c, i) => {
         later(() => {
             c.isLit = true;
@@ -1448,20 +1782,346 @@ function igniteCandles(done) {
             c.flame.rotation.z = 0;
             anime({ targets: c.flame.scale, x: 1, y: 1, z: 1, duration: ms(420) || 1, easing: 'easeOutBack' });
             playTick(i);
-        }, i * stagger);
+        }, lead + i * stagger);
     });
-    later(done, candles.length * stagger + ms(300));
+    later(done, lead + candles.length * stagger + ms(300));
+}
+
+// ---------------------------------------------------------------------------
+// Party beats: dark room -> switch -> SURPRISE -> tour -> cake + song
+// ---------------------------------------------------------------------------
+
+const darkTimers = new Set();
+function darkLater(fn, delay) {
+    const id = later(() => { darkTimers.delete(id); fn(); }, delay);
+    darkTimers.add(id);
+    return id;
+}
+function clearDarkTimers() {
+    darkTimers.forEach((id) => { clearTimeout(id); timers.delete(id); });
+    darkTimers.clear();
+}
+
+function haptic(pattern) {
+    // Android Chrome only (iOS has no Vibration API); needs a recent tap,
+    // which the gate and switch taps provide. Silent, so quiet mode keeps it.
+    try { navigator.vibrate?.(pattern); } catch { /* unsupported */ }
+}
+
+function announce(text) {
+    const live = $('rcv-live');
+    if (live) live.textContent = text;
+}
+
+/**
+ * Beat 1-4: we are standing in the doorway of a dark room. Never a black
+ * screen: the window, the switch glow and the hint all appear at once, room
+ * tone proves it is alive, and the lights come on by themselves after 9 s.
+ */
+function startDark({ fromReplay = false } = {}) {
+    phase = 'dark';
+    if (!fromReplay) leaveGate();
+    const rv = $('receiver-view');
+    rv?.classList.add('is-dark');
+    rv?.classList.remove('is-dim');
+    $('greeting-canvas-container')?.classList.add('is-live');
+    const hud = $('rcv-hud');
+    if (hud) { hud.inert = false; hud.classList.add('is-live'); }
+    $('rcv-title')?.classList.remove('is-hero', 'is-docked');
+    spin.v = 0;
+    anime.remove([roomLight, roomDim, exposureKick, dim, glow]);
+    roomLight.v = 0;
+    roomDim.v = 0;
+    exposureKick.v = 1;
+    dim.v = 0;
+    glow.v = 0;
+    room.reset?.();
+    lockRoomOrbit();
+    darkLowerThird = false;
+    const entry = roomShots.entry;
+    anime.remove(camera.position);
+    anime.remove(controls.target);
+    camera.position.copy(entry.pos);
+    controls.target.copy(entry.target);
+    // A slow 3 % step into the room while the eyes adjust.
+    if (!reduceMotion) {
+        const inward = entry.pos.clone().lerp(entry.target, 0.03);
+        tweenCamera(inward, entry.target, 7000, 'easeOutSine', { unlock: false });
+    }
+    startLoop();
+
+    if (audio) {
+        const now = audio.now();
+        roomTone.start(0.09, 1.2);
+        // Someone is hiding in here.
+        cues.shh(audio, now + 0.9, -0.6, 0.9, 0.06);
+        cues.shh(audio, now + 2.7, 0.55, 0.6, 0.04);
+    }
+    showSwitchMarker();
+    darkLater(() => {
+        setDarkHint('rcvDarkHint');
+        const skip = $('btn-dark-skip');
+        if (skip) skip.hidden = false;
+    }, DARK_HINT_MS);
+    darkLater(escalateDark, DARK_ESCALATE_MS);
+    darkLater(() => {
+        if (phase !== 'dark') return;
+        setDarkHint('rcvAutoLight');
+        darkLater(() => flipSwitch(true), 700);
+    }, DARK_AUTO_FLIP_MS);
+}
+
+function setDarkHint(key) {
+    const hint = $('rcv-dark-hint');
+    if (!hint) return;
+    hint.dataset.key = key;
+    hint.textContent = t(key);
+    hint.hidden = false;
+    // Restart the fade-in for each new line.
+    hint.classList.remove('is-in');
+    void hint.offsetWidth;
+    hint.classList.add('is-in');
+}
+
+/** Beat 3: the hint gets explicit and the view drifts toward the switch. */
+function escalateDark() {
+    if (phase !== 'dark') return;
+    setDarkHint('rcvDarkHint2');
+    $('rcv-switch')?.classList.add('is-urgent');
+    darkLowerThird = true;
+    if (reduceMotion || !room.switchWorld) return;
+    const pos = camera.position.clone();
+    const look = controls.target.clone().sub(pos);
+    const toSwitch = room.switchWorld.clone().sub(pos).normalize();
+    const dir = look.clone().normalize();
+    const angle = dir.angleTo(toSwitch);
+    if (angle < 0.01) return;
+    const q = new THREE.Quaternion().setFromUnitVectors(dir, toSwitch);
+    const part = new THREE.Quaternion().slerp(q, Math.min(1, THREE.MathUtils.degToRad(10) / angle));
+    const target = pos.clone().add(look.applyQuaternion(part));
+    anime.remove(controls.target);
+    anime({ targets: controls.target, x: target.x, y: target.y, z: target.z, duration: 1800, easing: 'easeInOutSine' });
+}
+
+function showSwitchMarker() {
+    const marker = $('rcv-switch');
+    if (!marker) return;
+    marker.classList.remove('is-pressed', 'is-urgent');
+    marker.hidden = false;
+    placeSwitchMarker();
+}
+
+/** Keeps the DOM switch target (>= 64 px, focusable) over the 3D switch. */
+function placeSwitchMarker() {
+    const marker = $('rcv-switch');
+    if (!marker || marker.hidden || !room?.switchWorld || !camera) return;
+    tmpV.copy(room.switchWorld).project(camera);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const onScreen = tmpV.z < 1 && Math.abs(tmpV.x) < 1.05 && Math.abs(tmpV.y) < 1.05;
+    const x = THREE.MathUtils.clamp((tmpV.x + 1) / 2 * w, 44, w - 44);
+    const y = THREE.MathUtils.clamp((1 - tmpV.y) / 2 * h, 90, h - 150);
+    marker.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+    marker.classList.toggle('is-offscreen', !onScreen);
+    const hint = $('rcv-dark-hint');
+    if (hint) {
+        // The hint sits under the switch, kept inside the screen.
+        const hw = Math.min(hint.offsetWidth || 260, w - 32);
+        const hx = THREE.MathUtils.clamp(x, 16 + hw / 2, w - 16 - hw / 2);
+        const below = y + 56 + (hint.offsetHeight || 48) < h - 90;
+        hint.style.transform = `translate(${(hx - hw / 2).toFixed(1)}px, ${(below ? y + 52 : y - 52 - (hint.offsetHeight || 48)).toFixed(1)}px)`;
+    }
+}
+
+function hideDarkUi() {
+    const marker = $('rcv-switch');
+    if (marker) marker.hidden = true;
+    const hint = $('rcv-dark-hint');
+    if (hint) { hint.hidden = true; hint.classList.remove('is-in'); }
+    const skip = $('btn-dark-skip');
+    if (skip) skip.hidden = true;
+    darkLowerThird = false;
+}
+
+/** Beat 5: the recipient's own tap. Click, a held beat of darkness, then light. */
+function flipSwitch(auto) {
+    if (phase !== 'dark') return;
+    phase = 'reveal';
+    clearDarkTimers();
+    const marker = $('rcv-switch');
+    marker?.classList.add('is-pressed');
+    later(hideDarkUi, 90);
+    if (!auto) haptic(12);
+    if (audio) {
+        audio.resume();
+        const t0 = audio.now() + 0.01;
+        cues.switchClick(audio, t0);
+        // Guests hold their breath: the room goes quiet just before the hit.
+        roomTone.duck(t0 + 0.04);
+    }
+    anime.remove(camera.position);
+    anime.remove(controls.target);
+    later(lightsOn, LIGHTS_ON_MS);
+}
+
+/** Beat 6-7: lights, SURPRISE, poppers, confetti. */
+function lightsOn() {
+    if (phase !== 'reveal' || !room) return;
+    const rv = $('receiver-view');
+    rv?.classList.remove('is-dark');
+    // Hard cut, like a real switch; the "camera" then adapts.
+    anime.remove([roomLight, exposureKick]);
+    roomLight.v = 1;
+    exposureKick.v = reduceMotion ? 1.05 : 1.35;
+    anime({ targets: exposureKick, v: 1, duration: reduceMotion ? 1200 : 700, easing: 'easeOutCubic' });
+    if (!reduceMotion) flinch();
+
+    if (audio) {
+        const now = audio.now();
+        const hit = now + (SHOUT_MS - LIGHTS_ON_MS) / 1000;
+        cues.surpriseShout(audio, hit, { soft: reduceMotion });
+        if (!reduceMotion) {
+            cues.popper(audio, hit + 0.04, -0.6);
+            cues.popper(audio, hit + 0.12, 0.6, 0.85);
+        }
+        partyLoop.start(now + 0.58, 0.3, 1.2);
+    }
+    later(() => haptic([0, 30, 40, 60]), SHOUT_MS - LIGHTS_ON_MS);
+    later(showSurpriseText, 40);
+    later(() => {
+        if (!reduceMotion) room.popConfetti?.();
+        sideConfetti();
+    }, 70);
+    announce(t('rcvLiveSurprise'));
+    later(startTour, TOUR_MS - LIGHTS_ON_MS);
+}
+
+/** The camera flinches back 2.5 % and settles (a person startled, not a crane move). */
+function flinch() {
+    const entry = roomShots.entry;
+    const from = camera.position.clone();
+    const back = from.clone().add(from.clone().sub(controls.target).multiplyScalar(0.025));
+    anime.remove(camera.position);
+    anime.timeline()
+        .add({ targets: camera.position, x: back.x, y: back.y, z: back.z, duration: 140, easing: 'easeOutQuad' })
+        .add({ targets: camera.position, x: entry.pos.x, y: entry.pos.y, z: entry.pos.z, duration: 900, easing: 'easeOutCubic' });
+}
+
+function showSurpriseText() {
+    const el = $('rcv-surprise');
+    if (!el) return;
+    el.textContent = t('rcvSurprise');
+    el.classList.remove('is-hit');
+    void el.offsetWidth;
+    el.classList.add('is-hit');
+    later(() => el.classList.remove('is-hit'), 2000);
+}
+
+/** Streamers from both sides of the doorway (the poppers are off-frame). */
+function sideConfetti() {
+    const colors = themeCssColors();
+    const n = reduceMotion ? 20 : 70;
+    confetti({ particleCount: n, angle: 58, spread: 55, startVelocity: 55, origin: { x: -0.02, y: 0.62 }, colors, ticks: 220 });
+    later(() => confetti({ particleCount: n, angle: 122, spread: 55, startVelocity: 55, origin: { x: 1.02, y: 0.62 }, colors, ticks: 220 }), 80);
+}
+
+/** Beat 8: glide from the doorway, past the room, to the table; the name docks. */
+function startTour() {
+    if (phase !== 'reveal') return;
+    const { wide, cake } = roomShots;
+    if (reduceMotion) {
+        crossCut(cake);
+    } else {
+        tweenCamera(wide.pos, wide.target, 1300, 'easeInOutSine', { unlock: false });
+        later(() => tweenCamera(cake.pos, cake.target, 1500, 'easeInOutCubic', { unlock: false }), 1300);
+        if (audio) cues.whoosh(audio, audio.now() + 0.2, 1.1, 0.12);
+    }
+    const title = $('rcv-title');
+    if (title) {
+        later(() => title.classList.add('is-hero'), 200);
+        later(() => { title.classList.remove('is-hero'); title.classList.add('is-docked'); }, 2400);
+    }
+    later(cakeComing, CAKE_IN_MS - TOUR_MS);
+}
+
+/** Reduced motion: a quick dissolve between fixed framings instead of a glide. */
+function crossCut(shot) {
+    const stage = $('greeting-canvas-container');
+    stage?.classList.add('is-cut');
+    later(() => {
+        tweenCamera(shot.pos, shot.target, 0);
+        stage?.classList.remove('is-cut');
+    }, 180);
+}
+
+/** Beat 9: the Thai part. Lights down, candles lit, then everyone sings. */
+function cakeComing() {
+    if (phase !== 'reveal') return;
+    const note = $('rcv-cake-coming');
+    if (note) {
+        note.textContent = t('rcvCakeComing');
+        note.hidden = false;
+        later(() => { note.hidden = true; }, 1600);
+    }
+    anime.remove(roomDim);
+    anime({ targets: roomDim, v: 1, duration: 800, easing: 'easeInOutQuad' });
+    partyLoop?.stop(0.6);
+    roomTone?.set(0.03, 1);
+    later(() => igniteCandles(() => later(startSong, ms(300))), 500);
+}
+
+function startSong() {
+    if (phase !== 'reveal') return;
+    phase = 'song';
+    enableRoomOrbit(roomShots.cake);
+    lyricIndex = -1;
+    songStartedAt = performance.now() + 50;
+    song?.start({ level: 0.8, fadeIn: 0.3, passes: 1, claps: 0.09 });
+    const strip = $('rcv-lyrics');
+    if (strip) strip.hidden = false;
+    updateLyrics();
+    later(() => { const b = $('btn-skip-song'); if (b && phase === 'song') b.hidden = false; }, 3000);
+    later(endSong, SONG_LENGTH * 1000 + 300);
+}
+
+/** Karaoke strip: the current line, with the name in the accent colour. */
+function updateLyrics() {
+    const pos = audio && song ? song.position() : (performance.now() - songStartedAt) / 1000;
+    let idx = 0;
+    for (let i = 0; i < LYRIC_STARTS.length; i++) if (pos >= LYRIC_STARTS[i]) idx = i;
+    if (idx === lyricIndex) return;
+    lyricIndex = idx;
+    const line = $('rcv-lyric-line');
+    const raw = (dict().rcvLyrics ?? translations.en.rcvLyrics ?? '').split('|')[idx] || '';
+    if (line) fillRaw(line, raw, { name: recipientName() });
+}
+
+function endSong() {
+    if (phase !== 'song') return;
+    const early = song ? song.position() < SONG_LENGTH - 0.5 : false;
+    const strip = $('rcv-lyrics');
+    if (strip) strip.hidden = true;
+    const skip = $('btn-skip-song');
+    if (skip) skip.hidden = true;
+    if (early) song?.stop(0.4);
+    roomTone?.set(0.045, 1.5);
+    // Push in toward the flames for the wish.
+    lockRoomOrbit();
+    tweenCamera(roomShots.closeUp.pos, roomShots.closeUp.target, ms(2600), 'easeInOutSine', { unlock: false });
+    later(() => enableRoomOrbit(roomShots.closeUp), ms(2600) + 50);
+    phase = 'intro';
+    startWish();
 }
 
 function startWish() {
     if (phase !== 'intro') return;
     phase = 'wish';
-    spin.v = 0.6;
+    spin.v = room ? 0 : 0.6;
     anime.remove(spin);
     anime({ targets: spin, v: 0, duration: ms(900), easing: 'easeOutQuad' });
     anime({ targets: dim, v: 1, duration: ms(900), easing: 'easeInOutQuad' });
     $('receiver-view')?.classList.add('is-dim');
-    duckMusic(0.3);
+    if (!room) duckMusic(0.3);
     const wish = $('rcv-wish');
     if (wish) wish.hidden = false;
     later(() => {
@@ -1531,6 +2191,7 @@ function extinguishCandle(candle) {
     if (phase === 'wish') startBlow();
     if (phase !== 'blow') return;
     candle.isLit = false;
+    haptic(8);
 
     flameWorldPos(candle, tmpV);
     const screen = tmpV.clone().project(camera);
@@ -1559,6 +2220,9 @@ function startClimax() {
     closeMicSheet(false);
     anime.remove(dim);
     anime({ targets: dim, v: 0.75, duration: ms(250), easing: 'easeOutQuad' });
+    // Party: the room holds its breath too.
+    roomTone?.set(0.0001, 0.2);
+    if (room) lockRoomOrbit();
 
     // A beat of darkness and silence, then the payoff.
     later(() => {
@@ -1570,13 +2234,29 @@ function startClimax() {
             .add({ targets: glow, v: 0.15, duration: ms(1800) || 1, easing: 'easeInOutSine' });
         playFinalPhrase();
         celebrate();
-        const top = new THREE.Vector3(0, cakeBounds.topY + 0.4, 0);
+        const top = cakeGroup.localToWorld(new THREE.Vector3(0, cakeBounds.topY + 0.4, 0));
         burstSparkles(top, reduceMotion ? 20 : 110, 2.4);
         const pose = afterglowPose();
-        tweenCamera(pose.pos, pose.target, ms(1800));
-        anime.remove(spin);
-        anime({ targets: spin, v: 0.35, duration: ms(1600), easing: 'easeInOutQuad' });
-        showDecor();
+        tweenCamera(pose.pos, pose.target, ms(1800), 'easeInOutCubic', { unlock: !room });
+        if (room) {
+            // Beat 14: lights snap back to full, balloons fall, everyone cheers.
+            anime.remove([roomDim, exposureKick]);
+            anime({ targets: roomDim, v: 0, duration: 250, easing: 'easeOutQuad' });
+            exposureKick.v = reduceMotion ? 1.03 : 1.15;
+            anime({ targets: exposureKick, v: 1, duration: 900, easing: 'easeOutCubic' });
+            if (!reduceMotion) room.dropBalloons?.();
+            if (audio) {
+                cues.cheer(audio, audio.now() + 0.05, reduceMotion ? 0.5 : 1);
+                if (!reduceMotion) cues.whoosh(audio, audio.now() + 0.1, 1.4, 0.08);
+            }
+            haptic([0, 40, 30, 40]);
+            later(() => enableRoomOrbit(pose), ms(1800) + 50);
+            later(() => roomTone?.set(0.035, 2), 2500);
+        } else {
+            anime.remove(spin);
+            anime({ targets: spin, v: 0.35, duration: ms(1600), easing: 'easeInOutQuad' });
+            showDecor();
+        }
         later(() => {
             phase = 'message';
             $('btn-hud-card').hidden = false;
@@ -1614,6 +2294,18 @@ function replay() {
     closeCard(false);
     clearTimers();
     hideDecor();
+    if (room) {
+        // "Watch the surprise again": someone switched the lights off.
+        $('btn-hud-card').hidden = true;
+        $('btn-hud-reset').hidden = true;
+        song?.stop(0.4);
+        partyLoop?.stop(0.3);
+        tweenShift(0, 0, 0);
+        candles.forEach((c) => { c.isLit = false; c.flame.scale.setScalar(0.0001); c.flame.rotation.z = 0; });
+        if (audio) cues.switchClick(audio, audio.now() + 0.01);
+        later(() => startDark({ fromReplay: true }), 120);
+        return;
+    }
     phase = 'intro';
     $('btn-hud-card').hidden = true;
     $('btn-hud-reset').hidden = true;
@@ -1668,6 +2360,13 @@ function setRay(x, y) {
 function handleTap(x, y) {
     if (!renderer || !camera) return;
     setRay(x, y);
+
+    if (phase === 'dark') {
+        // The switch itself, or (after the hint escalates) anywhere low on the screen.
+        if (room?.switchHit && raycaster.intersectObject(room.switchHit, true).length) flipSwitch(false);
+        else if (darkLowerThird && y > window.innerHeight * 2 / 3) flipSwitch(false);
+        return;
+    }
 
     if (phase === 'blow' || phase === 'wish') {
         const hit = raycaster.intersectObjects(hitMeshes, false)[0];
@@ -2074,87 +2773,21 @@ function closeLetter(restoreFocus) {
 }
 
 // ---------------------------------------------------------------------------
-// Audio: one master bus (compressor + light reverb), lookahead scheduling
+// Audio: src/audio/ (engine with a master limiter, the song, synthesized cues)
 // ---------------------------------------------------------------------------
 
 function unlockAudio() {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
     if (audio) {
-        audio.ctx.resume().catch(() => {});
+        audio.resume();
         return;
     }
-    try {
-        // Safari 16.4+: play through the ring/silent switch like a video would.
-        if (navigator.audioSession) navigator.audioSession.type = 'playback';
-    } catch { /* not supported */ }
-    try {
-        const ctx = new AC();
-        ctx.resume?.().catch(() => {});
-        // A one-sample silent buffer started inside the gesture unlocks WebKit.
-        const silent = ctx.createBufferSource();
-        silent.buffer = ctx.createBuffer(1, 1, 22050);
-        silent.connect(ctx.destination);
-        silent.start(0);
-
-        const comp = ctx.createDynamicsCompressor();
-        comp.threshold.value = -18;
-        comp.knee.value = 24;
-        comp.ratio.value = 6;
-        comp.attack.value = 0.004;
-        comp.release.value = 0.25;
-        comp.connect(ctx.destination);
-        const master = ctx.createGain();
-        master.gain.value = muted ? 0 : 1;
-        master.connect(comp);
-        const music = ctx.createGain();
-        music.gain.value = 0;
-        music.connect(master);
-        const sfx = ctx.createGain();
-        sfx.gain.value = 0.9;
-        sfx.connect(master);
-        const reverb = ctx.createConvolver();
-        reverb.buffer = makeImpulse(ctx, 1.6);
-        const wet = ctx.createGain();
-        wet.gain.value = 0.22;
-        reverb.connect(wet);
-        wet.connect(master);
-        audio = { ctx, master, music, sfx, reverb, voices: new Set(), loopTimer: 0, nextLoopAt: 0, loopsLeft: 0, level: 0.85 };
-    } catch (err) {
-        console.warn('[viewer] Web Audio unavailable:', err);
-        audio = null;
-    }
+    audio = createAudioEngine({ muted });
+    if (!audio) return;
+    song = createSong(audio, melodyWave);
+    roomTone = cues.createRoomTone(audio);
+    partyLoop = cues.createPartyLoop(audio);
+    audio.preloadClips();
 }
-
-function makeImpulse(ctx, seconds) {
-    const len = Math.floor(ctx.sampleRate * seconds);
-    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-        const data = buf.getChannelData(ch);
-        for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
-    }
-    return buf;
-}
-
-const NOTE = {
-    C2: 65.41, F2: 87.31, G2: 98.0, C3: 130.81, F3: 174.61, G3: 196.0, A3: 220.0,
-    C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.0, A4: 440.0, B4: 493.88,
-    C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.0, B5: 987.77,
-    C6: 1046.5, E6: 1318.5, G6: 1568.0
-};
-const MELODY = [
-    ['G4', 0.25, 0], ['G4', 0.25, 0.3], ['A4', 0.5, 0.6], ['G4', 0.5, 1.1], ['C5', 0.5, 1.6], ['B4', 1.0, 2.1],
-    ['G4', 0.25, 3.2], ['G4', 0.25, 3.5], ['A4', 0.5, 3.8], ['G4', 0.5, 4.3], ['D5', 0.5, 4.8], ['C5', 1.0, 5.3],
-    ['G4', 0.25, 6.4], ['G4', 0.25, 6.7], ['G5', 0.5, 7.0], ['E5', 0.5, 7.5], ['C5', 0.5, 8.0], ['B4', 0.5, 8.5], ['A4', 0.5, 9.0],
-    ['F5', 0.25, 9.7], ['F5', 0.25, 10.0], ['E5', 0.5, 10.3], ['C5', 0.5, 10.8], ['D5', 0.5, 11.3], ['C5', 1.2, 11.8]
-];
-const HARMONY = [
-    ['C4', 1.0, 0.0], ['E4', 0.5, 0.6], ['E4', 0.5, 1.6], ['G4', 1.0, 2.1],
-    ['B3', 1.0, 3.2], ['F4', 0.5, 3.8], ['G4', 0.5, 4.8], ['E4', 1.0, 5.3],
-    ['C4', 1.0, 6.4], ['E4', 0.5, 7.0], ['A3', 1.0, 8.0], ['F4', 0.5, 9.0],
-    ['A4', 0.5, 9.7], ['G4', 0.5, 10.3], ['F4', 0.5, 11.3], ['E4', 1.2, 11.8]
-];
-const BASS = [['C2', 2.5, 0], ['G2', 2.5, 3.2], ['C2', 2.5, 6.4], ['F2', 1.2, 9.7], ['G2', 1.0, 10.8], ['C2', 1.5, 11.8]];
 
 function melodyWave() {
     const track = activeConfig?.music;
@@ -2163,261 +2796,53 @@ function melodyWave() {
     return 'triangle';
 }
 
-function voice(freq, dur, at, kind, dest) {
-    if (!audio || !freq) return;
-    const { ctx } = audio;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    let peak = 0.16;
-    let attack = 0.02;
-    let tail = 0.18;
-    if (kind === 'melody') {
-        osc.type = melodyWave();
-        if (osc.type === 'sawtooth') {
-            const lp = ctx.createBiquadFilter();
-            lp.type = 'lowpass';
-            lp.frequency.value = 1400;
-            osc.connect(lp);
-            lp.connect(gain);
-        } else {
-            osc.connect(gain);
-        }
-    } else if (kind === 'harmony') {
-        osc.type = 'sine'; peak = 0.06; attack = 0.05; osc.connect(gain);
-    } else if (kind === 'chord') {
-        osc.type = 'sine'; peak = 0.07; attack = 0.08; tail = 1.4; osc.connect(gain);
-    } else if (kind === 'shimmer') {
-        osc.type = 'sine'; peak = 0.05; attack = 0.01; tail = 0.6; osc.connect(gain);
-    } else {
-        osc.type = 'triangle'; peak = 0.14; attack = 0.06; osc.connect(gain);
-    }
-    osc.frequency.setValueAtTime(freq, at);
-    gain.gain.setValueAtTime(0.0001, at);
-    gain.gain.linearRampToValueAtTime(peak, at + attack);
-    gain.gain.exponentialRampToValueAtTime(0.0008, at + dur + tail);
-    gain.connect(dest);
-    if (kind === 'melody' || kind === 'chord' || kind === 'shimmer') gain.connect(audio.reverb);
-    osc.start(at);
-    osc.stop(at + dur + tail + 0.05);
-    audio.voices.add(osc);
-    osc.onended = () => audio?.voices.delete(osc);
-}
-
-function schedulePass(start) {
-    MELODY.forEach(([n, d, o]) => voice(NOTE[n], d, start + o, 'melody', audio.music));
-    HARMONY.forEach(([n, d, o]) => voice(NOTE[n], d, start + o, 'harmony', audio.music));
-    BASS.forEach(([n, d, o]) => voice(NOTE[n], d, start + o, 'bass', audio.music));
-}
-
-function pumpMusic() {
-    if (!audio) return;
-    clearTimeout(audio.loopTimer);
-    // Schedule against the audio clock; setInterval drifted and stacked when
-    // the tab was throttled.
-    while (audio.loopsLeft > 0 && audio.nextLoopAt - audio.ctx.currentTime < 2.5) {
-        schedulePass(audio.nextLoopAt);
-        audio.nextLoopAt += SONG_LENGTH;
-        audio.loopsLeft--;
-    }
-    if (audio.loopsLeft > 0) audio.loopTimer = setTimeout(pumpMusic, 1000);
-}
-
-function startMusic({ level = 0.85, fadeIn = 1.5, passes = Infinity, delay = 0.05 } = {}) {
-    if (!audio) return;
-    stopMusic(0);
-    const now = audio.ctx.currentTime;
-    const g = audio.music.gain;
-    g.cancelScheduledValues(now);
-    g.setValueAtTime(0.0001, now);
-    g.linearRampToValueAtTime(level, now + delay + fadeIn);
-    audio.level = level;
-    audio.nextLoopAt = now + delay;
-    audio.loopsLeft = passes;
-    pumpMusic();
+function startMusic(opts) {
+    song?.start(opts);
 }
 
 function stopMusic(fade = 0.6) {
-    if (!audio) return;
-    clearTimeout(audio.loopTimer);
-    audio.loopsLeft = 0;
-    const now = audio.ctx.currentTime;
-    const g = audio.music.gain;
-    g.cancelScheduledValues(now);
-    g.setValueAtTime(g.value, now);
-    g.linearRampToValueAtTime(0.0001, now + Math.max(0.02, fade));
-    const stopAt = now + Math.max(0.03, fade);
-    audio.voices.forEach((osc) => { try { osc.stop(stopAt); } catch { /* already stopped */ } });
+    song?.stop(fade);
 }
 
 function duckMusic(level) {
-    if (!audio) return;
-    const now = audio.ctx.currentTime;
-    const g = audio.music.gain;
-    g.cancelScheduledValues(now);
-    g.setValueAtTime(g.value, now);
-    g.setTargetAtTime(level, now, 0.35);
+    song?.duck(level);
 }
 
-/** "...happy birthday to you" plus a ringing major chord, instead of cutting the song. */
+/** "...happy birthday to you" plus a ringing chord, then the song softly under the message. */
 function playFinalPhrase() {
-    if (!audio) return;
-    stopMusic(0.02);
-    const { ctx } = audio;
-    const t0 = ctx.currentTime + 0.06;
-    const g = audio.music.gain;
-    g.cancelScheduledValues(t0);
-    g.setValueAtTime(0.9, t0);
-    MELODY.filter(([, , o]) => o >= 9.7).forEach(([n, d, o]) => voice(NOTE[n], d, t0 + o - 9.7, 'melody', audio.music));
-    BASS.filter(([, , o]) => o >= 9.7).forEach(([n, d, o]) => voice(NOTE[n], d, t0 + o - 9.7, 'bass', audio.music));
-    const ring = t0 + 2.1;
-    ['C4', 'E4', 'G4', 'C5'].forEach((n) => voice(NOTE[n], 2.6, ring, 'chord', audio.music));
-    ['C6', 'E6', 'G6'].forEach((n, i) => voice(NOTE[n], 0.25, ring + 0.08 * i, 'shimmer', audio.music));
-    // Then the song once more, softly, under the message.
+    if (!song) return;
+    song.finalPhrase();
     later(() => {
         if (phase === 'message' || phase === 'climax') startMusic({ level: 0.35, fadeIn: 2.5, passes: 1 });
     }, 5200);
 }
 
-function sfxNode(pan = 0) {
-    const { ctx } = audio;
-    const gain = ctx.createGain();
-    if (pan && ctx.createStereoPanner) {
-        const p = ctx.createStereoPanner();
-        p.pan.value = pan * 0.8;
-        gain.connect(p);
-        p.connect(audio.sfx);
-    } else {
-        gain.connect(audio.sfx);
-    }
-    return gain;
-}
-
-function noiseBuffer(seconds) {
-    const { ctx } = audio;
-    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * seconds), ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-    return buf;
-}
-
-function playPuff(pan) {
-    if (!audio) return;
-    const { ctx } = audio;
-    const now = ctx.currentTime;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(0.35);
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.setValueAtTime(1400, now);
-    bp.frequency.exponentialRampToValueAtTime(500, now + 0.3);
-    bp.Q.value = 0.9;
-    const out = sfxNode(pan);
-    out.gain.setValueAtTime(0.0001, now);
-    out.gain.linearRampToValueAtTime(0.5, now + 0.02);
-    out.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
-    src.connect(bp);
-    bp.connect(out);
-    src.start(now);
-    src.stop(now + 0.35);
-}
-
-function playTick(i) {
-    if (!audio) return;
-    const { ctx } = audio;
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880 * Math.pow(2, i / 12), now);
-    const out = sfxNode(0);
-    out.gain.setValueAtTime(0.0001, now);
-    out.gain.linearRampToValueAtTime(0.08, now + 0.01);
-    out.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-    osc.connect(out);
-    osc.start(now);
-    osc.stop(now + 0.3);
-}
-
-function playPop() {
-    if (!audio) return;
-    const { ctx } = audio;
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(240, now);
-    osc.frequency.exponentialRampToValueAtTime(80, now + 0.12);
-    const out = sfxNode(0);
-    out.gain.setValueAtTime(0.4, now);
-    out.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-    osc.connect(out);
-    osc.start(now);
-    osc.stop(now + 0.15);
-}
-
-function playChime(freq) {
-    if (!audio) return;
-    const { ctx } = audio;
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq || [523.25, 659.25, 783.99, 1046.5][(Math.random() * 4) | 0], now);
-    const out = sfxNode(0);
-    out.gain.setValueAtTime(0.0001, now);
-    out.gain.linearRampToValueAtTime(0.18, now + 0.015);
-    out.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
-    osc.connect(out);
-    out.connect(audio.reverb);
-    osc.start(now);
-    osc.stop(now + 1.15);
-}
-
+function playPuff(pan) { if (audio) cues.puff(audio, pan); }
+function playTick(i) { if (audio) cues.tick(audio, i); }
+function playPop() { if (audio) cues.pop(audio); }
+function playChime(freq) { if (audio) cues.chime(audio, freq); }
 function playPaper() {
     if (!audio) return;
-    const { ctx } = audio;
-    const now = ctx.currentTime;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(0.45);
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.setValueAtTime(700, now);
-    bp.frequency.exponentialRampToValueAtTime(1600, now + 0.4);
-    bp.Q.value = 2.5;
-    const out = sfxNode(0);
-    out.gain.setValueAtTime(0.0001, now);
-    out.gain.linearRampToValueAtTime(0.22, now + 0.04);
-    out.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-    src.connect(bp);
-    bp.connect(out);
-    src.start(now);
-    src.stop(now + 0.45);
+    cues.paper(audio);
     later(() => playChime(1046.5), 120);
 }
-
-function playSfxShutter() {
-    if (!audio) return;
-    const { ctx } = audio;
-    const now = ctx.currentTime;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(0.08);
-    const out = sfxNode(0);
-    out.gain.setValueAtTime(0.25, now);
-    out.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-    src.connect(out);
-    src.start(now);
-}
+function playSfxShutter() { if (audio) cues.shutter(audio); }
 
 function toggleMute() {
     muted = !muted;
-    if (audio) {
-        const now = audio.ctx.currentTime;
-        audio.master.gain.cancelScheduledValues(now);
-        audio.master.gain.setTargetAtTime(muted ? 0 : 1, now, 0.08);
-    }
+    // Turning sound on mid-flow always fades in (1.5 s): never a loud start.
+    audio?.setMuted(muted, 1.5);
+    if (!muted) $('receiver-view')?.classList.remove('is-quiet');
+    syncAudioButton();
+}
+
+/** The speaker always reflects the real state (v1 showed "muted" while playing). */
+function syncAudioButton() {
     const btn = $('btn-hud-audio');
-    if (btn) {
-        btn.setAttribute('aria-pressed', muted ? 'false' : 'true');
-        const icon = btn.querySelector('i');
-        if (icon) icon.className = `fa-solid ${muted ? 'fa-volume-xmark' : 'fa-volume-high'}`;
-    }
+    if (!btn) return;
+    btn.setAttribute('aria-pressed', muted ? 'false' : 'true');
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = `fa-solid ${muted ? 'fa-volume-xmark' : 'fa-volume-high'}`;
 }
 
 // ---------------------------------------------------------------------------

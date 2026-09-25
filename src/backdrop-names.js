@@ -5,7 +5,7 @@
  *
  * Append-only: share links bit-pack the index (card-link.js PACK_LAYOUT).
  */
-export const BACKDROP_NAMES = Object.freeze(['night', 'blush', 'cream', 'sky', 'mint', 'lavender']);
+export const BACKDROP_NAMES = Object.freeze(['night', 'blush', 'cream', 'sky', 'mint', 'lavender', 'party']);
 
-/** What a new card starts with. Links without the field stay 'night'. */
-export const NEW_CARD_BACKDROP = 'blush';
+/** What a new card starts with (the surprise-party room). Links without the field stay 'night'. */
+export const NEW_CARD_BACKDROP = 'party';
