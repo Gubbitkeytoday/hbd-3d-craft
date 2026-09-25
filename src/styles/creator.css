@@ -960,7 +960,9 @@ body.theme-choco-monarch #creator-view { --accent: #e0b85a; --on-accent: #1e1405
 /* ---------- Desktop (>= 1024px): step panel left, sticky preview right ---------- */
 
 @media (min-width: 1024px) {
-    #creator-view.cr { height: 100vh; height: 100dvh; min-height: 560px; display: flex; flex-direction: column; overflow: hidden; }
+    /* Scoped to the active view: as a bare id rule it beat .view-panel's
+       display:none and painted the creator over the receiver on desktop. */
+    #creator-view.cr.active-view { height: 100vh; height: 100dvh; min-height: 560px; display: flex; flex-direction: column; overflow: hidden; }
     .cr-topbar { flex: none; padding: 0 var(--s5); }
     .cr-layout {
         flex: 1;

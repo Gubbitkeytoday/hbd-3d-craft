@@ -183,6 +183,12 @@ body {
     opacity: 1;
 }
 
+/* Hard guard: an inactive route is never painted, whatever a later
+   id-level layout rule sets display to. */
+.view-panel:not(.active-view) {
+    display: none !important;
+}
+
 /* 4. GLASSMORPHISM CORE UTILITY */
 .glass-panel {
     background: var(--glass-bg);
