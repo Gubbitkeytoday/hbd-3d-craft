@@ -28,7 +28,7 @@ function iconsPlugin() {
  * second round trip on every visit). This injects:
  *   - <link rel="modulepreload"> for chunks BOTH routes import (three, kit)
  *   - a 1-line inline script that preloads the current route's own chunks
- *     (#/view/... -> viewer, otherwise creator)
+ *     (#/c/... or #/view/... -> viewer, otherwise creator)
  * so everything downloads in parallel with the HTML/CSS while the gate or
  * the creator shell paints.
  */
@@ -79,7 +79,7 @@ function routePreloadPlugin() {
                     attrs: { rel: 'modulepreload', crossorigin: true, href: url(f) },
                     injectTo: 'head'
                 }));
-                const script = `(function(){var v=/^#\\/view\\//.test(location.hash);`
+                const script = `(function(){var v=/^#\\/(view|c)\\//.test(location.hash);`
                     + `(v?${JSON.stringify(onlyViewer.map(url))}:${JSON.stringify(onlyCreator.map(url))}).forEach(function(h){`
                     + `var l=document.createElement('link');l.rel='modulepreload';l.crossOrigin='';l.href=h;document.head.appendChild(l);});})();`;
                 tags.push({ tag: 'script', children: script, injectTo: 'head' });

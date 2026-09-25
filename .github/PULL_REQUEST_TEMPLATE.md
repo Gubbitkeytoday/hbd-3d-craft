@@ -1,26 +1,32 @@
-## 📝 Description
+## What and why / เปลี่ยนอะไร เพราะอะไร
 
-<!-- Summary of changes introduced in this pull request and rationale -->
+<!-- Summary of the change and the reason. สรุปสิ่งที่เปลี่ยนและเหตุผล -->
 
-## 🔗 Related Issues
+## Related issues
 
 - Fixes #
 - Relates to #
 
----
+## Type of change
 
-## 🛠️ Type of Change
+- [ ] Feature (`feat`)
+- [ ] Bug fix (`fix`)
+- [ ] Performance (`perf`)
+- [ ] UI / styling
+- [ ] Documentation (`docs`)
+- [ ] Room assets or pipeline (`scripts/room/`, `public/room/`)
 
-- [ ] 🚀 New 3D Topping / Feature (`feat`)
-- [ ] 🐛 Bug Fix (`fix`)
-- [ ] ⚡ Performance / WebGL Optimization (`perf`)
-- [ ] 🎨 UI / Theme / Styling (`style`)
-- [ ] 📝 Documentation Update (`docs`)
+## Measurements (if performance, size or visuals changed)
 
----
+<!-- Before / after: draw calls, programs, download size, fps, screenshots. ตัวเลขก่อนและหลัง -->
 
-## ✅ Pre-Flight Quality Checklist
+## Checklist (see CONTRIBUTING.md)
 
-- [ ] **Build Validation:** `npm run build` executed with zero errors.
-- [ ] **Zero Database / Privacy:** No server-side storage dependencies added.
-- [ ] **Microphone & Audio:** Tested audio unlock and mic blowing on mobile and desktop.
+- [ ] `npm run build` passes (lint included) with no new warnings
+- [ ] Old links still open: one `#/c/...` card made before this change and one `#/view/...` legacy link
+- [ ] New strings exist in `en`, `th` and `ja` with the same keys
+- [ ] User text is set with `textContent`; new link fields are sanitized in `src/main.js`
+- [ ] Played a full card on a phone or phone emulation (dark room, reveal, song, candles, message), also with reduced motion
+- [ ] No shader compile at the reveal (room harness: programs equal in dark and lit)
+- [ ] New third-party assets are CC0 and credited
+- [ ] Docs and screenshots updated if behaviour or looks changed

@@ -15,7 +15,7 @@ export default [
         }
     },
     {
-        files: ['*.config.js', 'take_screenshots.js'],
+        files: ['*.config.js'],
         languageOptions: { globals: globals.node }
     }
 ];

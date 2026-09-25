@@ -1,42 +1,63 @@
-name: 🐛 Bug Report
-description: Report a WebGL rendering glitch, audio issue, or UI defect in HBD 3D Craft
-title: "[BUG]: "
+name: Bug report / แจ้งปัญหา
+description: A rendering glitch, audio issue, broken link or UI defect in HBD 3D Craft
+title: "[Bug]: "
 labels: ["bug", "triage"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for reporting an issue to improve HBD 3D Craft!
+        ขอบคุณที่แจ้งปัญหา กรุณาอย่าใส่ข้อมูลส่วนตัวที่ไม่อยากเปิดเผย ลิงก์การ์ดมีชื่อและข้อความอยู่ในตัว
+        Thanks for the report. A card link contains its names and message: only paste one you are happy to make public.
+        Security issues: please use private reporting instead (see SECURITY.md).
   - type: input
-    id: browser
+    id: device
     attributes:
-      label: Browser & OS
-      description: What browser, device, and operating system were you using?
-      placeholder: Chrome 127 on Windows / Safari on iOS 17.5
+      label: Device, browser and app / อุปกรณ์ เบราว์เซอร์ และแอป
+      description: Include whether the card was opened inside LINE or another in-app browser.
+      placeholder: iPhone 13, iOS 17.5, LINE in-app browser / Galaxy A54, Chrome 128
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where / ส่วนไหน
+      options:
+        - Creator (making the card)
+        - Share sheet / link
+        - Envelope gate
+        - Surprise room (dark, reveal, song)
+        - Candles / microphone
+        - Message card, letter, photo, thank-you
+        - Sound
+        - Other
     validations:
       required: true
   - type: textarea
     id: description
     attributes:
-      label: What happened?
-      description: Clear description of the bug.
+      label: What happened? / เกิดอะไรขึ้น
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: Steps to Reproduce
-      description: Steps to reproduce the issue.
+      label: Steps to reproduce / ขั้นตอน
       placeholder: |
-        1. Open '#card=...'
-        2. Tap envelope
-        3. Observe WebGL cake canvas error
+        1. Make a card with the surprise room
+        2. Open the #/c/... link on the phone
+        3. Tap the switch
+        4. ...
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected Behavior
-      description: What should have happened instead.
+      label: Expected behaviour / สิ่งที่ควรเกิด
     validations:
       required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or console output / ภาพหน้าจอหรือข้อความใน console
+    validations:
+      required: false

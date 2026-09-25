@@ -1,23 +1,30 @@
-name: 🚀 Feature Request
-description: Propose a new 3D topping, sound effect, or theme for HBD 3D Craft
-title: "[FEAT]: "
+name: Feature request / ขอฟีเจอร์
+description: Propose a new cake, backdrop, sound, beat or creator option for HBD 3D Craft
+title: "[Feature]: "
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thank you for submitting a feature idea for HBD 3D Craft!
+        ขอบคุณสำหรับไอเดีย โปรดเล่าว่าผู้ส่งหรือผู้รับจะได้อะไร
+        Thanks for the idea. Please describe who benefits: the sender, the recipient, or both.
   - type: textarea
     id: problem
     attributes:
-      label: Feature Motivation
-      description: What new creative element would you like to see?
+      label: Problem or motivation / ปัญหาหรือแรงจูงใจ
     validations:
       required: true
   - type: textarea
     id: solution
     attributes:
-      label: Proposed Solution
-      description: Detailed description of how the feature should look or work.
+      label: Proposed solution / สิ่งที่เสนอ
+      description: How it should look or work. Note anything that must travel in the share link.
     validations:
       required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints to keep in mind / ข้อจำกัด
+      description: Old links must keep working, phones have a 150 draw-call budget, third-party assets must be CC0.
+    validations:
+      required: false

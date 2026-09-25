@@ -204,7 +204,7 @@ const PACK_LAYOUT = [
     ['lang', 2], ['candles', 4], ['strawberries', 4], ['cherries', 4], ['rolls', 3],
     ['sprinkles', 1], ['letterEnabled', 1], ['decorHearts', 1], ['decorStars', 1],
     ['belated', 1], ['templated', 4], ['backdrop', 3]
-]; // 55 of 56 bits; append new fields into the spare bits only. Old v2.1
+]; // 53 of 56 bits; append new fields into the spare bits only. Old v2.1
 // links have zeros there, which is index 0 of each appended enum ('night').
 const PACK_BYTES = 7;
 
