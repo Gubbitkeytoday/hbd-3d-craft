@@ -124,6 +124,8 @@ export function createSwitch({ plateMaterial, accent = 0xffb060 }) {
             const k = (1 - lit) * breathe;
             ledMat.color.copy(base).multiplyScalar(0.4 + 3.2 * k);
             haloMat.opacity = 0.08 + 0.55 * k;
+            // Lit room: the locator LED is off; two fewer draw calls.
+            led.visible = halo.visible = lit < 0.5;
         },
         dispose() {
             [plate, rocker, led, halo, hit].forEach((m) => m.geometry.dispose());

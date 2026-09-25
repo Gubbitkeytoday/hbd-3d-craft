@@ -22,13 +22,19 @@
  *   room.lights { candle, pendant, hemi }   the constant rig (world space)
  *   room.setCandles(level)                  0..1 flames burning (default 0 = off)
  *   room.setCandleLight(on)                 shorthand for setCandles(on ? 1 : 0)
+ *   room.ready                              Promise: reflection captures done (the
+ *                                           room is renderable, dark, when
+ *                                           createPartyRoom resolves)
+ *   room.refreshReflections()               re-capture (e.g. after seating the cake)
+ *   prefetchPartyRoom(quality?)             start the downloads at gate mount
+ *   getDeviceClass() (render-quality.js)    { mobile, tier 0-2, dprCap }
  *   room.trackEnvMaterials(root, base)      scale root's envMapIntensity with the lights
  *   room.envMap                             PMREM capture of the lit room (also scene.environment)
  *   room.exposure { dark, lit }             suggested toneMappingExposure per state
  */
 import * as THREE from 'three';
-import { precompileScene, attachStudioEnvironmentAsync } from '../render-quality.js';
-import { ROOM, ROOM_SCALE, TABLE, CAKE_SPOT, LETTERS, SIGN, shotsWorld } from './layout.js';
+import { precompileScene, attachStudioEnvironmentAsync, getDeviceClass } from '../render-quality.js';
+import { ROOM, ROOM_SCALE, TABLE, CAKE_SPOT, LETTERS, SIGN, PORTRAIT, shotsWorld } from './layout.js';
 import { createRig } from './rig.js';
 import { createBakeUniforms } from './materials.js';
 import { createCity, createSwitch, createGreybox } from './shell.js';
@@ -36,8 +42,17 @@ import { balloonGeometry, createLatexMaterial, createBalloonClusters, createBall
 import { buildLetterRow, createFoilMaterial } from './party/foil-letters.js';
 import { createFairyLights, createBunting, createNameSign, createGifts, createHats, catenary } from './party/decor.js';
 import { createConfetti } from './party/confetti.js';
-import { loadBakedRoom, roomAssetUrl } from './loader.js';
-import { captureRoomEnvironment } from './env-capture.js';
+import { loadBakedRoom, prefetchRoomAssets, roomAssetUrl } from './loader.js';
+import { prepareRoomCapture, renderRoomCapture, disposeRoomCapture } from './env-capture.js';
+
+/**
+ * Starts the room download early (call when the gate mounts for a party
+ * card; the later createPartyRoom() reuses the same requests). quality as
+ * for createPartyRoom (default: this device's tier). Never rejects.
+ */
+export function prefetchPartyRoom(quality = getDeviceClass().tier) {
+    return prefetchRoomAssets(quality).catch(() => {});
+}
 
 /** Pre-rendered Cycles stills for the gate background / no-WebGL fallback. */
 export function getPartyPoster(state = 'dark') {
@@ -230,23 +245,24 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     trackEnv(latexMat, 0.9);
     const clusters = createBalloonClusters({
         clusters: [
-            { pos: [-2.25, 1.95, -2.05], count: 9, spread: 0.3 },
-            { pos: [2.3, 1.95, -2.02], count: 8, spread: 0.28 },
-            { pos: [-2.35, 1.7, 1.45], count: 6, spread: 0.26 },
-            { pos: [1.2, 0.16, -2.05], count: 4, spread: 0.3 }
+            { pos: [-2.25, 1.95, -2.05], count: q === 0 ? 6 : 9, spread: 0.3 },
+            { pos: [2.3, 1.95, -2.02], count: q === 0 ? 6 : 8, spread: 0.28 },
+            { pos: [-2.35, 1.7, 1.45], count: q === 0 ? 4 : 6, spread: 0.26 },
+            { pos: [1.2, 0.16, -2.05], count: q === 0 ? 3 : 4, spread: 0.3 }
         ],
         palette: pal.balloons, rand, material: latexMat, geometry: bGeo
     });
     room.add(clusters.mesh);
     const drop = createBalloonDrop({
         // Released behind and around the table, well away from every shot.
-        count: q === 0 ? 9 : 14, palette: pal.balloons, rand, material: latexMat, geometry: bGeo,
+        count: q === 0 ? 8 : q === 1 ? 11 : 14, palette: pal.balloons, rand, material: latexMat, geometry: bGeo,
         area: { x0: -1.4, x1: 0.9, z0: -1.9, z1: -0.2, wx0: -ROOM.halfX, wx1: ROOM.halfX, wz0: -ROOM.halfZ, wz1: ROOM.halfZ },
         ceilingY: ROOM.height,
         tableTop: { x: TABLE.x, z: TABLE.z, radius: TABLE.radius, y: TABLE.height }
     });
     room.add(drop.mesh);
-    // Balloon strings: one merged mesh with the fairy-light wire material.
+    // Parked instances still cost a draw call: hidden until the finale.
+    drop.mesh.visible = false;
     await step(0.12);
 
     // Foil letters: wait (briefly) for the display font or the letters bake
@@ -276,7 +292,7 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         mesh.name = `foil-${text}`;
         mesh.position.set(LETTERS.x, y, LETTERS.z + 0.03);
         room.add(mesh);
-        letterRows.push({ mesh, phase: rand() * 6 });
+        letterRows.push({ mesh, phase: rand() * 6, width: row.width });
         disposers.push(() => row.geometry.dispose());
     }
 
@@ -389,6 +405,7 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         bounds: { x0: -X + 0.02, x1: X - 0.02, z0: -Z + 0.02, z1: Z - 0.02 }
     });
     room.add(confetti.mesh);
+    confetti.mesh.visible = false;
     trackEnv(confetti.material, 0.8);
     disposers.push(() => confetti.dispose());
 
@@ -519,25 +536,59 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     // switch the texture swaps. Same size = same program key: three re-runs
     // getProgram for each material once (a cache hit, no compile), verified
     // with renderer.info.programs before/after.
+    // Behind the gate only the programs are compiled (and buffers uploaded);
+    // the captures render after the room resolves, one face per task, each
+    // face inside withState() so no displayed frame shows the capture state.
     const capturePos = new THREE.Vector3(TABLE.x * S, 1.25 * S, (TABLE.z + 0.4) * S);
-    const captureOpts = { size: q >= 2 ? 256 : 128, near: 0.05 * S, far: 12 * S, mark };
+    // 256 on every tier: the PMREM size is part of the program key, and the
+    // studio environment the room starts on is 256 too, so swapping in the
+    // captures later never changes a program (128 did: +2 programs and a
+    // compile during the dark beat on phones).
+    const captureOpts = { size: 256, near: 0.05 * S, far: 12 * S, mark };
+    let prepared = null;
     try {
-        lit = 1;
-        applyState();
-        await step(0.86);
         mark('env:start');
-        envMap = await captureRoomEnvironment(renderer, scene, capturePos, captureOpts);
-        lit = 0;
-        applyState();
-        envDark = await captureRoomEnvironment(renderer, scene, capturePos, { ...captureOpts, warm: false });
-        envDark.name = 'party-room-env-dark';
-        mark('env:done');
+        prepared = await prepareRoomCapture(renderer, scene, capturePos, captureOpts);
     } catch (err) {
-        if (import.meta.env.DEV) console.warn('[party-room] env capture failed', err);
+        if (import.meta.env.DEV) console.warn('[party-room] env capture unavailable', err);
     }
+    disposers.push(() => disposeRoomCapture(prepared));
     lit = 0;
     applyState();
     abortIfNeeded();
+
+    const withState = (l) => (fn) => {
+        const keep = lit;
+        lit = l;
+        applyState();
+        try { fn(); } finally { lit = keep; applyState(); }
+    };
+    let captureRun = null;
+    /** (Re)captures both environments; after a context restore too. */
+    function captureEnvironments() {
+        if (!prepared || disposed) return Promise.resolve();
+        if (captureRun) return captureRun;
+        captureRun = (async () => {
+            try {
+                const lightsOn = await renderRoomCapture(renderer, scene, prepared, { around: withState(1), mark, name: 'party-room-env' });
+                const lightsOff = await renderRoomCapture(renderer, scene, prepared, { around: withState(0), mark, name: 'party-room-env-dark' });
+                if (disposed) { lightsOn.dispose(); lightsOff.dispose(); return; }
+                const oldOn = envMap;
+                const oldOff = envDark;
+                envMap = lightsOn;
+                envDark = lightsOff;
+                applyState();
+                oldOn?.dispose();
+                oldOff?.dispose();
+                mark('env:done');
+            } catch (err) {
+                if (import.meta.env.DEV) console.warn('[party-room] env capture failed', err);
+            } finally {
+                captureRun = null;
+            }
+        })();
+        return captureRun;
+    }
 
     // Optional: compile for the composer the caller draws through.
     if (bloom) {
@@ -545,14 +596,68 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     }
     await step(1);
 
+    // Portrait phones see ~1.5 m of the back wall from the table: the name
+    // sign (up to 1.6 m) and BIRTHDAY (~2 m) were cut in every beat after the
+    // tour and in the saved photo. On tall screens the wall dressing is
+    // re-hung smaller and lower (a matrix change, nothing recompiles), so the
+    // sign and both rows sit inside the cake framing with a margin.
+    const letterBase = letterRows.map((r) => r.mesh.position.y);
+    const widest = letterRows.reduce((w, r) => Math.max(w, r.width), 0.01);
+    function fitDressing(aspect) {
+        const tall = aspect < 0.85;
+        const k = tall ? Math.min(1, PORTRAIT.letterWidth / widest) : 1;
+        const x = tall ? PORTRAIT.x : LETTERS.x;
+        letterRows.forEach((r, i) => {
+            r.mesh.scale.setScalar(k);
+            r.mesh.position.x = x;
+            r.mesh.position.y = tall ? (PORTRAIT.rowY[i] ?? letterBase[i]) : letterBase[i];
+        });
+        if (sign) {
+            const ks = tall ? Math.min(1, PORTRAIT.signWidth / sign.boardWidth) : 1;
+            sign.mesh.scale.setScalar(ks);
+            sign.mesh.position.x = x;
+            sign.mesh.position.y = tall ? PORTRAIT.signY : SIGN.y;
+        }
+    }
+
+    // WebGL context loss (iOS drops contexts when LINE is backgrounded):
+    // three re-uploads image textures and re-links programs by itself, but
+    // render-target contents (the PMREM reflections) are gone. Rebuild them.
+    const canvas = renderer.domElement;
+    const onRestored = () => {
+        if (disposed) return;
+        setTimeout(async () => {
+            if (disposed) return;
+            try {
+                const studio = await attachStudioEnvironmentAsync(renderer, new THREE.Scene(), { force: true });
+                if (!disposed) {
+                    foilMat.envMap = studio;
+                    if (scene.environment === prevEnvironment || scene.environment === studioEnv) scene.environment = studio;
+                    studioEnv = studio;
+                }
+            } catch { /* foil falls back to the room capture */ }
+            captureEnvironments();
+        }, 0);
+    };
+    canvas.addEventListener('webglcontextrestored', onRestored);
+    disposers.push(() => canvas.removeEventListener('webglcontextrestored', onRestored));
+
     // --- Per frame ----------------------------------------------------------
     const tmpV = new THREE.Vector3();
     const camM = new THREE.Vector3();
     let time = 0;
+    let tick = 0;
+    let fairyLitShown = null;
+    let lastAspect = 0;
     function update(dt, t) {
         if (disposed) return;
         time = Number.isFinite(t) ? t : time + (dt || 0);
         const d = Math.min(dt || 0, 0.1);
+        tick++;
+        if (camera.aspect !== lastAspect) {
+            lastAspect = camera.aspect;
+            fitDressing(lastAspect);
+        }
         rig.update(time);
         // Analytic candle term on the baked surfaces follows the real light.
         rig.candle.getWorldPosition(tmpV).applyMatrix4(camera.matrixWorldInverse);
@@ -560,12 +665,22 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         bake.uCandleCol.value.copy(rig.candle.color).multiplyScalar(rig.candle.intensity);
         bake.uCandleRange.value = rig.candle.distance;
         const sway = reduceMotion || q === 0 ? 0 : 1;
-        clusters.update(time, sway);
-        bunting.update(time, sway);
-        fairy.update(time, reduceMotion);
+        // Phones: the slow ambient motion (sway, twinkle) runs every other
+        // frame, and not at all where it cannot be seen (the dark room).
+        const shown = lit > 0.02;
+        if (shown && (q >= 2 || tick % 2 === 0)) {
+            if (sway) {
+                clusters.update(time, sway);
+                bunting.update(time, sway);
+                letterRows.forEach((r) => { r.mesh.rotation.y = Math.sin(time * 0.45 + r.phase) * 0.02; });
+            }
+            fairy.update(time, reduceMotion);
+        } else if (fairyLitShown !== shown) {
+            fairy.update(time, true);
+        }
+        fairyLitShown = shown;
         lightSwitch.update(time, lit);
         city.update(time);
-        letterRows.forEach((r) => { r.mesh.rotation.y = Math.sin(time * 0.45 + r.phase) * 0.02 * sway; });
         confetti.update(d);
         drop.update(d, camera.getWorldPosition(camM).divideScalar(S));
     }
@@ -583,11 +698,13 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     function popConfetti(origin) {
         const o = origin ? origin.clone().divideScalar(S) : new THREE.Vector3(TABLE.x, TABLE.height + 0.45, TABLE.z + 0.3);
         const n = q === 0 ? 90 : reduceMotion ? 40 : 220;
+        confetti.mesh.visible = true;
         confetti.burst(o, n, 1);
     }
 
     function dropBalloons() {
         if (reduceMotion) return;
+        drop.mesh.visible = true;
         drop.drop();
     }
 
@@ -611,6 +728,9 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
 
     applyState();
     update(0, 0);
+    // Reflections render after the room is handed over (the dark state is
+    // renderable now); `ready` resolves when both captures are in.
+    const ready = new Promise((resolve) => setTimeout(() => captureEnvironments().then(resolve), 0));
 
     const switchWorld = new THREE.Vector3();
     lightSwitch.group.updateWorldMatrix(true, false);
@@ -651,7 +771,11 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
             applyState();
         },
         seatCake,
-        envMap,
+        /** Resolves once the reflection captures are in (the room is already renderable). */
+        ready,
+        get envMap() { return envMap; },
+        /** Re-render the reflections (e.g. after the cake is seated). */
+        refreshReflections: () => captureEnvironments(),
         baked: !!baked,
         exposure: { dark: 1.1, lit: 1.0 },
         timeline,

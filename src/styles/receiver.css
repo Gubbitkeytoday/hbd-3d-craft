@@ -1142,3 +1142,195 @@ html[lang="ja"] .rcv-title { word-break: auto-phrase; }
     /* Static grain: texture without flicker. */
     .rcv[data-backdrop="party"] .rcv-stage::after { animation: none !important; }
 }
+
+/* ---------- Poster mode (2D): baked stills + CSS light ----------
+   While the 3D room streams in, or on phones too slow to draw it. The
+   object-position pans are the "head turn" (window side in the dark, the
+   party side when lit); viewer.js posterToScreen() mirrors these values. */
+.rcv-poster {
+    --rcv-poster-x: 86%;
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    overflow: hidden;
+    background: #05060b;
+    transition: opacity 0.6s ease;
+}
+.rcv-poster[hidden] { display: none; }
+.rcv-poster.is-lit { --rcv-poster-x: 57%; }
+@media (orientation: landscape) {
+    .rcv-poster { --rcv-poster-x: 62%; }
+    .rcv-poster.is-lit { --rcv-poster-x: 50%; }
+}
+.rcv-poster.is-leaving { opacity: 0; }
+.rcv-poster-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: var(--rcv-poster-x) 50%;
+    transform-origin: var(--rcv-tour-origin, 50% 60%);
+    transition: object-position 0.65s cubic-bezier(0.33, 1, 0.68, 1), transform 3.2s ease-in-out, filter 0.8s ease;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+.rcv-poster-img-lit { opacity: 0; }
+.rcv-poster.is-lit .rcv-poster-img-lit { opacity: 1; animation: rcvPosterFlash 0.7s cubic-bezier(0.33, 1, 0.68, 1); }
+.rcv-poster.is-adapting .rcv-poster-img-dark { animation: rcvPosterAdapt 2.2s cubic-bezier(0.33, 1, 0.68, 1) both; }
+.rcv-poster.is-adapted .rcv-poster-img-dark { animation: none; filter: brightness(1.3); transition: filter 1.5s ease-in-out, object-position 0.65s cubic-bezier(0.33, 1, 0.68, 1); }
+.rcv-poster.is-tour .rcv-poster-img { transform: scale(1.14); }
+.rcv-poster.is-dimmed .rcv-poster-img-lit { filter: brightness(0.42) saturate(0.85); }
+@keyframes rcvPosterAdapt { from { filter: brightness(0.35); } to { filter: brightness(1); } }
+@keyframes rcvPosterFlash { from { filter: brightness(1.35); } to { filter: brightness(1); } }
+/* The same night grain and vignette as the live room. */
+.rcv-poster::before,
+.rcv-poster::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.rcv-poster::before { background: radial-gradient(ellipse 75% 70% at 55% 48%, transparent 40%, rgba(4, 6, 12, 0.55) 100%); }
+.rcv-poster::after {
+    background-image: var(--rcv-grain, none);
+    background-size: 128px 128px;
+    inset: -128px;
+    animation: rcvGrain 1s steps(12) infinite;
+    animation-play-state: paused;
+}
+.rcv.is-dark .rcv-poster::before { opacity: 1; }
+.rcv.is-dark .rcv-poster::after { opacity: 0.04; animation-play-state: running; }
+@media (prefers-reduced-motion: reduce) {
+    .rcv-poster-img { transition: none; }
+    .rcv-poster.is-tour .rcv-poster-img { transform: none; }
+    .rcv-poster::after { animation: none !important; }
+}
+
+/* 2D candles: the thumb-sized version of the cake's candles (>= 56 px). */
+.rcv-candles2d {
+    position: absolute;
+    left: 50%;
+    bottom: calc(150px + var(--rcv-safe-b));
+    transform: translateX(-50%);
+    width: min(94vw, 420px);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 10px;
+}
+.rcv-candles2d[hidden] { display: none; }
+.rcv-candle2d {
+    position: relative;
+    width: 56px;
+    height: 92px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.rcv-candle2d:disabled { cursor: default; }
+.rcv-candle2d-wax {
+    position: absolute;
+    left: 50%;
+    bottom: 4px;
+    width: 14px;
+    height: 46px;
+    margin-left: -7px;
+    border-radius: 4px 4px 3px 3px;
+    background: repeating-linear-gradient(135deg, #fff5f8 0 6px, #ff8fb1 6px 12px);
+    box-shadow: inset -3px 0 4px rgba(0, 0, 0, 0.2), 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.rcv-candle2d-flame {
+    position: absolute;
+    left: 50%;
+    bottom: 50px;
+    width: 18px;
+    height: 30px;
+    margin-left: -9px;
+    border-radius: 50% 50% 45% 45% / 62% 62% 38% 38%;
+    background: radial-gradient(ellipse 40% 55% at 50% 70%, #fffbe6 0%, #ffd36b 45%, #ff8a1f 75%, rgba(255, 120, 20, 0) 100%);
+    box-shadow: 0 0 22px 8px rgba(255, 170, 60, 0.45);
+    transform-origin: 50% 90%;
+    opacity: 0;
+    transform: scale(0.2);
+    transition: opacity 0.25s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.rcv-candle2d.is-lit .rcv-candle2d-flame { opacity: 1; transform: scale(1); animation: rcvFlicker 0.9s ease-in-out infinite alternate; }
+.rcv-candle2d.is-out .rcv-candle2d-flame { opacity: 0; transform: scale(0.1) rotate(-25deg); transition-duration: 0.28s; animation: none; }
+.rcv-candle2d.is-out::after {
+    /* A wisp of smoke from the wick. */
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 50px;
+    width: 10px;
+    height: 10px;
+    margin-left: -5px;
+    border-radius: 50%;
+    background: rgba(220, 220, 230, 0.55);
+    filter: blur(3px);
+    animation: rcvWisp 1.2s ease-out forwards;
+}
+@keyframes rcvFlicker {
+    0% { transform: scale(1) rotate(-2deg); }
+    100% { transform: scale(1.06, 0.95) rotate(2deg); }
+}
+@keyframes rcvWisp {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(-40px) scale(2.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .rcv-candle2d.is-lit .rcv-candle2d-flame { animation: none; }
+    .rcv-candle2d.is-out::after { animation: none; opacity: 0; }
+}
+
+/* Tap feedback for the flames: where the finger landed. */
+.rcv-tap-ring {
+    position: fixed;
+    z-index: 26;
+    width: 48px;
+    height: 48px;
+    margin: -24px 0 0 -24px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 226, 160, 0.9);
+    pointer-events: none;
+    animation: rcvTapRing 0.45s ease-out forwards;
+}
+@keyframes rcvTapRing { from { opacity: 1; transform: scale(0.5); } to { opacity: 0; transform: scale(1.3); } }
+
+/* Thai phrases that must not split across lines (viewer.js KEEP_TOGETHER). */
+.rcv .rcv-nowrap { white-space: nowrap; }
+
+/* The docked name never truncates: it wraps to two lines and scales down. */
+.rcv-title.is-docked {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.3;
+    min-height: 44px;
+    padding-block: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(0.9rem, 3.6vw, 1.3rem);
+}
+.rcv[data-backdrop="party"] .rcv-title.is-docked { padding: 6px 16px; }
+
+/* Small phones: the end actions stay on screen at the bottom of the sheet. */
+@media (max-width: 899px) {
+    .rcv-card-scroll { padding-bottom: 0; }
+    .rcv-end {
+        position: sticky;
+        bottom: 0;
+        z-index: 1;
+        margin: 0 -24px;
+        padding: 14px 24px calc(14px + var(--rcv-safe-b));
+        background: var(--rcv-paper);
+        box-shadow: 0 -10px 18px -14px rgba(var(--rcv-shadow-rgb), 0.5);
+    }
+}

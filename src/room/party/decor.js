@@ -263,7 +263,7 @@ export function createNameSign(name, { color = 0xffb3cf, height = 0.4, maxWidth 
 
     group.add(glow, board, caps, tube);
     return {
-        mesh: group, width: w, height: h, materials: [boardMat, capMat],
+        mesh: group, width: w, height: h, boardWidth: bw, materials: [boardMat, capMat],
         /** k = 0: off (tube barely visible, no glow); ~3: full neon. */
         setLevel(k) {
             k = Math.max(0, k);

@@ -312,6 +312,7 @@ export const translations = {
         rcvCakeComing: "Lights down, candles on!",
         rcvLyrics: "Happy birthday to you|Happy birthday to you|Happy birthday dear {name}|Happy birthday to you",
         rcvSkipSong: "Skip song",
+        rcvCandleLabel: "Candle {n}",
         rcvReplaySurprise: "Watch the surprise again"
     },
     th: {
@@ -625,6 +626,7 @@ export const translations = {
         rcvCakeComing: "ปิดไฟ จุดเทียน!",
         rcvLyrics: "สุขสันต์วันเกิด|สุขสันต์วันเกิด|สุขสันต์วันเกิด {name}|สุขสันต์วันเกิด",
         rcvSkipSong: "ข้ามเพลง",
+        rcvCandleLabel: "เทียนเล่มที่ {n}",
         rcvReplaySurprise: "ดูเซอร์ไพรส์อีกครั้ง"
     },
     ja: {
@@ -938,6 +940,7 @@ export const translations = {
         rcvCakeComing: "電気を消して、ろうそくに火を！",
         rcvLyrics: "ハッピーバースデー トゥー ユー|ハッピーバースデー トゥー ユー|ハッピーバースデー ディア {name}|ハッピーバースデー トゥー ユー",
         rcvSkipSong: "歌をスキップ",
+        rcvCandleLabel: "{n}本目のろうそく",
         rcvReplaySurprise: "サプライズをもう一度"
     }
 };

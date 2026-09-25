@@ -420,6 +420,18 @@ html:has(#creator-view.active-view) body {
 }
 #creator-view:lang(th) .cr-step-title { letter-spacing: 0; line-height: 1.4; }
 
+/* Line breaks in headings and short copy. Thai: creator.js wraps words that
+   belong together ("วันเกิด", a name, "3 มิติ") in .cr-w; breaks stay allowed
+   between spans. Japanese: Chrome's phrase-aware breaking. Then balance the
+   lines so a heading never leaves one word alone. */
+#creator-view .cr-w { white-space: nowrap; }
+#creator-view .cr-step-title,
+#creator-view .cr-sheet-head h2 { text-wrap: balance; }
+#creator-view .cr-hero,
+#creator-view .cr-hint,
+#creator-view .cr-privacy { text-wrap: pretty; }
+#creator-view:lang(ja) :is(.cr-step-title, .cr-hero, .cr-sheet-head h2, .cr-sheet-head .cr-hint) { word-break: auto-phrase; }
+
 .cr-hero { margin: 0 0 var(--s4); color: var(--text-muted); }
 
 .cr-benefits {
@@ -1102,6 +1114,16 @@ html:has(#creator-view.active-view) body {
     .cr[data-step="2"] .cr-stage { height: 44svh; min-height: 240px; max-height: 440px; }
     /* Typing: shrink to a mini-strip so the field and keyboard both fit. */
     .cr:has(.cr-form :is(input[type="text"], input[type="url"], input[type="date"], input[type="number"], textarea):focus) .cr-stage { height: 110px; min-height: 0; transition-delay: 0s; }
+    /* Keyboard up (data-kb, set by creator.js from the visual viewport): the
+       preview is a thin strip that still carries the live headline, and the
+       action bar steps aside so it never sits over the field being typed in
+       (Android LINE puts it right on top of the message box otherwise).
+       Id-scoped to beat the :has(:focus) rule above. */
+    #creator-view.cr[data-kb] .cr-stage { height: 56px; min-height: 0; transition-delay: 0s; }
+    #creator-view.cr[data-kb="tight"] .cr-stage { display: none; }
+    #creator-view.cr[data-kb] .cr-stage-caption { display: block; bottom: 50%; transform: translate(-50%, 50%); padding: 4px 12px; font-size: 13px; }
+    #creator-view.cr[data-kb] .cr-stage-caption[hidden] { display: none; }
+    #creator-view.cr[data-kb] .cr-actionbar { display: none; }
     .cr-stage-caption { font-size: 14px; bottom: 10px; padding: 6px 14px; }
     .cr[data-step="2"] .cr-stage-caption { display: none; }
     .cr-drag-hint { display: none; }
@@ -1152,6 +1174,18 @@ html:has(#creator-view.active-view) body {
     .cr-topbar .cr-link-btn span { display: none; }
     .cr-topbar .cr-link-btn { width: var(--tap); padding: 0; justify-content: center; }
     .cr-actionbar .cr-btn-primary { min-width: 0; flex: 1 0 auto; }
+}
+
+/* 360 px Android (the most common width) overflowed the top bar by 9 px, so
+   the browser zoomed the layout out and the sticky bar sat below the fold.
+   Up to 380 px the logo stands alone (the link keeps its aria-label); the
+   wordmark can only ever shrink, never push the bar wider than the screen. */
+.cr-brand { min-width: 0; }
+.cr-brand > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cr-topbar-actions { flex: none; }
+@media (max-width: 380px) {
+    .cr-topbar { gap: var(--s2); padding-left: max(var(--s3), env(safe-area-inset-left)); padding-right: max(var(--s3), env(safe-area-inset-right)); }
+    .cr-brand > span { display: none; }
 }
 
 /* ---------- Desktop (>= 1024px): step panel left, sticky preview right ---------- */

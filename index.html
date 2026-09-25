@@ -503,6 +503,12 @@
                 </div>
             </div>
 
+            <!-- Poster mode: the baked dark/lit stills, while the room loads or on phones too slow for it -->
+            <div id="rcv-poster" class="rcv-poster" aria-hidden="true" hidden>
+                <img id="rcv-poster-dark" class="rcv-poster-img rcv-poster-img-dark" alt="" decoding="async">
+                <img id="rcv-poster-lit" class="rcv-poster-img rcv-poster-img-lit" alt="" decoding="async">
+            </div>
+
             <!-- 3D stage (canvas is added by viewer.js, hidden until the reveal) -->
             <div id="greeting-canvas-container" class="rcv-stage"></div>
 
@@ -545,6 +551,8 @@
                     <p id="rcv-wish-text" class="rcv-wish-text" aria-live="polite"></p>
                     <button type="button" id="btn-wish-ready" class="rcv-btn rcv-btn-gold" hidden></button>
                 </div>
+
+                <div class="rcv-candles2d" id="rcv-candles2d" hidden></div>
 
                 <div class="rcv-blow" id="rcv-blow" hidden>
                     <div class="rcv-pill">

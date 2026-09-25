@@ -47,6 +47,17 @@ export const LETTERS = Object.freeze({ x: -0.3, z: -2.36, row1Y: 2.06, row2Y: 1.
 export const SIGN = Object.freeze({ y: 1.25, height: 0.4, maxWidth: 1.6 });
 
 /**
+ * Wall dressing on tall screens (aspect < 0.85). From the table a portrait
+ * phone sees only ~1.4 m of the back wall, centred ~0.3 m left of the
+ * letters (the lens looks at the cake from its right), between the cake top
+ * (~0.95 m) and the HUD band (~1.6 m). The rows and the sign are re-hung
+ * smaller, lower and shifted into that window: widest row <= letterWidth,
+ * sign board <= signWidth. Measured against the receiver's portrait cake,
+ * song, wish and blow framings on 360-430 px wide screens.
+ */
+export const PORTRAIT = Object.freeze({ x: -0.62, letterWidth: 0.95, rowY: [1.49, 1.3], signWidth: 0.95, signY: 1.07 });
+
+/**
  * Camera presets in metres (converted to world units by shotsWorld()).
  *   entry    standing in the doorway: the glowing switch and the city window
  *   reveal   same spot, head turned to the party: HAPPY BIRTHDAY, the name

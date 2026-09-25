@@ -9,9 +9,45 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
-/** Phones get lighter shadows and a lower pixel ratio ceiling. */
+/**
+ * Device class, decided once per page (rotation only resizes). A phone or
+ * tablet is recognised by what it is, not by the viewport width: a phone in
+ * landscape (852x393) used to count as desktop and got the heavy room.
+ *
+ *   mobile  touch-first device (coarse pointer / touch points + small screen
+ *           or a mobile UA hint)
+ *   tier    0 low-end phone, 1 phone, 2 desktop / laptop
+ *   dprCap  pixel-ratio ceiling for the tier (the governor steps down)
+ */
+let deviceClass = null;
+export function getDeviceClass() {
+    if (deviceClass) return deviceClass;
+    const nav = typeof navigator === 'object' ? navigator : {};
+    const mm = (q) => typeof matchMedia === 'function' && matchMedia(q).matches;
+    const shortSide = Math.min(screen?.width || innerWidth, screen?.height || innerHeight);
+    const touch = (nav.maxTouchPoints || 0) > 0 || mm('(pointer: coarse)');
+    const uaMobile = nav.userAgentData?.mobile === true || /Android|iPhone|iPad|iPod|Mobile|Line\//i.test(nav.userAgent || '');
+    // Coarse pointer + a short side <= 600 CSS px is a phone (or a small
+    // tablet, which gets the same budget); the UA hint covers WebViews that
+    // hide the pointer query.
+    const mobile = (touch && shortSide <= 600) || (uaMobile && shortSide <= 820);
+    const cores = nav.hardwareConcurrency || 4;
+    const memory = nav.deviceMemory || (mobile ? 4 : 8); // Safari has no deviceMemory
+    let tier = 2;
+    if (mobile) tier = cores <= 4 || memory <= 3 ? 0 : 1;
+    const dpr = window.devicePixelRatio || 1;
+    const dprCap = tier === 2 ? 2 : tier === 1 ? (cores >= 6 && memory >= 6 ? 2 : 1.75) : 1.25;
+    deviceClass = Object.freeze({ mobile, tier, dprCap: Math.min(dpr, dprCap), cores, memory, shortSide });
+    return deviceClass;
+}
+
+/**
+ * Phones get lighter shadows and a lower pixel ratio ceiling. Kept for the
+ * existing callers; it now means "phone-class device" (getDeviceClass), not
+ * "narrow viewport".
+ */
 export function isMobileViewport() {
-    return window.matchMedia('(max-width: 768px)').matches;
+    return getDeviceClass().mobile;
 }
 
 /**
@@ -29,7 +65,9 @@ export function applyCinematicRenderer(renderer, { exposure = 1.12, maxPixelRati
     // programs linked. Dev builds keep the shader error reports.
     renderer.debug.checkShaderErrors = import.meta.env.DEV;
     renderer.shadowMap.enabled = !mobile;
-    renderer.setPixelRatio(mobile ? Math.min(window.devicePixelRatio, 1.25) : Math.min(window.devicePixelRatio, maxPixelRatio));
+    // The caller's ceiling and the device tier's, whichever is lower (the
+    // old hard 1.25 on phones ignored both and drew iPhones at 491x1065).
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio, getDeviceClass().dprCap));
 }
 
 /**
@@ -208,7 +246,10 @@ export function createBloomComposer(renderer, scene, camera, { mobile = isMobile
     const size = renderer.getSize(new THREE.Vector2());
 
     const composer = new EffectComposer(renderer);
-    composer.setPixelRatio(mobile ? 1.0 : Math.min(window.devicePixelRatio, 1.75));
+    // The composer's targets set the real resolution of the 3D frame: on
+    // phones it follows the renderer (capped at 1.5, fill-rate), not a flat
+    // 1.0 that the renderer's pixel ratio could never raise.
+    composer.setPixelRatio(mobile ? Math.min(renderer.getPixelRatio(), 1.5) : Math.min(window.devicePixelRatio, 1.75));
     composer.setSize(size.x, size.y);
 
     composer.addPass(new RenderPass(scene, camera));

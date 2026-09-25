@@ -178,6 +178,22 @@ const roomLight = { v: 0 };    // 0 dark .. 1 party lights
 const roomDim = { v: 0 };      // 0 lit .. 1 "cake is coming" dim
 const exposureKick = { v: 1 }; // auto-exposure overshoot after the switch
 const adapt = { v: 1 };        // dark adaptation multiplier (1 outside the dark beat)
+
+// Poster mode (2D): the baked dark/lit stills of the room with CSS light,
+// DOM candles and canvas confetti. Used when the recipient opens before the
+// 3D room is ready (it joins in when it is), and for phones that cannot
+// draw the room at >= 20 fps (it stays 2D then).
+let stage2d = false;
+let lowFps = false;            // measured too slow: never go back to 3D this session
+let posterUrls = null;         // { dark, lit } once both stills have decoded
+let posterLoad = null;
+let tourStarted = false;
+let candleRowLit = false;
+const candles2d = [];          // { el, isLit }
+const fpsProbe = { active: false, wallFrom: 0, wallUntil: 0, strikes: 0, samples: [] };
+const FPS_WINDOW_MS = 1400;
+const LOW_FPS_FRAME_S = 0.05;  // median frame slower than this (< 20 fps) -> poster mode
+const POSTER = { w: 1280, h: 800, switchAt: [0.69, 0.56], table: [0.43, 0.6] };
 let adaptCues = null;          // fallback highlight compensation (see applyAdaptCues)
 let appliedRoom = null;
 let cakeMaterials = [];        // { mat, env } for dimming the environment on the cake
@@ -230,9 +246,38 @@ function fillRaw(el, raw, vars) {
             span.textContent = vars[m[1]] ?? '';
             el.append(span);
         } else if (part) {
-            el.append(part);
+            appendKeepingPhrases(el, part);
         }
     });
+}
+
+/*
+ * Thai has no spaces, so the browser breaks between dictionary words and
+ * split "วัน|เกิด" on the gate headline. word-break: keep-all does nothing
+ * for Thai; instead the phrases that must never split are wrapped in
+ * nowrap spans (longest first), and everything else still wraps normally.
+ */
+const KEEP_TOGETHER = /(สุขสันต์วันเกิด|เซอร์ไพรส์วันเกิด|วันเกิด|เซอร์ไพรส์|ขอบคุณ|อธิษฐาน|ด้วยรัก)/;
+
+function appendKeepingPhrases(el, text) {
+    text.split(KEEP_TOGETHER).forEach((piece, i) => {
+        if (!piece) return;
+        if (i % 2) {
+            const span = document.createElement('span');
+            span.className = 'rcv-nowrap';
+            span.textContent = piece;
+            el.append(span);
+        } else {
+            el.append(piece);
+        }
+    });
+}
+
+/** textContent for headings, with the Thai phrase rule above. */
+function setHeadingText(el, text) {
+    if (!el) return;
+    el.textContent = '';
+    appendKeepingPhrases(el, text);
 }
 
 function firstGrapheme(text) {
@@ -244,15 +289,48 @@ function firstGrapheme(text) {
     return Array.from(text)[0] || '';
 }
 
+/*
+ * Beat timers follow rendered progress, not the wall clock: while the frame
+ * loop runs, `later` counts in loop time (`elapsed`, which advances at most
+ * 50 ms per frame). On a phone that stalls, the show slows down with the
+ * picture instead of skipping beats; a backgrounded tab pauses it. Before
+ * the loop starts (the gate) it falls back to setTimeout.
+ */
+const clockQueue = new Map();
+let clockSeq = 0;
+
 function later(fn, ms) {
-    const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
+    if (!rafId) {
+        const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
+        timers.add(id);
+        return id;
+    }
+    const id = `c${++clockSeq}`;
+    clockQueue.set(id, { at: elapsed + Math.max(0, ms) / 1000, fn });
     timers.add(id);
     return id;
+}
+
+function cancelLater(id) {
+    clearTimeout(id);
+    clockQueue.delete(id);
+    timers.delete(id);
 }
 
 function clearTimers() {
     timers.forEach((id) => clearTimeout(id));
     timers.clear();
+    clockQueue.clear();
+}
+
+function runClock() {
+    if (!clockQueue.size) return;
+    for (const [id, job] of clockQueue) {
+        if (job.at > elapsed) continue;
+        clockQueue.delete(id);
+        timers.delete(id);
+        job.fn();
+    }
 }
 
 const yieldToMain = () => new Promise((resolve) => {
@@ -296,12 +374,23 @@ export function initViewer(config) {
     bindDomOnce();
     resetDom();
     translateReceiver();
+    buildCandleRow();
+    if (partyMode) {
+        // The baked stills decode in a moment: the card can be opened then,
+        // long before the 3D room has streamed in (slow 4G, cheap phones).
+        preparePosters().then((urls) => {
+            const btn = $('btn-open-envelope');
+            if (urls && phase === 'gate' && !isReady && btn?.dataset.state === 'loading') btn.dataset.state = 'early';
+        });
+    }
 
     const token = ++prepToken;
     sceneReady = prepareScene(token).catch((err) => {
         console.error('[viewer] 3D scene failed, showing the card without it:', err);
         return false;
     });
+    // Back from the LINE thank-you: the end screen, not the gate again.
+    if (takeResume()) resumeAtEnd();
 }
 
 export function destroyViewer() {
@@ -549,8 +638,17 @@ function resetDom() {
     mic.state = 'off';
     const rv = $('receiver-view');
     rv?.classList.toggle('rcv-reduce', reduceMotion);
-    rv?.classList.remove('is-dim', 'is-dark', 'is-quiet');
+    rv?.classList.remove('is-dim', 'is-dark', 'is-quiet', 'is-2d');
     hideDarkUi();
+    stage2d = false;
+    lowFps = false;
+    fpsProbe.active = false;
+    showCandleRow(false);
+    const poster = $('rcv-poster');
+    if (poster) {
+        poster.hidden = true;
+        poster.className = 'rcv-poster';
+    }
     // Party gate: the dark room poster behind the envelope (when ROOM ships one).
     if (gate) {
         gate.style.removeProperty('--rcv-gate-poster');
@@ -564,6 +662,15 @@ async function loadPoster(gate) {
         const mod = await loadRoomModule();
         const url = mod.getPartyPoster?.('dark');
         if (url && phase === 'gate') gate.style.setProperty('--rcv-gate-poster', `url("${url}")`);
+        // Then start the room downloads while the envelope is read (the real
+        // load shares these requests). The poster goes first: on slow 4G the
+        // prefetch competed with it and an early tap waited 2.2 s instead of 0.6.
+        if (url) {
+            const img = new Image();
+            img.src = url;
+            await img.decode().catch(() => {});
+        }
+        mod.prefetchPartyRoom?.();
     } catch { /* the CSS gradient stays */ }
 }
 
@@ -817,7 +924,7 @@ async function prepareScene(token) {
         performance.mark('rcv:ready');
         isReady = true;
         const btn = $('btn-open-envelope');
-        if (btn && btn.dataset.state === 'loading') btn.dataset.state = 'ready';
+        if (btn && (btn.dataset.state === 'loading' || btn.dataset.state === 'early')) btn.dataset.state = 'ready';
         return true;
     } catch (err) {
         if (err instanceof PrepCancelled) return false;
@@ -863,6 +970,178 @@ function applyAdaptCues() {
     if (adaptCues.halo) adaptCues.halo.mat.color.copy(adaptCues.halo.base).multiplyScalar(kSwitch);
     // The room rewrites the LED colour every update(), so this scales its value.
     if (adaptCues.led) adaptCues.led.color.multiplyScalar(kSwitch);
+}
+
+/** Decodes the baked dark/lit stills (tiny next to the room) so poster mode can start at once. */
+function preparePosters() {
+    if (posterLoad) return posterLoad;
+    posterLoad = (async () => {
+        if (!loadRoomModule) return null;
+        const mod = await loadRoomModule();
+        const urls = { dark: mod.getPartyPoster?.('dark'), lit: mod.getPartyPoster?.('lit') };
+        if (!urls.dark || !urls.lit) return null;
+        const imgs = [$('rcv-poster-dark'), $('rcv-poster-lit')];
+        if (!imgs[0] || !imgs[1]) return null;
+        imgs[0].src = urls.dark;
+        imgs[1].src = urls.lit;
+        await Promise.all(imgs.map((img) => img.decode()));
+        posterUrls = urls;
+        return urls;
+    })().catch(() => null);
+    return posterLoad;
+}
+
+/** Shows the poster stage in the state that matches the current beat. */
+function showPoster(state) {
+    const el = $('rcv-poster');
+    if (!el) return;
+    el.hidden = false;
+    el.classList.remove('is-leaving');
+    el.classList.toggle('is-lit', state !== 'dark');
+    el.classList.toggle('is-tour', state === 'tour' || state === 'dim');
+    el.classList.toggle('is-dimmed', state === 'dim');
+    placePosterOrigin();
+}
+
+function hidePoster(fade = true) {
+    const el = $('rcv-poster');
+    if (!el || el.hidden) return;
+    if (!fade) {
+        el.hidden = true;
+        return;
+    }
+    el.classList.add('is-leaving');
+    later(() => { if (!stage2d) el.hidden = true; el.classList.remove('is-leaving'); }, 650);
+}
+
+/** Where a point of the poster (0..1) lands on screen (object-fit: cover). */
+function posterToScreen(fx, fy, lit) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const s = Math.max(w / POSTER.w, h / POSTER.h);
+    const dw = POSTER.w * s;
+    const dh = POSTER.h * s;
+    // Must match --rcv-poster-x in receiver.css (window side dark, party side lit).
+    const posX = w < h ? (lit ? 0.57 : 0.86) : (lit ? 0.5 : 0.62);
+    return [(w - dw) * posX + fx * dw, (h - dh) * 0.5 + fy * dh];
+}
+
+function placePosterOrigin() {
+    const el = $('rcv-poster');
+    if (!el) return;
+    const [x, y] = posterToScreen(POSTER.table[0], POSTER.table[1], true);
+    el.style.setProperty('--rcv-tour-origin', `${x.toFixed(0)}px ${y.toFixed(0)}px`);
+}
+
+/** Poster mode for the rest of this beat (or show). */
+function enterPoster(reason) {
+    stage2d = true;
+    if (reason === 'lowfps') lowFps = true;
+    fpsProbe.active = false;
+    if (camera) { anime.remove(camera.position); anime.remove(controls?.target); }
+    const state = phase === 'dark' ? 'dark' : phase === 'reveal' ? (tourStarted ? 'tour' : 'lit') : 'dim';
+    showPoster(state);
+    $('greeting-canvas-container')?.classList.remove('is-live');
+    $('receiver-view')?.classList.add('is-2d');
+    if (candleRowLit || phase === 'song' || phase === 'wish' || phase === 'blow') showCandleRow(true);
+    if (import.meta.env.DEV) console.info('[viewer] poster mode:', reason);
+}
+
+/**
+ * The 3D room became ready while the show runs on the poster: join it at a
+ * clean point (the dark room, or the reveal before the candles). Later on,
+ * the show stays 2D and a replay uses 3D.
+ */
+function join3D() {
+    if (!stage2d || lowFps || !room || !isReady) return;
+    if (phase !== 'dark' && !(phase === 'reveal' && !candleRowLit)) return;
+    stage2d = false;
+    $('receiver-view')?.classList.remove('is-2d');
+    anime.remove([roomLight, roomDim, adapt]);
+    adapt.v = 1;
+    roomDim.v = 0;
+    if (phase === 'dark') {
+        roomLight.v = 0;
+        room.reset?.();
+        lockRoomOrbit();
+        const entry = roomShots.entry;
+        setLens(entry.fov);
+        camera.position.copy(entry.pos);
+        controls.target.copy(entry.target);
+        startFpsProbe(400);
+    } else {
+        roomLight.v = 1;
+        const shot = tourStarted ? roomShots.cake : roomShots.reveal;
+        setLens(shot.fov);
+        camera.position.copy(shot.pos);
+        controls.target.copy(shot.target);
+    }
+    controls.update();
+    $('greeting-canvas-container')?.classList.add('is-live');
+    hidePoster(true);
+}
+
+/** Measures the real frame rate over a window of the dark beat / the reveal. */
+function startFpsProbe(delayMs, windowMs = FPS_WINDOW_MS, strikes = 0) {
+    if (lowFps || !room) return;
+    fpsProbe.samples.length = 0;
+    fpsProbe.wallFrom = performance.now() + delayMs;
+    fpsProbe.wallUntil = fpsProbe.wallFrom + windowMs;
+    fpsProbe.strikes = strikes;
+    fpsProbe.active = true;
+}
+
+function sampleFps(rawDt) {
+    if (!fpsProbe.active) return;
+    // Wall-clock window: loop time slows down with the frames being measured.
+    const now = performance.now();
+    if (now < fpsProbe.wallFrom) return;
+    fpsProbe.samples.push(rawDt);
+    if (now < fpsProbe.wallUntil) return;
+    fpsProbe.active = false;
+    const s = fpsProbe.samples.slice().sort((a, b) => a - b);
+    const median = s[s.length >> 1] || 0;
+    if (!s.length || median <= LOW_FPS_FRAME_S || (phase !== 'dark' && phase !== 'reveal')) return;
+    // Two slow windows in a row: one stall (a notification, a GC) is not a slow phone.
+    if (fpsProbe.strikes === 0) startFpsProbe(0, FPS_WINDOW_MS, 1);
+    else enterPoster('lowfps');
+}
+
+/* ---------- 2D candles (poster mode): big buttons, >= 56 px ---------- */
+
+function buildCandleRow() {
+    const row = $('rcv-candles2d');
+    if (!row) return;
+    row.textContent = '';
+    candles2d.length = 0;
+    const count = Math.min(10, Math.max(1, numberOr(activeConfig.candles, 5)));
+    for (let i = 0; i < count; i++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'rcv-candle2d';
+        btn.setAttribute('aria-label', t('rcvCandleLabel', { n: i + 1 }));
+        btn.innerHTML = '<span class="rcv-candle2d-flame" aria-hidden="true"></span><span class="rcv-candle2d-wax" aria-hidden="true"></span>';
+        const c = { el: btn, isLit: false, index: i };
+        btn.addEventListener('click', () => extinguishCandle(c));
+        row.append(btn);
+        candles2d.push(c);
+    }
+}
+
+function showCandleRow(show) {
+    const row = $('rcv-candles2d');
+    if (row) row.hidden = !show;
+}
+
+function setCandle2d(c, lit) {
+    c.isLit = lit;
+    c.el.classList.toggle('is-lit', lit);
+    c.el.classList.toggle('is-out', !lit);
+    c.el.disabled = !lit;
+}
+
+function activeCandles() {
+    return stage2d ? candles2d : candles;
 }
 
 function warmEverything() {
@@ -1578,13 +1857,16 @@ function fitRoomShots() {
     }
     roomShots = {};
     for (const [name, shot] of Object.entries(shots)) {
-        const pos = shot.position.clone();
-        const target = shot.target.clone();
+        // The room authors portrait variants of its shots; take the one for
+        // this aspect when it offers them.
+        const src = typeof shot.forAspect === 'function' ? shot.forAspect(aspect) : shot;
+        const pos = src.position.clone();
+        const target = src.target.clone();
         // Lens: the room's own per-aspect fov when it gives one; portrait
         // phones otherwise get a wider lens (the room is authored landscape-
         // first), wider still in the doorway so the reveal holds the party.
         let fov = portrait ? (name === 'entry' || name === 'reveal' ? 62 : 58) : 45;
-        const f = shot.fov;
+        const f = src.fov ?? shot.fov;
         if (typeof f === 'number') fov = f;
         else if (f && typeof f === 'object') fov = (portrait ? f.portrait : f.landscape) ?? fov;
         if (name === 'entry' && !portrait) {
@@ -1603,11 +1885,9 @@ function fitRoomShots() {
             dir.y = Math.tan(pitch) * flat;
             target.copy(pos).add(dir);
         }
-        if (portrait && name === 'cake') {
-            // A phone cannot hold the 2.4 m foil row from the table (it
-            // would need a ~76 deg lens), so it was cut to "BIRTHDA". Step
-            // 30 % closer and a touch lower: the cake is the hero, the name
-            // sign stays, the letters leave through the top edge.
+        if (portrait && name === 'cake' && !shot.portrait) {
+            // Older room builds had no portrait cake shot: a phone cannot hold
+            // the foil row from the table, so step closer and lower instead.
             pos.lerp(target, 0.3);
             pos.y -= 0.06 * 14;
             target.y -= 0.3 * 14;
@@ -1818,13 +2098,24 @@ function startLoop() {
 
 function loop(now) {
     rafId = requestAnimationFrame(loop);
-    if (document.hidden || !renderer) {
+    if (document.hidden) {
         lastFrameTime = now;
         return;
     }
-    const dt = Math.min(0.05, Math.max(0, (now - lastFrameTime) / 1000));
+    const raw = Math.max(0, (now - lastFrameTime) / 1000);
+    const dt = Math.min(0.05, raw);
     lastFrameTime = now;
     elapsed += dt;
+    runClock();
+
+    // Poster mode (2D): the beat clock, the lyrics and the DOM switch only.
+    if (stage2d || !renderer) {
+        if (phase === 'dark') placeSwitchMarker();
+        if (phase === 'song') updateLyrics();
+        updateMic(dt);
+        return;
+    }
+    sampleFps(raw);
 
     // A real cake on a real table does not spin; the studio one still does.
     if (cakeGroup && !reduceMotion && !room) cakeGroup.rotation.y += dt * 0.12 * spin.v;
@@ -1956,11 +2247,28 @@ function onOpenClick(quiet) {
         startReveal();
         return;
     }
+    // Party card still loading its room: go in now, on the baked dark still.
+    // The live room joins in when it is ready (join3D).
+    if (partyMode && posterUrls) {
+        stage2d = true;
+        startReveal();
+        sceneReady.then((ok) => { if (ok) join3D(); });
+        return;
+    }
     const btn = $('btn-open-envelope');
     if (btn) {
         btn.dataset.state = 'waiting';
         btn.setAttribute('aria-busy', 'true');
         updateOpenLabel();
+    }
+    // Whichever comes first: the room, or (party) the baked stills.
+    if (partyMode) {
+        preparePosters().then((urls) => {
+            if (!urls || phase !== 'gate' || isReady) return;
+            stage2d = true;
+            startReveal();
+            sceneReady.then((ok) => { if (ok) join3D(); });
+        });
     }
     sceneReady.then((ok) => {
         if (phase !== 'gate') return;
@@ -1978,7 +2286,7 @@ function leaveGate() {
 }
 
 function startReveal() {
-    if (room) {
+    if (room || stage2d) {
         startDark();
         return;
     }
@@ -2011,8 +2319,13 @@ function startReveal() {
 
 function igniteCandles(done) {
     const stagger = ms(150);
-    if (room && audio) cues.matchStrike(audio, audio.now(), 0.1);
-    const lead = room ? ms(220) : 0;
+    if ((room || stage2d) && audio) cues.matchStrike(audio, audio.now(), 0.1);
+    const lead = room || stage2d ? ms(220) : 0;
+    if (stage2d) {
+        candles2d.forEach((c, i) => later(() => { setCandle2d(c, true); playTick(i); }, lead + i * stagger));
+        later(done, lead + candles2d.length * stagger + ms(300));
+        return;
+    }
     candles.forEach((c, i) => {
         later(() => {
             c.isLit = true;
@@ -2036,7 +2349,7 @@ function darkLater(fn, delay) {
     return id;
 }
 function clearDarkTimers() {
-    darkTimers.forEach((id) => { clearTimeout(id); timers.delete(id); });
+    darkTimers.forEach((id) => cancelLater(id));
     darkTimers.clear();
 }
 
@@ -2068,29 +2381,51 @@ function startDark({ fromReplay = false } = {}) {
     $('rcv-title')?.classList.remove('is-hero', 'is-docked', 'is-tucked');
     spin.v = 0;
     anime.remove([roomLight, roomDim, exposureKick, dim, glow]);
-    setLens(roomShots.entry.fov);
     warmSurpriseText();
-    // Eyes adjusting: from the bright gate card into the dark room.
-    anime.remove(adapt);
-    adapt.v = reduceMotion ? 0.8 : ADAPT_START;
-    anime({ targets: adapt, v: 1, duration: reduceMotion ? 600 : ADAPT_MS, easing: 'easeOutCubic' });
+    tourStarted = false;
+    candleRowLit = false;
+    showCandleRow(false);
     roomLight.v = 0;
     roomDim.v = 0;
     exposureKick.v = 1;
     dim.v = 0;
     glow.v = 0;
-    room.reset?.();
-    lockRoomOrbit();
     darkLowerThird = false;
-    const entry = roomShots.entry;
-    anime.remove(camera.position);
-    anime.remove(controls.target);
-    camera.position.copy(entry.pos);
-    controls.target.copy(entry.target);
-    // A slow 3 % step into the room while the eyes adjust.
-    if (!reduceMotion) {
-        const inward = entry.pos.clone().lerp(entry.target, 0.03);
-        tweenCamera(inward, entry.target, 7000, 'easeOutSine', { unlock: false });
+    // A replay after the room became ready (and fast enough) uses the room.
+    if (stage2d && fromReplay && room && isReady && !lowFps) {
+        stage2d = false;
+        $('receiver-view')?.classList.remove('is-2d');
+        hidePoster(false);
+    }
+    if (stage2d) {
+        // Poster mode: the baked dark still, eyes adapting in CSS.
+        $('receiver-view')?.classList.add('is-2d');
+        $('greeting-canvas-container')?.classList.remove('is-live');
+        showPoster('dark');
+        const poster = $('rcv-poster');
+        poster?.classList.remove('is-adapted', 'is-adapting');
+        void poster?.offsetWidth;
+        poster?.classList.add('is-adapting');
+    } else {
+        setLens(roomShots.entry.fov);
+        // Eyes adjusting: from the bright gate card into the dark room.
+        anime.remove(adapt);
+        adapt.v = reduceMotion ? 0.8 : ADAPT_START;
+        anime({ targets: adapt, v: 1, duration: reduceMotion ? 600 : ADAPT_MS, easing: 'easeOutCubic' });
+        room.reset?.();
+        lockRoomOrbit();
+        const entry = roomShots.entry;
+        anime.remove(camera.position);
+        anime.remove(controls.target);
+        camera.position.copy(entry.pos);
+        controls.target.copy(entry.target);
+        // A slow 3 % step into the room while the eyes adjust.
+        if (!reduceMotion) {
+            const inward = entry.pos.clone().lerp(entry.target, 0.03);
+            tweenCamera(inward, entry.target, 7000, 'easeOutSine', { unlock: false });
+        }
+        // Can this phone draw the room? Measured once the first frames settle.
+        startFpsProbe(400);
     }
     startLoop();
 
@@ -2134,7 +2469,8 @@ function escalateDark() {
     // "Eyes fully adapted": +0.4 EV, which also rescues dim phone screens.
     anime.remove(adapt);
     anime({ targets: adapt, v: ADAPT_FULL, duration: reduceMotion ? 600 : ADAPT_FULL_MS, easing: 'easeInOutSine' });
-    if (reduceMotion || !room.switchWorld) return;
+    $('rcv-poster')?.classList.add('is-adapted');
+    if (stage2d || reduceMotion || !room?.switchWorld) return;
     const pos = camera.position.clone();
     const look = controls.target.clone().sub(pos);
     const toSwitch = room.switchWorld.clone().sub(pos).normalize();
@@ -2159,13 +2495,23 @@ function showSwitchMarker() {
 /** Keeps the DOM switch target (>= 64 px, focusable) over the 3D switch. */
 function placeSwitchMarker() {
     const marker = $('rcv-switch');
-    if (!marker || marker.hidden || !room?.switchWorld || !camera) return;
-    tmpV.copy(room.switchWorld).project(camera);
+    if (!marker || marker.hidden) return;
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const onScreen = tmpV.z < 1 && Math.abs(tmpV.x) < 1.05 && Math.abs(tmpV.y) < 1.05;
-    const x = THREE.MathUtils.clamp((tmpV.x + 1) / 2 * w, 44, w - 44);
-    const y = THREE.MathUtils.clamp((1 - tmpV.y) / 2 * h, 90, h - 150);
+    let sx;
+    let sy;
+    let onScreen = true;
+    if (stage2d || !room?.switchWorld || !camera) {
+        // Poster mode: the switch sits on the dark wall beside the curtain.
+        [sx, sy] = posterToScreen(POSTER.switchAt[0], POSTER.switchAt[1], false);
+    } else {
+        tmpV.copy(room.switchWorld).project(camera);
+        onScreen = tmpV.z < 1 && Math.abs(tmpV.x) < 1.05 && Math.abs(tmpV.y) < 1.05;
+        sx = (tmpV.x + 1) / 2 * w;
+        sy = (1 - tmpV.y) / 2 * h;
+    }
+    const x = THREE.MathUtils.clamp(sx, 44, w - 44);
+    const y = THREE.MathUtils.clamp(sy, 90, h - 150);
     marker.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
     marker.classList.toggle('is-offscreen', !onScreen);
     const hint = $('rcv-dark-hint');
@@ -2204,14 +2550,16 @@ function flipSwitch(auto) {
         // Guests hold their breath: the room goes quiet just before the hit.
         roomTone.duck(t0 + 0.04);
     }
-    anime.remove(camera.position);
-    anime.remove(controls.target);
+    if (camera && !stage2d) {
+        anime.remove(camera.position);
+        anime.remove(controls.target);
+    }
     later(lightsOn, LIGHTS_ON_MS);
 }
 
 /** Beat 6-7: lights, SURPRISE, poppers, confetti. */
 function lightsOn() {
-    if (phase !== 'reveal' || !room) return;
+    if (phase !== 'reveal' || (!room && !stage2d)) return;
     const rv = $('receiver-view');
     rv?.classList.remove('is-dark');
     // Hard cut, like a real switch; the "camera" then adapts.
@@ -2220,7 +2568,10 @@ function lightsOn() {
     roomLight.v = 1;
     exposureKick.v = reduceMotion ? 1.05 : 1.35;
     anime({ targets: exposureKick, v: 1, duration: reduceMotion ? 1200 : 700, easing: 'easeOutCubic' });
-    if (reduceMotion) {
+    if (stage2d) {
+        // Poster mode: the lit still with the same overshoot and head-turn (CSS).
+        showPoster('lit');
+    } else if (reduceMotion) {
         crossCut(roomShots.reveal);
     } else {
         flinch();
@@ -2248,10 +2599,12 @@ function lightsOn() {
     later(() => haptic([0, 30, 40, 60]), SHOUT_MS - LIGHTS_ON_MS);
     later(showSurpriseText, 40);
     later(() => {
-        if (!reduceMotion) room.popConfetti?.();
+        if (!reduceMotion && !stage2d) room.popConfetti?.();
         sideConfetti();
     }, 70);
     announce(t('rcvLiveSurprise'));
+    // The reveal is the heaviest stretch: a phone that cannot hold it gets the poster.
+    if (!stage2d) startFpsProbe(300);
     later(startTour, TOUR_MS - LIGHTS_ON_MS);
 }
 
@@ -2298,10 +2651,14 @@ function sideConfetti() {
 /** Beat 8: glide from the doorway, past the room, to the table; the name docks. */
 function startTour() {
     if (phase !== 'reveal') return;
-    const { cake } = roomShots;
-    if (reduceMotion) {
-        crossCut(cake);
+    tourStarted = true;
+    if (stage2d) {
+        // Poster mode: a slow push toward the table (Ken Burns).
+        showPoster('tour');
+    } else if (reduceMotion) {
+        crossCut(roomShots.cake);
     } else {
+        const { cake } = roomShots;
         // One glide from the reveal framing straight to the table.
         tweenCamera(cake.pos, cake.target, TOUR_GLIDE_MS, 'easeInOutCubic', { unlock: false, fov: cake.fov });
         if (audio) cues.whoosh(audio, audio.now() + 0.15, 1.1, 0.1);
@@ -2355,6 +2712,11 @@ function cakeComing() {
     }
     anime.remove(roomDim);
     anime({ targets: roomDim, v: 1, duration: 800, easing: 'easeInOutQuad' });
+    candleRowLit = true;
+    if (stage2d) {
+        showPoster('dim');
+        showCandleRow(true);
+    }
     partyLoop?.stop(0.6);
     roomTone?.set(0.03, 1);
     later(() => igniteCandles(() => later(startSong, ms(300))), 500);
@@ -2363,9 +2725,11 @@ function cakeComing() {
 function startSong() {
     if (phase !== 'reveal') return;
     phase = 'song';
-    enableRoomOrbit(roomShots.cake);
     tuckTitle(true);
-    driftDuringSong();
+    if (!stage2d) {
+        enableRoomOrbit(roomShots.cake);
+        driftDuringSong();
+    }
     lyricIndex = -1;
     songStartedAt = performance.now() + 50;
     song?.start({ level: 0.8, fadeIn: 0.3, passes: 1, claps: 0.09 });
@@ -2398,9 +2762,11 @@ function endSong() {
     if (early) song?.stop(0.4);
     roomTone?.set(0.045, 1.5);
     // Push in toward the flames for the wish.
-    lockRoomOrbit();
-    tweenCamera(roomShots.closeUp.pos, roomShots.closeUp.target, ms(2600), 'easeInOutSine', { unlock: false, fov: roomShots.closeUp.fov });
-    later(() => enableRoomOrbit(roomShots.closeUp), ms(2600) + 50);
+    if (!stage2d) {
+        lockRoomOrbit();
+        tweenCamera(roomShots.closeUp.pos, roomShots.closeUp.target, ms(2600), 'easeInOutSine', { unlock: false, fov: roomShots.closeUp.fov });
+        later(() => enableRoomOrbit(roomShots.closeUp), ms(2600) + 50);
+    }
     phase = 'intro';
     startWish();
 }
@@ -2413,7 +2779,7 @@ function startWish() {
     anime({ targets: spin, v: 0, duration: ms(900), easing: 'easeOutQuad' });
     anime({ targets: dim, v: 1, duration: ms(900), easing: 'easeInOutQuad' });
     $('receiver-view')?.classList.add('is-dim');
-    if (!room) duckMusic(0.3);
+    if (!partyMode) duckMusic(0.3);
     const wish = $('rcv-wish');
     if (wish) wish.hidden = false;
     later(() => {
@@ -2439,7 +2805,7 @@ function startBlow() {
 
 function litCount() {
     let n = 0;
-    for (const c of candles) if (c.isLit) n++;
+    for (const c of activeCandles()) if (c.isLit) n++;
     return n;
 }
 
@@ -2460,14 +2826,16 @@ function updateBlowUi() {
     const micLabel = $('rcv-mic-label');
     const supported = micSupported();
     if (micBtn) {
-        micBtn.hidden = !supported || mic.state === 'denied' || (IS_LINE_APP && IS_IOS);
+        // LINE's in-app browsers (iOS and Android WebView) cannot capture
+        // audio reliably: they get the "open in browser" path instead.
+        micBtn.hidden = !supported || mic.state === 'denied' || IS_LINE_APP;
         micBtn.setAttribute('aria-pressed', mic.state === 'listening' || mic.state === 'calibrating' ? 'true' : 'false');
     }
     if (micLabel) micLabel.textContent = mic.state === 'listening' || mic.state === 'calibrating' ? t('rcvMicStop') : t('rcvMicButton');
     if (ext) {
-        // LINE's iOS in-app browser cannot capture audio; LINE honours this
-        // query parameter by reopening the link in the system browser.
-        const showExt = IS_LINE_APP && IS_IOS;
+        // LINE honours this query parameter on iOS and Android by reopening
+        // the link in the system browser, where the mic works (https only).
+        const showExt = IS_LINE_APP && window.isSecureContext;
         ext.hidden = !showExt;
         if (showExt) {
             const sep = location.search ? '&' : '?';
@@ -2484,6 +2852,15 @@ function extinguishCandle(candle) {
     if (phase !== 'blow') return;
     candle.isLit = false;
     haptic(8);
+    if (candle.el) {
+        // Poster mode: the DOM flame leans and goes out, a wisp rises.
+        const r = candle.el.getBoundingClientRect();
+        playPuff(THREE.MathUtils.clamp(((r.left + r.width / 2) / window.innerWidth) * 2 - 1, -1, 1));
+        setCandle2d(candle, false);
+        updateBlowUi();
+        if (litCount() === 0) later(startClimax, ms(450) + 50);
+        return;
+    }
 
     flameWorldPos(candle, tmpV);
     const screen = tmpV.clone().project(camera);
@@ -2500,7 +2877,7 @@ function extinguishCandle(candle) {
 }
 
 function blowNextCandle() {
-    const next = candles.find((c) => c.isLit);
+    const next = activeCandles().find((c) => c.isLit);
     if (next) extinguishCandle(next);
 }
 
@@ -2514,7 +2891,7 @@ function startClimax() {
     anime({ targets: dim, v: 0.75, duration: ms(250), easing: 'easeOutQuad' });
     // Party: the room holds its breath too.
     roomTone?.set(0.0001, 0.2);
-    if (room) lockRoomOrbit();
+    if (room && !stage2d) lockRoomOrbit();
 
     // A beat of darkness and silence, then the payoff.
     later(() => {
@@ -2526,11 +2903,21 @@ function startClimax() {
             .add({ targets: glow, v: 0.15, duration: ms(1800) || 1, easing: 'easeInOutSine' });
         playFinalPhrase();
         celebrate();
-        const top = cakeGroup.localToWorld(new THREE.Vector3(0, cakeBounds.topY + 0.4, 0));
-        burstSparkles(top, reduceMotion ? 20 : 110, 2.4);
-        const pose = afterglowPose();
-        tweenCamera(pose.pos, pose.target, ms(1800), 'easeInOutCubic', { unlock: !room, fov: pose.fov });
-        if (room) {
+        if (stage2d) {
+            // Poster mode: lights back to full on the still, the cheer, the card.
+            showPoster('lit');
+            later(() => showCandleRow(false), 1400);
+            if (audio) cues.cheer(audio, audio.now() + 0.05, reduceMotion ? 0.5 : 1);
+            haptic([0, 40, 30, 40]);
+            later(() => roomTone?.set(0.035, 2), 2500);
+        }
+        const top = !stage2d && cakeGroup ? cakeGroup.localToWorld(new THREE.Vector3(0, cakeBounds.topY + 0.4, 0)) : null;
+        if (top) burstSparkles(top, reduceMotion ? 20 : 110, 2.4);
+        const pose = stage2d ? null : afterglowPose();
+        if (pose) tweenCamera(pose.pos, pose.target, ms(1800), 'easeInOutCubic', { unlock: !room, fov: pose.fov });
+        if (stage2d) {
+            // Poster mode is handled above.
+        } else if (room) {
             // Beat 14: lights snap back to full, balloons fall, everyone cheers.
             anime.remove([roomDim, exposureKick]);
             anime({ targets: roomDim, v: 0, duration: 250, easing: 'easeOutQuad' });
@@ -2582,12 +2969,14 @@ function celebrate() {
 }
 
 function replay() {
-    if (!renderer || (phase !== 'message' && phase !== 'climax')) return;
+    if ((!renderer && !stage2d) || (phase !== 'message' && phase !== 'climax')) return;
+    // A resumed end screen (after the LINE thank-you) has no audio yet: this tap unlocks it.
+    unlockAudio();
     closeLetter(false);
     closeCard(false);
     clearTimers();
     hideDecor();
-    if (room) {
+    if (room || stage2d) {
         // "Watch the surprise again": someone switched the lights off.
         $('btn-hud-card').hidden = true;
         $('btn-hud-reset').hidden = true;
@@ -2595,6 +2984,7 @@ function replay() {
         partyLoop?.stop(0.3);
         tweenShift(0, 0, 0);
         candles.forEach((c) => { c.isLit = false; c.flame.scale.setScalar(0.0001); c.flame.rotation.z = 0; });
+        candles2d.forEach((c) => setCandle2d(c, false));
         if (audio) cues.switchClick(audio, audio.now() + 0.01);
         later(() => startDark({ fromReplay: true }), 120);
         return;
@@ -2662,14 +3052,22 @@ function handleTap(x, y) {
     }
 
     if (phase === 'blow' || phase === 'wish') {
+        tapRing(x, y);
+        // Screen space first: flames project to ~30 px apart on small phones,
+        // so any tap within a thumb's reach (44 px) of a lit flame blows it.
+        const near = nearestLitCandle(x, y);
+        if (near && nearestDist <= FLAME_TAP_PX) {
+            extinguishCandle(near);
+            return;
+        }
         const hit = raycaster.intersectObjects(hitMeshes, false)[0];
         if (hit?.object.userData.candle?.isLit) {
             extinguishCandle(hit.object.userData.candle);
             return;
         }
-        // A tap anywhere on the cake blows the nearest lit candle.
-        if (raycaster.intersectObject(cakeGroup, true).length) {
-            extinguishCandle(nearestLitCandle(x, y));
+        // A tap on the cake, or just around it, blows the nearest lit candle.
+        if (raycaster.intersectObject(cakeGroup, true).length || insideCakeRect(x, y, 30)) {
+            extinguishCandle(near);
         }
         return;
     }
@@ -2698,6 +3096,9 @@ function handleTap(x, y) {
     }
 }
 
+const FLAME_TAP_PX = 44;
+let nearestDist = Infinity;
+
 function nearestLitCandle(x, y) {
     const rect = renderer.domElement.getBoundingClientRect();
     let best = null;
@@ -2710,7 +3111,34 @@ function nearestLitCandle(x, y) {
         const d = Math.hypot(sx - x, sy - y);
         if (d < bestD) { bestD = d; best = c; }
     }
+    nearestDist = bestD;
     return best;
+}
+
+/** Is (x, y) inside the cake's on-screen box, grown by `pad` px? */
+function insideCakeRect(x, y, pad) {
+    if (!cakeGroup) return false;
+    const box = new THREE.Box3().setFromObject(cakeGroup);
+    const rect = renderer.domElement.getBoundingClientRect();
+    let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+    for (let i = 0; i < 8; i++) {
+        tmpV.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).project(camera);
+        const sx = rect.left + (tmpV.x + 1) / 2 * rect.width;
+        const sy = rect.top + (1 - tmpV.y) / 2 * rect.height;
+        x0 = Math.min(x0, sx); x1 = Math.max(x1, sx); y0 = Math.min(y0, sy); y1 = Math.max(y1, sy);
+    }
+    return x >= x0 - pad && x <= x1 + pad && y >= y0 - pad && y <= y1 + pad;
+}
+
+/** A brief ring where the finger landed (the tap was heard). */
+function tapRing(x, y) {
+    if (reduceMotion) return;
+    const el = document.createElement('div');
+    el.className = 'rcv-tap-ring';
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    document.body.append(el);
+    setTimeout(() => el.remove(), 500);
 }
 
 function popGift(i, x, y) {
@@ -2793,8 +3221,7 @@ function fillCard() {
     }
     const date = $('view-date');
     if (date) date.textContent = formatBirthDate(activeConfig.bdate);
-    const title = $('view-title');
-    if (title) title.textContent = (activeConfig.title || '').trim() || t('rcvDefaultTitle', { name });
+    setHeadingText($('view-title'), (activeConfig.title || '').trim() || t('rcvDefaultTitle', { name }));
     const message = $('view-message');
     if (message) message.textContent = (activeConfig.message || '').trim() || t('rcvDefaultMessage', { name });
     const sig = $('rcv-card-signature');
@@ -2887,7 +3314,12 @@ function sendThanks() {
     const lineUrl = `https://line.me/R/share?text=${encodeURIComponent(text)}`;
     playChime(783.99);
     if (IS_LINE_APP) {
-        window.location.href = lineUrl;
+        // LINE opens its share picker from a new window and keeps this page.
+        // If it navigates us away anyway, coming back resumes at the end
+        // screen instead of the gate (see resumeAtEnd).
+        rememberEnd();
+        const w = window.open(lineUrl, '_blank');
+        if (!w) window.location.href = lineUrl;
     } else if (navigator.share) {
         navigator.share({ text }).catch(() => {});
     } else {
@@ -2895,38 +3327,161 @@ function sendThanks() {
     }
 }
 
-function savePhoto() {
-    if (!renderer) return;
-    // preserveDrawingBuffer is off, so render and read back in the same task.
-    camera.clearViewOffset();
-    appliedShift = null;
-    renderFrame();
-    const src = renderer.domElement;
-    const out = document.createElement('canvas');
-    out.width = src.width;
-    out.height = src.height;
-    const ctx = out.getContext('2d');
-    // Light backdrops live in CSS behind the transparent frame; paint them in.
-    paintBackdrop(ctx, out.width, out.height, backdrop.name);
-    ctx.drawImage(src, 0, 0);
+const RESUME_KEY = 'hbd-rcv-resume';
 
-    // Caption: the name, crisp and in a Thai-capable font.
-    const caption = t('rcvHappyBirthday', { name: recipientName() });
-    const size = Math.round(Math.min(out.width * 0.07, out.height * 0.055));
-    ctx.font = `700 ${size}px "Noto Sans Thai", "Outfit", sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    if (backdrop.light) {
-        ctx.shadowColor = 'rgba(255,255,255,0.85)';
-        ctx.shadowBlur = size * 0.35;
-        ctx.fillStyle = backdrop.ink;
-    } else {
-        ctx.shadowColor = 'rgba(0,0,0,0.6)';
-        ctx.shadowBlur = size * 0.4;
-        ctx.fillStyle = '#fff6e8';
+function rememberEnd() {
+    try { sessionStorage.setItem(RESUME_KEY, JSON.stringify({ hash: location.hash, at: Date.now() })); } catch { /* private mode */ }
+}
+
+/** True once per return from the LINE share picker (same card, within 30 min). */
+function takeResume() {
+    try {
+        const raw = sessionStorage.getItem(RESUME_KEY);
+        if (!raw) return false;
+        sessionStorage.removeItem(RESUME_KEY);
+        const r = JSON.parse(raw);
+        return r?.hash === location.hash && Date.now() - r.at < 30 * 60 * 1000;
+    } catch {
+        return false;
     }
-    ctx.fillText(caption, out.width / 2, out.height * 0.06, out.width * 0.92);
+}
+
+/** Back from the thank-you: straight to the end screen, lights on, card open. */
+function resumeAtEnd() {
+    phase = 'message';
+    opening = true;
+    const gate = $('envelope-gate');
+    if (gate) { gate.classList.remove('active-gate', 'is-leaving'); gate.inert = true; }
+    const hud = $('rcv-hud');
+    if (hud) { hud.inert = false; hud.classList.add('is-live'); }
+    $('rcv-title')?.classList.add('is-docked');
+    $('btn-hud-card').hidden = false;
+    $('btn-hud-reset').hidden = false;
+    if (partyMode) {
+        stage2d = true;
+        $('receiver-view')?.classList.add('is-2d');
+        preparePosters().then((urls) => { if (urls && stage2d) showPoster('lit'); });
+    } else {
+        sceneReady.then((ok) => {
+            if (!ok || phase !== 'message') return;
+            $('greeting-canvas-container')?.classList.add('is-live');
+            const pose = afterglowPose();
+            tweenCamera(pose.pos, pose.target, 0);
+        });
+    }
+    startLoop();
+    openCard();
+}
+
+// A keepsake, not a screenshot: a fixed-size render from a composed shot.
+const PHOTO_PORTRAIT = [1080, 1350];
+const PHOTO_LANDSCAPE = [1600, 1200];
+
+/** Letters, name sign and cake in one frame, fitted to the photo's aspect. */
+function photoShot(aspect) {
+    if (room && roomShots) {
+        const r = roomShots.reveal;
+        const shot = { pos: r.pos.clone().lerp(roomShots.cake.pos, 0.5), target: r.target.clone(), fov: aspect < 1 ? 56 : 48 };
+        fitRevealToParty(shot, aspect, aspect < 1);
+        return shot;
+    }
+    const pose = afterglowPose();
+    return { pos: pose.pos, target: pose.target, fov: camera.fov };
+}
+
+/** Renders the scene off-screen at W x H (same task, so nothing flashes on screen). */
+function renderScenePhoto(ctx, W, H) {
+    const size = renderer.getSize(new THREE.Vector2());
+    const pr = renderer.getPixelRatio();
+    const composer = bloomComposer?.composer;
+    const composerPr = composer?._pixelRatio ?? 1;
+    const saved = { pos: camera.position.clone(), quat: camera.quaternion.clone(), fov: camera.fov, aspect: camera.aspect };
+    const shot = photoShot(W / H);
+    try {
+        camera.clearViewOffset();
+        camera.aspect = W / H;
+        camera.fov = shot.fov;
+        camera.position.copy(shot.pos);
+        camera.lookAt(shot.target);
+        camera.updateProjectionMatrix();
+        renderer.setPixelRatio(1);
+        renderer.setSize(W, H, false);
+        if (composer) {
+            composer.setPixelRatio(1);
+            bloomComposer.setSize(W, H);
+        }
+        renderFrame();
+        ctx.drawImage(renderer.domElement, 0, 0, W, H);
+    } finally {
+        renderer.setPixelRatio(pr);
+        renderer.setSize(size.x, size.y, false);
+        if (composer) {
+            composer.setPixelRatio(composerPr);
+            bloomComposer.setSize(size.x, size.y);
+        }
+        camera.position.copy(saved.pos);
+        camera.quaternion.copy(saved.quat);
+        camera.fov = saved.fov;
+        camera.aspect = saved.aspect;
+        camera.updateProjectionMatrix();
+        appliedShift = null;
+        renderFrame();
+    }
+}
+
+/** Poster mode: the lit still, cropped like the screen, at photo size. */
+function drawPosterPhoto(ctx, W, H) {
+    const img = $('rcv-poster-lit');
+    if (!img?.naturalWidth) return;
+    const s = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+    const dw = img.naturalWidth * s;
+    const dh = img.naturalHeight * s;
+    const posX = W < H ? 0.55 : 0.5;
+    ctx.drawImage(img, (W - dw) * posX, (H - dh) / 2, dw, dh);
+}
+
+function drawPhotoCaption(ctx, W, H) {
+    const name = recipientName();
+    const sender = senderName();
+    // A soft band at the bottom so the caption reads on any picture.
+    const band = ctx.createLinearGradient(0, H * 0.72, 0, H);
+    band.addColorStop(0, 'rgba(10,6,14,0)');
+    band.addColorStop(1, 'rgba(10,6,14,0.62)');
+    ctx.fillStyle = band;
+    ctx.fillRect(0, H * 0.72, W, H * 0.28);
+    const size = Math.round(Math.min(W * 0.058, H * 0.05));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#fff6e8';
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = size * 0.3;
+    ctx.font = `700 ${size}px "Noto Sans Thai", "Outfit", sans-serif`;
+    ctx.fillText(t('rcvHappyBirthday', { name }), W / 2, H - size * (sender ? 1.9 : 1.2), W * 0.9);
+    if (sender) {
+        ctx.font = `500 ${Math.round(size * 0.52)}px "Noto Sans Thai", "Outfit", sans-serif`;
+        ctx.fillStyle = 'rgba(255,246,232,0.85)';
+        ctx.fillText(t('rcvSignedBy', { sender }), W / 2, H - size * 0.8, W * 0.9);
+    }
     ctx.shadowBlur = 0;
+}
+
+function savePhoto() {
+    if (!renderer && !stage2d) return;
+    const portrait = window.innerWidth < window.innerHeight;
+    const [W, H] = portrait ? PHOTO_PORTRAIT : PHOTO_LANDSCAPE;
+    const out = document.createElement('canvas');
+    out.width = W;
+    out.height = H;
+    const ctx = out.getContext('2d');
+    if (stage2d || !renderer) {
+        drawPosterPhoto(ctx, W, H);
+    } else {
+        // Light backdrops live in CSS behind the transparent frame; paint them in.
+        paintBackdrop(ctx, W, H, backdrop.name);
+        renderScenePhoto(ctx, W, H);
+    }
+    drawPhotoCaption(ctx, W, H);
+    const caption = t('rcvHappyBirthday', { name: recipientName() });
 
     const fileName = `happy-birthday-${recipientName().replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 30) || 'card'}.jpg`;
     playSfxShutter();

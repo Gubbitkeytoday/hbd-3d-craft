@@ -82,6 +82,7 @@ export function destroyCreator() {
     clearTimeout(draftTimer);
     clearTimeout(photoTimer);
     if (els?.dialog?.open) els.dialog.close();
+    if (els) delete els.root.dataset.kb;
     els?.canvasHost.classList.remove('is-ready', 'is-busy', 'is-error');
 }
 
@@ -125,6 +126,7 @@ function collectElements() {
         qrWrap: $('share-qr-wrap'),
         qrCanvas: $('share-qr'),
         toast: $('cr-toast'),
+        actionbar: document.querySelector('.cr-actionbar'),
         example: $('cr-example-link'),
         langButtons: [...document.querySelectorAll('.cr-lang-btn')]
     };
@@ -165,6 +167,143 @@ function refreshNameStrings() {
         const key = el.dataset.i18nTpl;
         const anonKey = `${key}Anon`;
         el.textContent = !name && dict()[anonKey] ? t(anonKey) : t(key, { name: name || '…' });
+    });
+    wrapThaiPhrases();
+}
+
+/* ------------------------------------------------------------------ *
+ * Thai line breaks
+ *
+ * Thai has no spaces between words, so the browser breaks lines at its
+ * dictionary's word boundaries, and that dictionary splits compounds:
+ * "วัน|เกิด" (birthday) ends up across two lines, which reads careless. For
+ * headings and short copy only, runs of words that belong together are
+ * wrapped in nowrap spans; breaks stay allowed between them. textContent is
+ * unchanged, so screen readers and copy/paste see the same string.
+ * ------------------------------------------------------------------ */
+
+const WRAP_TARGETS = '.cr-step-title, .cr-hero, .cr-benefits span, .cr-step-label, .cr-label, .cr-label > span, .cr-hint, .cr-loader p, .cr-sheet-head h2, .cr-privacy, .cr-switch-title';
+const THAI_RE = /[฀-๿]/;
+/** Compounds the word dictionary splits but a Thai reader sees as one word
+ *  (checked against every Thai creator string with Intl.Segmenter). */
+const THAI_GLUE = new Set(['วันเกิด', 'เป่าเทียน', 'พร้อมส่ง', 'ย้อนหลัง', 'พื้นหลัง', 'คำอวยพร', 'ตัวอักษร', 'เนื้อความ',
+    'ปิดผนึก', 'ขึ้นต้น', 'มือถือ', 'คัดลอก', 'จะบันทึก']);
+/** Runs up to this long (UTF-16 units, marks included) stay whole. */
+const THAI_SHORT_RUN = 12;
+/** Longer nowrap chunks could overflow a phone line; leave them to the browser. */
+const THAI_MAX_CHUNK = 18;
+const wrapState = new WeakMap();
+let thaiSegmenter;
+
+function getThaiSegmenter() {
+    if (thaiSegmenter === undefined) {
+        try {
+            thaiSegmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter('th', { granularity: 'word' }) : null;
+        } catch {
+            thaiSegmenter = null;
+        }
+    }
+    return thaiSegmenter;
+}
+
+/** Splits one space-free Thai run into chunks that must not break inside. */
+function thaiRunChunks(run, keep) {
+    // The recipient's name is never split ("มิ้|นท์" is what the dictionary does).
+    if (keep && keep.length <= THAI_MAX_CHUNK && run.includes(keep)) {
+        if (run === keep) return [run];
+        const at = run.indexOf(keep);
+        return [
+            ...(at > 0 ? thaiRunChunks(run.slice(0, at), '') : []),
+            keep,
+            ...thaiRunChunks(run.slice(at + keep.length), keep)
+        ].filter(Boolean);
+    }
+    if (run.length <= THAI_SHORT_RUN || !THAI_RE.test(run)) return [run];
+    const seg = getThaiSegmenter();
+    if (!seg) return [run];
+    const chunks = []; // { text, lastWord }
+    let openBracket = '';
+    for (const { segment, isWordLike } of seg.segment(run)) {
+        const last = chunks[chunks.length - 1];
+        if (!isWordLike && /^[([{“‘"']+$/.test(segment)) {
+            openBracket += segment;
+        } else if (!isWordLike && last && !openBracket) {
+            last.text += segment; // punctuation sticks to the word before it
+        } else if (last && !openBracket && THAI_GLUE.has(last.lastWord + segment)) {
+            last.text += segment;
+            last.lastWord += segment;
+        } else {
+            chunks.push({ text: openBracket + segment, lastWord: segment });
+            openBracket = '';
+        }
+    }
+    if (openBracket) chunks.push({ text: openBracket, lastWord: '' });
+    // No orphan: a short last word ("แล้ว!") rides with the one before it.
+    if (chunks.length >= 2) {
+        const tail = chunks[chunks.length - 1];
+        const bare = tail.text.replace(/[^฀-๿\w]/g, '');
+        if (bare.length <= 4) {
+            chunks.pop();
+            chunks[chunks.length - 1].text += tail.text;
+        }
+    }
+    return chunks.map((c) => c.text);
+}
+
+/** Tokens for a whole string: { text, glue } where glue marks a nowrap chunk. */
+function thaiTokens(text, keep) {
+    const seg = getThaiSegmenter();
+    const words = (s) => (seg ? [...seg.segment(s)].filter((x) => x.isWordLike).length : 1);
+    const tokens = [];
+    for (const part of text.split(/(\s+)/)) {
+        if (!part) continue;
+        if (/^\s+$/.test(part)) {
+            tokens.push({ text: part, space: true });
+            continue;
+        }
+        for (const chunk of thaiRunChunks(part, keep)) {
+            tokens.push({ text: chunk, glue: THAI_RE.test(chunk) && chunk.length <= THAI_MAX_CHUNK && words(chunk) > 1 });
+        }
+    }
+    // A number stays with the word it counts: "3 มิติ".
+    for (let i = 0; i + 2 < tokens.length; i++) {
+        const [a, sp, b] = [tokens[i], tokens[i + 1], tokens[i + 2]];
+        if (/^\d+$/.test(a.text) && sp.space && sp.text === ' ' && !b.space && THAI_RE.test(b.text)) {
+            tokens.splice(i, 3, { text: a.text + sp.text + b.text, glue: true });
+        }
+    }
+    return tokens;
+}
+
+function wrapThaiPhrases() {
+    if (!els || getCurrentLang() !== 'th' || !getThaiSegmenter()) return;
+    const keep = nameValue();
+    els.root.querySelectorAll(WRAP_TARGETS).forEach((el) => {
+        // Only plain-text elements (or ones this pass already wrapped).
+        if (![...el.childNodes].every((n) => n.nodeType === 3 || (n.nodeType === 1 && n.classList.contains('cr-w')))) return;
+        const text = el.textContent;
+        const prev = wrapState.get(el);
+        if (prev && prev.text === text && prev.keep === keep && (!prev.probe || prev.probe.parentNode === el)) return;
+        if (!THAI_RE.test(text)) {
+            wrapState.set(el, { text, keep, probe: null });
+            return;
+        }
+        const frag = document.createDocumentFragment();
+        let probe = null;
+        for (const tok of thaiTokens(text, keep)) {
+            if (tok.glue) {
+                const span = document.createElement('span');
+                span.className = 'cr-w';
+                span.textContent = tok.text;
+                probe ||= span;
+                frag.appendChild(span);
+            } else {
+                frag.appendChild(document.createTextNode(tok.text));
+            }
+        }
+        if (probe) el.replaceChildren(frag);
+        else if (el.children.length) el.textContent = text;
+        wrapState.set(el, { text, keep, probe });
     });
 }
 
@@ -386,6 +525,108 @@ function bindUI() {
     }));
 
     bindShareSheet();
+    bindKeyboard();
+}
+
+/* ------------------------------------------------------------------ *
+ * On-screen keyboard (phones)
+ *
+ * Android (interactive-widget=resizes-content) shrinks the layout viewport;
+ * iOS keeps it and shrinks only the visual viewport. Either way the visible
+ * height drops well below the tallest height seen at this width. While that
+ * holds and a text field has focus, data-kb on the root collapses the preview
+ * to a strip and hides the action bar (CSS), and the field plus its label are
+ * scrolled into the band between the strip and the keyboard. Focus alone is
+ * not enough: Android's back key closes the keyboard but keeps focus.
+ * ------------------------------------------------------------------ */
+
+const TEXT_ENTRY = 'input[type="text"], input[type="url"], input[type="number"], input[type="search"], input:not([type]), textarea';
+const KB_MIN_DROP = 120; // px the viewport must lose to count as a keyboard
+const KB_SHORT = 500;    // a touch viewport this short while typing is treated the same
+const KB_TIGHT = 360;    // below this the preview strip goes entirely
+const kbBaseline = new Map(); // viewport width -> tallest height seen
+let kbFrame = 0;
+let kbTimer = 0;
+let kbLastHeight = 0;
+
+function bindKeyboard() {
+    const schedule = (reveal) => {
+        cancelAnimationFrame(kbFrame);
+        kbFrame = requestAnimationFrame(() => updateKeyboard(reveal));
+    };
+    els.form.addEventListener('focusin', (e) => {
+        if (!e.target.matches?.(TEXT_ENTRY)) return;
+        schedule(true);
+        // The keyboard slides in over ~250 ms; settle again once it is up.
+        clearTimeout(kbTimer);
+        kbTimer = setTimeout(() => updateKeyboard(true), 320);
+    });
+    els.form.addEventListener('focusout', () => schedule(false));
+    const onResize = () => {
+        const h = viewportHeight();
+        const shrank = h < kbLastHeight - 1;
+        kbLastHeight = h;
+        schedule(shrank);
+    };
+    window.visualViewport?.addEventListener('resize', onResize);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', () => kbBaseline.clear());
+}
+
+function viewportHeight() {
+    return window.visualViewport ? window.visualViewport.height : window.innerHeight;
+}
+
+function isPhoneLayout() {
+    return window.matchMedia('(max-width: 1023.98px)').matches;
+}
+
+function typingField() {
+    const el = document.activeElement;
+    return el && els.form.contains(el) && el.matches(TEXT_ENTRY) && !el.readOnly ? el : null;
+}
+
+function updateKeyboard(reveal) {
+    kbFrame = 0;
+    if (!els || !els.root.classList.contains('active-view')) return;
+    const width = Math.round(window.innerWidth);
+    const h = viewportHeight();
+    const base = Math.max(kbBaseline.get(width) || 0, window.innerHeight, h);
+    kbBaseline.set(width, base);
+    kbLastHeight = h;
+    const field = typingField();
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    const open = !!field && isPhoneLayout() && (base - h >= KB_MIN_DROP || (coarse && h < KB_SHORT));
+    const state = open ? (h < KB_TIGHT ? 'tight' : 'open') : '';
+    if ((els.root.dataset.kb || '') !== state) {
+        if (state) els.root.dataset.kb = state;
+        else delete els.root.dataset.kb;
+    }
+    if (field && reveal && isPhoneLayout()) revealField(field);
+}
+
+/** Scrolls the page so the field and its label sit between the pinned
+ *  preview and the keyboard (or the action bar when that is showing). */
+function revealField(field) {
+    const vv = window.visualViewport;
+    const viewTop = vv ? vv.offsetTop : 0;
+    const viewBottom = viewTop + viewportHeight();
+    const stage = els.stage.getBoundingClientRect();
+    const top = Math.max(viewTop, stage.height ? stage.bottom : 0) + 8;
+    let bottom = viewBottom - 8;
+    const bar = els.actionbar?.getBoundingClientRect();
+    if (bar && bar.height && bar.top < bottom) bottom = bar.top - 8;
+    if (bottom - top < 40) return;
+    const box = field.getBoundingClientRect();
+    const label = field.labels?.[0] || field.closest('.cr-field')?.querySelector('.cr-label');
+    const labelBox = label && label.getBoundingClientRect();
+    const wantTop = labelBox && labelBox.height ? Math.min(labelBox.top, box.top) : box.top;
+    // The whole field when it fits; otherwise its label and first lines.
+    const wantBottom = Math.min(box.bottom, wantTop + (bottom - top));
+    let delta = 0;
+    if (wantBottom > bottom) delta = wantBottom - bottom;
+    if (wantTop - delta < top) delta = wantTop - top;
+    if (Math.abs(delta) >= 2) window.scrollBy({ top: delta, behavior: 'auto' });
 }
 
 function onFieldChange(e) {
@@ -637,6 +878,7 @@ function showPreviewError() {
     host.classList.add('is-error');
     const loader = host.querySelector('.cr-loader p');
     if (loader) loader.textContent = t('crNoWebgl');
+    wrapThaiPhrases();
 }
 
 function maybeShowDragHint() {

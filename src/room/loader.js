@@ -19,6 +19,56 @@ function abortError() {
     return new DOMException('Aborted', 'AbortError');
 }
 
+/*
+ * One download per asset per page: prefetchPartyRoom() (called as soon as
+ * the gate knows it is a party card) and the real load share these
+ * promises, so nothing depends on the HTTP cache headers of the host.
+ */
+const blobs = new Map();
+function fetchBlob(url) {
+    if (!blobs.has(url)) {
+        const p = fetch(url, { priority: 'high' }).then((res) => {
+            if (!res.ok) throw new Error(`room: ${res.status} ${url}`);
+            return res.blob();
+        });
+        // A failed prefetch must not poison the real load: forget it.
+        p.catch(() => { if (blobs.get(url) === p) blobs.delete(url); });
+        blobs.set(url, p);
+    }
+    return blobs.get(url);
+}
+let manifestPromise = null;
+function fetchManifest() {
+    manifestPromise ??= fetch(roomAssetUrl('room.json')).then((res) => {
+        if (!res.ok) throw new Error(`room: manifest ${res.status}`);
+        return res.json();
+    });
+    manifestPromise.catch(() => { manifestPromise = null; });
+    return manifestPromise;
+}
+
+function tierFiles(manifest, quality) {
+    const tier = quality >= 2 ? 'high' : 'low';
+    const lm = manifest.lightmaps;
+    return {
+        glb: roomAssetUrl(manifest.glb[tier] || manifest.glb.low),
+        dark: roomAssetUrl(lm.dark[tier] || lm.dark.low),
+        party: roomAssetUrl(lm.party[tier] || lm.party.low)
+    };
+}
+
+/**
+ * Starts downloading the room for a quality tier (0-1 phone, 2 desktop):
+ * the dark lightmap and the GLB first, then the party lightmap and the city.
+ * Safe to call more than once; resolves when everything is in memory.
+ */
+export async function prefetchRoomAssets(quality) {
+    const manifest = await fetchManifest();
+    const f = tierFiles(manifest, quality);
+    const first = [fetchBlob(f.dark), fetchBlob(f.glb)];
+    await Promise.all([...first, fetchBlob(f.party), fetchBlob(roomAssetUrl('city-night.webp'))]);
+}
+
 /**
  * Decoded off the main thread (createImageBitmap, or img.decode() where
  * ImageBitmap options are unreliable), so the upload in initTexture() is a
@@ -27,18 +77,20 @@ function abortError() {
 async function loadTexture(url, signal) {
     if (signal?.aborted) throw abortError();
     let image;
+    const blob = await fetchBlob(url);
+    if (signal?.aborted) throw abortError();
     if (typeof createImageBitmap === 'function' && !/^((?!chrome|android).)*safari/i.test(navigator.userAgent)) {
-        const res = await fetch(url, { signal });
-        if (!res.ok) throw new Error(`room: failed ${url}`);
-        image = await createImageBitmap(await res.blob(), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+        image = await createImageBitmap(blob, { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
     } else {
         image = new Image();
-        image.crossOrigin = 'anonymous';
-        image.src = url;
+        const objectUrl = URL.createObjectURL(blob);
+        image.src = objectUrl;
         try {
             await image.decode();
         } catch {
             throw new Error(`room: failed ${url}`);
+        } finally {
+            URL.revokeObjectURL(objectUrl);
         }
     }
     if (signal?.aborted) throw abortError();
@@ -97,21 +149,23 @@ function glassMaterial(src) {
  * @returns {Promise<{ group, bakedMaterials, emissive: THREE.Material[], manifest, textures }>}
  */
 export async function loadBakedRoom({ quality, uniforms, signal, onProgress }) {
-    const res = await fetch(roomAssetUrl('room.json'), { signal });
-    if (!res.ok) throw new Error(`room: manifest ${res.status}`);
-    const manifest = await res.json();
-    const tier = quality >= 2 ? 'high' : 'low';
-    const glbFile = manifest.glb[tier] || manifest.glb.low;
-    const lm = manifest.lightmaps;
+    const manifest = await fetchManifest();
+    if (signal?.aborted) throw abortError();
+    const files = tierFiles(manifest, quality);
     onProgress?.(0.1);
 
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(await getMeshoptDecoder());
+    const glbPromise = fetchBlob(files.glb).then(async (blob) => {
+        onProgress?.(0.6);
+        const buffer = await blob.arrayBuffer();
+        if (signal?.aborted) throw abortError();
+        return new Promise((resolve, reject) => loader.parse(buffer, files.glb.replace(/[^/]*$/, ''), resolve, reject));
+    });
     const [gltf, dark, party] = await Promise.all([
-        new Promise((resolve, reject) => loader.load(roomAssetUrl(glbFile), resolve,
-            (e) => { if (e.total) onProgress?.(0.1 + 0.7 * e.loaded / e.total); }, reject)),
-        loadTexture(roomAssetUrl(lm.dark[tier] || lm.dark.low), signal),
-        loadTexture(roomAssetUrl(lm.party[tier] || lm.party.low), signal)
+        glbPromise,
+        loadTexture(files.dark, signal),
+        loadTexture(files.party, signal)
     ]);
     if (signal?.aborted) throw abortError();
 
