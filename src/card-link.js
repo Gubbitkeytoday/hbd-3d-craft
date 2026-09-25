@@ -189,6 +189,18 @@ async function inflateBytesCapped(bytes, cap) {
 const V2_ROUTE = '#/c/';
 const V2_HEADER_RAW = 0x20;
 const V2_HEADER_DEFLATED = 0x21;
+// v2.1: every enum, count and switch bit-packed into one fixed 7-byte block
+// (they cost 2 bytes each as tagged fields), then the name without a tag.
+const V21_HEADER_RAW = 0x22;
+const V21_HEADER_DEFLATED = 0x23;
+const PACK_LAYOUT = [
+    ['theme', 4], ['preset', 3], ['music', 2], ['font', 2], ['cakeModel', 3],
+    ['plate', 2], ['glaze', 2], ['topper', 2], ['letterTheme', 2], ['relation', 2],
+    ['lang', 2], ['candles', 4], ['strawberries', 4], ['cherries', 4], ['rolls', 3],
+    ['sprinkles', 1], ['letterEnabled', 1], ['decorHearts', 1], ['decorStars', 1],
+    ['belated', 1], ['templated', 4]
+]; // 52 of 56 bits; append new fields into the spare bits only
+const PACK_BYTES = 7;
 
 const ENUMS = {
     theme: ['neon-rose', 'midnight-gold', 'pastel-mint', 'lavender-dream', 'sakura-blossom', 'cyber-retro', 'forest-moss', 'cosmic-nebula', 'choco-monarch'],
@@ -270,13 +282,14 @@ function daysToDate(days) {
     return new Date(days * 86400000).toISOString().slice(0, 10);
 }
 
-function encodeV2Fields(config) {
+function encodeV2Fields(config, { taggedExtrasOnly = false, templated: tpl = null } = {}) {
     const out = [];
     const defaults = { ...CARD_DEFAULTS, ...V2_EXTRA_DEFAULTS };
-    const templated = new Set(config.recipientName ? (config.templated || []) : []);
+    const templated = tpl || new Set(config.recipientName ? (config.templated || []) : []);
 
     for (const [key, tag] of Object.entries(TAGS)) {
         const value = config[key];
+        if (taggedExtrasOnly && tag >= 32) continue;
         if (tag < 32) {
             if (templated.has(key) || typeof value !== 'string' || value === defaults[key]) continue;
             const packed = packText(value);
@@ -299,6 +312,7 @@ function encodeV2Fields(config) {
     const days = dateToDays(config.bdate);
     if (days >= 0 && days <= 0xffff) out.push(TAGS.bdateHi, days >> 8, TAGS.bdateLo, days & 0xff);
 
+    if (!taggedExtrasOnly) {
     let flags = 0;
     let defaultFlags = 0;
     FLAG_BITS.forEach((key, i) => {
@@ -310,6 +324,7 @@ function encodeV2Fields(config) {
     let mask = 0;
     TEMPLATED_FIELDS.forEach((key, i) => { if (templated.has(key)) mask |= 1 << i; });
     if (mask) out.push(TAGS.templated, mask);
+    }
 
     for (const [key, tag] of Object.entries(TAGS)) {
         if (tag < 112 || !/^#[0-9a-f]{6}$/i.test(config[key] || '')) continue;
@@ -319,10 +334,10 @@ function encodeV2Fields(config) {
     return Uint8Array.from(out);
 }
 
-function decodeV2Fields(bytes) {
-    const raw = { ...CARD_DEFAULTS, ...V2_EXTRA_DEFAULTS };
+function decodeV2Fields(bytes, preset = null) {
+    const raw = preset?.raw || { ...CARD_DEFAULTS, ...V2_EXTRA_DEFAULTS };
     let flags = null;
-    let mask = 0;
+    let mask = preset?.mask || 0;
     let days = 0;
     let i = 0;
     const need = (n) => { if (i + n > bytes.length) throw new Error('Truncated card link'); };
@@ -377,15 +392,88 @@ function decodeV2Fields(bytes) {
     return raw;
 }
 
+function packSettings(config, templated) {
+    const defaults = { ...CARD_DEFAULTS, ...V2_EXTRA_DEFAULTS };
+    let bits = 0n;
+    let shift = 0n;
+    for (const [key, width] of PACK_LAYOUT) {
+        let v;
+        if (key === 'templated') {
+            v = 0;
+            TEMPLATED_FIELDS.forEach((k, i) => { if (templated.has(k)) v |= 1 << i; });
+        } else if (ENUMS[key]) {
+            v = ENUMS[key].indexOf(config[key] ?? defaults[key]);
+            if (v < 0) v = ENUMS[key].indexOf(defaults[key]);
+        } else if (width === 1) {
+            v = (config[key] ?? defaults[key]) ? 1 : 0;
+        } else {
+            const n = parseInt(config[key] ?? defaults[key], 10);
+            v = Number.isFinite(n) ? n : defaults[key];
+        }
+        v = Math.max(0, Math.min((1 << width) - 1, v));
+        bits |= BigInt(v) << shift;
+        shift += BigInt(width);
+    }
+    const out = [];
+    for (let i = 0; i < PACK_BYTES; i++) { out.push(Number(bits & 0xffn)); bits >>= 8n; }
+    return out;
+}
+
+function unpackSettings(bytes, raw) {
+    let bits = 0n;
+    for (let i = PACK_BYTES - 1; i >= 0; i--) bits = (bits << 8n) | BigInt(bytes[i]);
+    let mask = 0;
+    for (const [key, width] of PACK_LAYOUT) {
+        const v = Number(bits & ((1n << BigInt(width)) - 1n));
+        bits >>= BigInt(width);
+        if (key === 'templated') mask = v;
+        else if (ENUMS[key]) raw[key] = ENUMS[key][v] ?? raw[key];
+        else if (width === 1) raw[key] = v === 1;
+        else raw[key] = v;
+    }
+    return mask;
+}
+
+function encodePacked(config) {
+    const templated = new Set(config.recipientName ? (config.templated || []) : []);
+    const name = packText(config.recipientName || '');
+    const out = packSettings(config, templated);
+    pushVarint(out, name.length);
+    out.push(...name);
+    // Remaining free text, date and colors reuse the v2 tagged encoding.
+    const rest = encodeV2Fields({ ...config, recipientName: '' }, { taggedExtrasOnly: true, templated });
+    return Uint8Array.from([...out, ...rest]);
+}
+
+function decodePacked(bytes) {
+    if (bytes.length < PACK_BYTES + 1) throw new Error('Truncated card link');
+    const raw = { ...CARD_DEFAULTS, ...V2_EXTRA_DEFAULTS };
+    const mask = unpackSettings(bytes, raw);
+    let i = PACK_BYTES;
+    let len = 0;
+    let shift = 0;
+    for (;;) {
+        if (i >= bytes.length) throw new Error('Truncated card link');
+        const b = bytes[i++];
+        len |= (b & 0x7f) << shift;
+        if (!(b & 0x80)) break;
+        shift += 7;
+        if (shift > 21) throw new Error('Bad length');
+    }
+    if (i + len > bytes.length) throw new Error('Truncated card link');
+    raw.recipientName = unpackText(bytes.subarray(i, i + len));
+    return decodeV2Fields(bytes.subarray(i + len), { raw, mask });
+}
+
 async function encodeV2(config) {
-    const body = encodeV2Fields(config);
-    let payload = Uint8Array.of(V2_HEADER_RAW, ...body);
+    const body = encodePacked(config);
+    let payload = Uint8Array.of(V21_HEADER_RAW, ...body);
     // Long hand-written messages still compress; short cards don't, so keep
     // whichever is smaller.
     if (canCompress() && body.length > 60) {
         try {
             const deflated = await deflate(body);
-            if (deflated.length + 1 < payload.length) payload = Uint8Array.of(V2_HEADER_DEFLATED, ...deflated);
+            if (deflated.length + 1 < payload.length) payload = Uint8Array.of(V21_HEADER_DEFLATED, ...deflated);
         } catch { /* raw payload is always valid */ }
     }
     return bytesToBase64url(payload);
@@ -394,11 +482,14 @@ async function encodeV2(config) {
 async function decodeV2(b64) {
     if (b64.length > MAX_PAYLOAD_CHARS) throw new Error('Card link too long');
     const bytes = base64urlToBytes(b64);
-    if (bytes[0] === V2_HEADER_RAW) return decodeV2Fields(bytes.subarray(1));
-    if (bytes[0] === V2_HEADER_DEFLATED) {
+    const inflate = async () => {
         if (!canCompress()) throw new Error('This browser cannot decompress card links');
-        return decodeV2Fields(await inflateBytesCapped(bytes.subarray(1), MAX_INFLATED_BYTES));
-    }
+        return inflateBytesCapped(bytes.subarray(1), MAX_INFLATED_BYTES);
+    };
+    if (bytes[0] === V21_HEADER_RAW) return decodePacked(bytes.subarray(1));
+    if (bytes[0] === V21_HEADER_DEFLATED) return decodePacked(await inflate());
+    if (bytes[0] === V2_HEADER_RAW) return decodeV2Fields(bytes.subarray(1));
+    if (bytes[0] === V2_HEADER_DEFLATED) return decodeV2Fields(await inflate());
     throw new Error(`Unknown card link version: ${bytes[0]}`);
 }
 
