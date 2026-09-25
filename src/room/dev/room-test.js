@@ -22,6 +22,20 @@ const model = qs.get('model') || 'classic-tiered';
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
 renderer.setSize(innerWidth, innerHeight);
 applyCinematicRenderer(renderer, { exposure: 1.05, maxPixelRatio: 2 });
+// Measure like production (no synchronous shader status queries), ?checks to re-enable.
+renderer.debug.checkShaderErrors = qs.has('checks');
+if (qs.has('trace')) {
+    // ?trace: log every compile() call slower than 20 ms (what it compiled).
+    const compile = renderer.compile.bind(renderer);
+    window.__slow = [];
+    renderer.compile = (root, cam, target) => {
+        const t = performance.now();
+        const out = compile(root, cam, target);
+        const d = performance.now() - t;
+        if (d > 20) window.__slow.push([root.name || root.type, Math.round(d), out.length, [...new Set(out.map((m) => m.type + ':' + (m.name || '')))].join(',')]);
+        return out;
+    };
+}
 document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.5, 400);
@@ -45,9 +59,12 @@ room.trackEnvMaterials(cake, 0.8);
 void layout;
 
 function setShot(name) {
-    const s = room.shots[name] || room.shots.cake;
+    const shot = room.shots[name] || room.shots.cake;
+    const s = shot.forAspect ? shot.forAspect(innerWidth / innerHeight) : shot;
     camera.position.copy(s.position);
     camera.lookAt(s.target);
+    if (s.fov) camera.fov = s.fov;
+    camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
 }
 setShot(qs.get('shot') || 'cake');

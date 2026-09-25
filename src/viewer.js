@@ -59,8 +59,20 @@ const DARK_ESCALATE_MS = 5000;
 const DARK_AUTO_FLIP_MS = 9000;
 const LIGHTS_ON_MS = 120;      // held beat of darkness after the click
 const SHOUT_MS = 150;
-const TOUR_MS = 1600;
+const HEAD_TURN_DELAY_MS = 60; // after the cut: the head turns toward the shout
+const HEAD_TURN_MS = 650;
+const TOUR_MS = 1900;          // the reveal framing holds, then one glide to the table
+const TOUR_GLIDE_MS = 1800;
 const CAKE_IN_MS = 4400;
+const SONG_DRIFT_DEG = 8;      // the camera never stands still through the song
+const ROOM_TIMEOUT_MS = 20000; // then the card falls back to the classic stage
+
+// Fallback reveal framing (room.shots.reveal wins when the room provides
+// one): from the doorway, aim between the foil letters (x -0.3, y ~1.85,
+// z -2.36 m) and the cake (y ~0.9, z -0.8 m), so letters, name, table and
+// cake all fit (letters ~10 deg above centre, cake ~8 deg below; inside a
+// 62 deg portrait lens). Metres x ROOM_SCALE (14).
+const REVEAL_TARGET_WORLD = [-0.3 * 14, 1.42 * 14, -1.66 * 14];
 
 const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
 const IS_LINE_APP = /\bLine\//i.test(ua);
@@ -149,6 +161,7 @@ let partyMode = false;
 let room = null;
 let roomAbort = null;
 let roomShots = null;          // shots fitted to the current viewport
+const lens = { v: 45 };        // camera fov, tweened between shots (projection only)
 const roomLight = { v: 0 };    // 0 dark .. 1 party lights
 const roomDim = { v: 0 };      // 0 lit .. 1 "cake is coming" dim
 const exposureKick = { v: 1 }; // auto-exposure overshoot after the switch
@@ -281,7 +294,7 @@ export function destroyViewer() {
     prepToken++;
     phase = 'idle';
     clearTimers();
-    anime.remove([dim, glow, spin, shift, roomLight, roomDim, exposureKick]);
+    anime.remove([dim, glow, spin, shift, roomLight, roomDim, exposureKick, lens]);
     if (camera) anime.remove(camera.position);
     if (controls) anime.remove(controls.target);
     candles.forEach((c) => { anime.remove(c.flame.scale); anime.remove(c.flame.rotation); });
@@ -692,6 +705,7 @@ async function prepareScene(token) {
         await step(0.48, 'decor');
 
         controls = new OrbitControls(camera, renderer.domElement);
+        controls.addEventListener('start', stopDriftOnDrag);
         controls.enableDamping = true;
         controls.dampingFactor = 0.06;
         controls.enablePan = false;
@@ -814,13 +828,30 @@ async function buildRoom(alive, mobile, onProgress) {
     const mod = await loadRoomModule();
     if (!alive()) throw new PrepCancelled();
     roomAbort = new AbortController();
-    const built = await mod.createPartyRoom({
+    const building = mod.createPartyRoom({
         renderer, scene, camera,
         quality: roomQuality(mobile),
         config: activeConfig,
         onProgress,
         signal: roomAbort.signal
     });
+    // A room that never settles (a stalled download, a decoder worker that
+    // died) must not keep the gate on "preparing" forever: after the limit
+    // the card plays on the classic stage and a late room is thrown away.
+    let timer = 0;
+    const limit = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`party room not ready after ${ROOM_TIMEOUT_MS} ms`)), ROOM_TIMEOUT_MS);
+    });
+    let built;
+    try {
+        built = await Promise.race([building, limit]);
+    } catch (err) {
+        roomAbort.abort();
+        building.then((late) => late?.dispose?.(), () => {});
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
     if (!alive()) {
         built?.dispose?.();
         throw new PrepCancelled();
@@ -973,13 +1004,25 @@ async function uploadTextures(alive) {
     }
 }
 
+/**
+ * In the party room the stock "Happy Birthday" plaque becomes a personal
+ * "HBD {name}" (the acrylic topper every Thai bakery sells). Only for the
+ * default topper with no custom text; anything the sender chose is kept.
+ */
+function topperTextFor() {
+    const custom = (activeConfig.topperText || '').trim();
+    if (custom || !partyMode) return custom;
+    const name = (activeConfig.recipientName || '').trim();
+    return (activeConfig.topper || 'hbd') === 'hbd' && name ? `HBD ${name}` : '';
+}
+
 function buildCake(mobile) {
     buildCakeModel(cakeGroup, {
         cakeModel: activeConfig.cakeModel || 'classic-tiered',
         plateStyle: activeConfig.plate || 'ceramic',
         glazeStyle: activeConfig.glaze || 'chocolate',
         topperStyle: activeConfig.topper || 'hbd',
-        topperText: activeConfig.topperText || '',
+        topperText: topperTextFor(),
         themeName: activeConfig.theme || 'neon-rose',
         themeColors: getThemeRGBColors(activeConfig.theme),
         strawberries: numberOr(activeConfig.strawberries, 4),
@@ -1455,30 +1498,102 @@ function computeHero() {
  */
 function fitRoomShots() {
     const aspect = window.innerWidth / window.innerHeight;
-    camera.fov = aspect < 1 ? 58 : 45;
-    camera.updateProjectionMatrix();
-    const vfov = THREE.MathUtils.degToRad(camera.fov);
-    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+    const portrait = aspect < 1;
     const plate = cakeBounds.radius * 2;
+    const shots = { ...room.shots };
+    if (!shots.reveal) {
+        shots.reveal = { position: shots.entry.position.clone(), target: new THREE.Vector3(...REVEAL_TARGET_WORLD) };
+    }
     roomShots = {};
-    for (const [name, shot] of Object.entries(room.shots)) {
+    for (const [name, shot] of Object.entries(shots)) {
         const pos = shot.position.clone();
         const target = shot.target.clone();
+        // Lens: the room's own per-aspect fov when it gives one; portrait
+        // phones otherwise get a wider lens (the room is authored landscape-
+        // first), wider still in the doorway so the reveal holds the party.
+        let fov = portrait ? (name === 'entry' || name === 'reveal' ? 62 : 58) : 45;
+        const f = shot.fov;
+        if (typeof f === 'number') fov = f;
+        else if (f && typeof f === 'object') fov = (portrait ? f.portrait : f.landscape) ?? fov;
+        if (portrait && name === 'cake') {
+            // A phone cannot hold the 2.4 m foil row from the table (it
+            // would need a ~76 deg lens), so it was cut to "BIRTHDA". Step
+            // 30 % closer and a touch lower: the cake is the hero, the name
+            // sign stays, the letters leave through the top edge.
+            pos.lerp(target, 0.3);
+            pos.y -= 0.06 * 14;
+            target.y -= 0.3 * 14;
+        }
+        const vfov = THREE.MathUtils.degToRad(fov);
+        const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
         const need = name === 'cake' ? plate * 1.25 : name === 'closeUp' ? plate * 0.95 : 0;
         if (need) {
             const dir = pos.clone().sub(target);
-            const want = need / 2 / Math.tan(Math.min(hfov, vfov * 1.2) / 2);
-            if (want > dir.length()) pos.copy(target).addScaledVector(dir.normalize(), want);
+            // closeUp also backs off 10 %: nothing on the table between lens and cake.
+            const base = dir.length() * (name === 'closeUp' ? 1.1 : 1);
+            const want = Math.max(base, need / 2 / Math.tan(Math.min(hfov, vfov * 1.2) / 2));
+            pos.copy(target).addScaledVector(dir.normalize(), want);
         }
-        roomShots[name] = { pos, target };
+        roomShots[name] = { pos, target, fov };
     }
+    fitRevealToParty(roomShots.reveal, aspect, portrait);
+    if (phase === 'gate' || phase === 'idle' || phase === 'dark') setLens(roomShots.entry.fov);
     hero.pos.copy(roomShots.cake.pos);
     hero.target.copy(roomShots.cake.target);
-    if (controls) {
-        const d = hero.pos.distanceTo(hero.target);
-        controls.minDistance = d * 0.45;
-        controls.maxDistance = d * 1.35;
+}
+
+/**
+ * The reveal must hold the whole party: both ends of the foil letters and
+ * the cake. Starting from the room's framing, the view turns toward the cake
+ * (and, on phones, the lens widens by up to 10 deg) only as far as needed.
+ */
+function fitRevealToParty(shot, aspect, portrait) {
+    if (!shot || !cakeGroup) return;
+    const points = [];
+    ['foil-HAPPY', 'foil-BIRTHDAY'].forEach((n) => {
+        const mesh = room.group.getObjectByName(n);
+        if (!mesh) return;
+        const box = new THREE.Box3().setFromObject(mesh);
+        const c = box.getCenter(new THREE.Vector3());
+        points.push(new THREE.Vector3(box.min.x, c.y, box.max.z), new THREE.Vector3(box.max.x, c.y, box.max.z));
+    });
+    if (!points.length) points.push(shot.target.clone());
+    const letterCount = points.length;
+    const cakeBox = new THREE.Box3().setFromObject(cakeGroup);
+    const cake = cakeBox.getCenter(new THREE.Vector3());
+    points.push(cake, new THREE.Vector3(cake.x, cakeBox.min.y, cake.z));
+    const probe = new THREE.PerspectiveCamera(shot.fov, aspect, 0.1, 800);
+    const target = new THREE.Vector3();
+    const fits = () => {
+        probe.updateProjectionMatrix();
+        probe.position.copy(shot.pos);
+        probe.lookAt(target);
+        probe.updateMatrixWorld();
+        return points.every((p, i) => {
+            const v = tmpV.copy(p).project(probe);
+            if (v.z >= 1) return false;
+            // Letter ends: on screen, below the HUD row. The cake: well inside
+            // the frame (at the edge it hides behind the props on the table).
+            if (i < letterCount) return Math.abs(v.x) <= 0.95 && v.y <= 0.8 && v.y >= -0.2;
+            return Math.abs(v.x) <= 0.55 && v.y >= -0.62 && v.y <= 0.5;
+        });
+    };
+    const base = shot.target.clone();
+    const extra = portrait ? 10 : 4;
+    for (let widen = 0; widen <= extra; widen += 2) {
+        probe.fov = shot.fov + widen;
+        for (let k = 0; k <= 14; k++) {
+            target.copy(base).lerp(cake, k * 0.05);
+            if (fits()) {
+                shot.target.copy(target);
+                shot.fov = probe.fov;
+                return;
+            }
+        }
     }
+    // Cannot hold everything: favour the cake and the name over the letter ends.
+    shot.target.copy(base).lerp(cake, 0.4);
+    shot.fov += extra;
 }
 
 /** Lets the recipient look around the cake a little, never behind the set. */
@@ -1491,6 +1606,12 @@ function enableRoomOrbit(shot) {
     controls.maxAzimuthAngle = az + 0.45;
     controls.minPolarAngle = Math.max(0.2, polar - 0.3);
     controls.maxPolarAngle = Math.min(Math.PI / 2 - 0.05, polar + 0.22);
+    // Distance limits only while the recipient can orbit: OrbitControls
+    // applies them on every update(), even disabled, and limits sized for
+    // the cake used to drag the doorway camera toward the wall.
+    const d = off.length();
+    controls.minDistance = d * 0.55;
+    controls.maxDistance = d * 1.3;
     controls.enabled = true;
 }
 
@@ -1501,12 +1622,32 @@ function lockRoomOrbit() {
     controls.maxAzimuthAngle = Infinity;
     controls.minPolarAngle = 0;
     controls.maxPolarAngle = Math.PI / 2 - 0.05;
+    controls.minDistance = 0;
+    controls.maxDistance = Infinity;
 }
 
-function tweenCamera(pos, target, duration, easing = 'easeInOutCubic', { unlock = true } = {}) {
+function setLens(fov) {
+    anime.remove(lens);
+    lens.v = fov;
+    applyLens();
+}
+
+function applyLens() {
+    if (!camera || Math.abs(camera.fov - lens.v) < 0.001) return;
+    camera.fov = lens.v;
+    camera.updateProjectionMatrix();
+    updatePointScale();
+}
+
+function tweenCamera(pos, target, duration, easing = 'easeInOutCubic', { unlock = true, fov } = {}) {
     if (!camera || !controls) return;
     anime.remove(camera.position);
     anime.remove(controls.target);
+    if (fov !== undefined) {
+        anime.remove(lens);
+        if (duration) anime({ targets: lens, v: fov, duration, easing });
+        else lens.v = fov;
+    }
     if (!duration) {
         camera.position.copy(pos);
         controls.target.copy(target);
@@ -1525,7 +1666,8 @@ function afterglowPose() {
     if (room && roomShots) {
         // Party: back off toward the room so the balloon drop and the letters read.
         const { cake, wide } = roomShots;
-        return { pos: cake.pos.clone().lerp(wide.pos, 0.28), target: cake.target.clone().lerp(wide.target, 0.12) };
+        // 0.4 toward wide: the balloons are seen falling, not hitting the lens.
+        return { pos: cake.pos.clone().lerp(wide.pos, 0.4), target: cake.target.clone().lerp(wide.target, 0.12), fov: cake.fov };
     }
     const dir = tmpV.copy(hero.pos).sub(hero.target);
     const pos = hero.target.clone().add(dir.multiplyScalar(1.06));
@@ -1609,6 +1751,7 @@ function loop(now) {
     sparkles?.update(dt);
     updateDecor(dt);
     room?.update(dt, elapsed);
+    if (room) applyLens();
     if (phase === 'dark') placeSwitchMarker();
     if (phase === 'song') updateLyrics();
     updateMic(dt);
@@ -1827,9 +1970,11 @@ function startDark({ fromReplay = false } = {}) {
     $('greeting-canvas-container')?.classList.add('is-live');
     const hud = $('rcv-hud');
     if (hud) { hud.inert = false; hud.classList.add('is-live'); }
-    $('rcv-title')?.classList.remove('is-hero', 'is-docked');
+    $('rcv-title')?.classList.remove('is-hero', 'is-docked', 'is-tucked');
     spin.v = 0;
     anime.remove([roomLight, roomDim, exposureKick, dim, glow]);
+    setLens(roomShots.entry.fov);
+    warmSurpriseText();
     roomLight.v = 0;
     roomDim.v = 0;
     exposureKick.v = 1;
@@ -1851,11 +1996,9 @@ function startDark({ fromReplay = false } = {}) {
     startLoop();
 
     if (audio) {
-        const now = audio.now();
         roomTone.start(0.09, 1.2);
-        // Someone is hiding in here.
-        cues.shh(audio, now + 0.9, -0.6, 0.9, 0.06);
-        cues.shh(audio, now + 2.7, 0.55, 0.6, 0.04);
+        // Someone hiding in here: only with a real recording (public/audio/README.md).
+        audio.playClip('whisper', { at: audio.now() + 0.9, gain: 0.5, pan: -0.5, dest: audio.ambience });
     }
     showSwitchMarker();
     darkLater(() => {
@@ -1974,7 +2117,20 @@ function lightsOn() {
     roomLight.v = 1;
     exposureKick.v = reduceMotion ? 1.05 : 1.35;
     anime({ targets: exposureKick, v: 1, duration: reduceMotion ? 1200 : 700, easing: 'easeOutCubic' });
-    if (!reduceMotion) flinch();
+    if (reduceMotion) {
+        crossCut(roomShots.reveal);
+    } else {
+        flinch();
+        // The head turns toward the shout: letters, name, table and cake are
+        // in frame within ~0.3 s of the cut.
+        later(() => {
+            const r = roomShots.reveal;
+            anime.remove(controls.target);
+            anime({ targets: controls.target, x: r.target.x, y: r.target.y, z: r.target.z, duration: HEAD_TURN_MS, easing: 'easeOutCubic' });
+            anime.remove(lens);
+            anime({ targets: lens, v: r.fov, duration: HEAD_TURN_MS, easing: 'easeOutCubic' });
+        }, HEAD_TURN_DELAY_MS);
+    }
 
     if (audio) {
         const now = audio.now();
@@ -1998,23 +2154,34 @@ function lightsOn() {
 
 /** The camera flinches back 2.5 % and settles (a person startled, not a crane move). */
 function flinch() {
-    const entry = roomShots.entry;
+    const settle = roomShots.reveal.pos;
     const from = camera.position.clone();
     const back = from.clone().add(from.clone().sub(controls.target).multiplyScalar(0.025));
     anime.remove(camera.position);
     anime.timeline()
         .add({ targets: camera.position, x: back.x, y: back.y, z: back.z, duration: 140, easing: 'easeOutQuad' })
-        .add({ targets: camera.position, x: entry.pos.x, y: entry.pos.y, z: entry.pos.z, duration: 900, easing: 'easeOutCubic' });
+        .add({ targets: camera.position, x: settle.x, y: settle.y, z: settle.z, duration: 900, easing: 'easeOutCubic' });
+}
+
+/**
+ * The huge outlined word is rasterized once during the dark phase (an
+ * almost-transparent, promoted layer), so the reveal frame only changes
+ * opacity and transform. Its first raster was a ~110 ms frame at +450 ms.
+ */
+function warmSurpriseText() {
+    const el = $('rcv-surprise');
+    if (!el) return;
+    el.textContent = t('rcvSurprise');
+    el.classList.remove('is-hit');
+    el.classList.add('is-warm');
 }
 
 function showSurpriseText() {
     const el = $('rcv-surprise');
     if (!el) return;
-    el.textContent = t('rcvSurprise');
-    el.classList.remove('is-hit');
-    void el.offsetWidth;
-    el.classList.add('is-hit');
-    later(() => el.classList.remove('is-hit'), 2000);
+    if (el.textContent !== t('rcvSurprise')) el.textContent = t('rcvSurprise');
+    el.classList.add('is-warm', 'is-hit');
+    later(() => el.classList.remove('is-hit', 'is-warm'), 2000);
 }
 
 /** Streamers from both sides of the doorway (the poppers are off-frame). */
@@ -2028,19 +2195,18 @@ function sideConfetti() {
 /** Beat 8: glide from the doorway, past the room, to the table; the name docks. */
 function startTour() {
     if (phase !== 'reveal') return;
-    const { wide, cake } = roomShots;
+    const { cake } = roomShots;
     if (reduceMotion) {
         crossCut(cake);
     } else {
-        tweenCamera(wide.pos, wide.target, 1300, 'easeInOutSine', { unlock: false });
-        later(() => tweenCamera(cake.pos, cake.target, 1500, 'easeInOutCubic', { unlock: false }), 1300);
-        if (audio) cues.whoosh(audio, audio.now() + 0.2, 1.1, 0.12);
+        // One glide from the reveal framing straight to the table.
+        tweenCamera(cake.pos, cake.target, TOUR_GLIDE_MS, 'easeInOutCubic', { unlock: false, fov: cake.fov });
+        if (audio) cues.whoosh(audio, audio.now() + 0.15, 1.1, 0.1);
     }
+    // No hero title in the room: the foil letters and the name sign are the
+    // headline. The pill docks once the glide is under way, never over the foil.
     const title = $('rcv-title');
-    if (title) {
-        later(() => title.classList.add('is-hero'), 200);
-        later(() => { title.classList.remove('is-hero'); title.classList.add('is-docked'); }, 2400);
-    }
+    if (title) later(() => { title.classList.remove('is-hero', 'is-tucked'); title.classList.add('is-docked'); }, 900);
     later(cakeComing, CAKE_IN_MS - TOUR_MS);
 }
 
@@ -2049,9 +2215,30 @@ function crossCut(shot) {
     const stage = $('greeting-canvas-container');
     stage?.classList.add('is-cut');
     later(() => {
-        tweenCamera(shot.pos, shot.target, 0);
+        tweenCamera(shot.pos, shot.target, 0, 'linear', { fov: shot.fov });
         stage?.classList.remove('is-cut');
     }, 180);
+}
+
+/** Tucks the docked name away while the lyrics and the wish carry it. */
+function tuckTitle(tucked) {
+    $('rcv-title')?.classList.toggle('is-tucked', tucked);
+}
+
+/** Beat 10: a slow arc and push while everyone sings; a drag takes over. */
+function driftDuringSong() {
+    if (reduceMotion || !roomShots) return;
+    const { cake } = roomShots;
+    const off = camera.position.clone().sub(controls.target);
+    off.applyAxisAngle(AXIS_Y, THREE.MathUtils.degToRad(SONG_DRIFT_DEG) * (off.x > 0 ? -1 : 1));
+    off.multiplyScalar(0.95);
+    const to = cake.target.clone().add(off);
+    anime.remove(camera.position);
+    anime({ targets: camera.position, x: to.x, y: to.y, z: to.z, duration: SONG_LENGTH * 1000, easing: 'easeInOutSine' });
+}
+
+function stopDriftOnDrag() {
+    if (phase === 'song') anime.remove(camera.position);
 }
 
 /** Beat 9: the Thai part. Lights down, candles lit, then everyone sings. */
@@ -2074,6 +2261,8 @@ function startSong() {
     if (phase !== 'reveal') return;
     phase = 'song';
     enableRoomOrbit(roomShots.cake);
+    tuckTitle(true);
+    driftDuringSong();
     lyricIndex = -1;
     songStartedAt = performance.now() + 50;
     song?.start({ level: 0.8, fadeIn: 0.3, passes: 1, claps: 0.09 });
@@ -2107,7 +2296,7 @@ function endSong() {
     roomTone?.set(0.045, 1.5);
     // Push in toward the flames for the wish.
     lockRoomOrbit();
-    tweenCamera(roomShots.closeUp.pos, roomShots.closeUp.target, ms(2600), 'easeInOutSine', { unlock: false });
+    tweenCamera(roomShots.closeUp.pos, roomShots.closeUp.target, ms(2600), 'easeInOutSine', { unlock: false, fov: roomShots.closeUp.fov });
     later(() => enableRoomOrbit(roomShots.closeUp), ms(2600) + 50);
     phase = 'intro';
     startWish();
@@ -2237,7 +2426,7 @@ function startClimax() {
         const top = cakeGroup.localToWorld(new THREE.Vector3(0, cakeBounds.topY + 0.4, 0));
         burstSparkles(top, reduceMotion ? 20 : 110, 2.4);
         const pose = afterglowPose();
-        tweenCamera(pose.pos, pose.target, ms(1800), 'easeInOutCubic', { unlock: !room });
+        tweenCamera(pose.pos, pose.target, ms(1800), 'easeInOutCubic', { unlock: !room, fov: pose.fov });
         if (room) {
             // Beat 14: lights snap back to full, balloons fall, everyone cheers.
             anime.remove([roomDim, exposureKick]);
@@ -2259,6 +2448,7 @@ function startClimax() {
         }
         later(() => {
             phase = 'message';
+            tuckTitle(false);
             $('btn-hud-card').hidden = false;
             $('btn-hud-reset').hidden = false;
             openCard();
@@ -2575,7 +2765,7 @@ function closeCard(restoreFocus = true) {
         tweenShift(0, 0, 600);
         if (phase === 'message') {
             const pose = afterglowPose();
-            tweenCamera(pose.pos, pose.target, ms(1000));
+            tweenCamera(pose.pos, pose.target, ms(1000), 'easeInOutCubic', { fov: pose.fov });
         }
     }
     if (restoreFocus) {
@@ -2786,7 +2976,8 @@ function unlockAudio() {
     song = createSong(audio, melodyWave);
     roomTone = cues.createRoomTone(audio);
     partyLoop = cues.createPartyLoop(audio);
-    audio.preloadClips();
+    // Recorded voices, if the owner has added them (one small JSON request).
+    if (partyMode) audio.preloadClips();
 }
 
 function melodyWave() {

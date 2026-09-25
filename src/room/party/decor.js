@@ -176,17 +176,21 @@ export function createBunting(runs, { palette, stringMaterial }) {
 /* ------------------------------------------------------------------ */
 
 /**
- * @returns {{ mesh, material, width, height, setLevel(k) }}
+ * The recipient's name as an LED neon sign on a clear acrylic board with
+ * four standoffs, throwing a soft coloured glow on the wall behind it.
+ * Three draw calls: board (standard, transparent), tube text (unlit HDR,
+ * blooms), wall glow (additive).
+ * @returns {{ mesh, width, height, setLevel(k), dispose() }}
  */
-export function createNameSign(name, { color = 0xffb3cf, height = 0.2, maxWidth = 1.5 }) {
+export function createNameSign(name, { color = 0xffb3cf, height = 0.4, maxWidth = 1.6 }) {
     const text = String(name || '').trim().slice(0, 24);
     if (!text) return null;
-    const H = 160;
-    const font = `600 ${Math.round(H * 0.6)}px "Noto Sans Thai", "Outfit", sans-serif`;
+    const H = 200;
+    const font = `600 ${Math.round(H * 0.58)}px "Noto Sans Thai", "Outfit", sans-serif`;
     const probe = document.createElement('canvas').getContext('2d');
     probe.font = font;
     const tw = Math.ceil(probe.measureText(text).width);
-    const W = Math.min(2048, tw + H);
+    const W = Math.min(2048, tw + H * 0.9);
     const c = document.createElement('canvas');
     c.width = W;
     c.height = H;
@@ -194,17 +198,17 @@ export function createNameSign(name, { color = 0xffb3cf, height = 0.2, maxWidth 
     ctx.font = font;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    // Glow first (the bloom pass adds the rest), then the tube core.
-    ctx.shadowColor = 'rgba(255,255,255,0.9)';
-    ctx.shadowBlur = H * 0.12;
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillText(text, W / 2, H * 0.55);
-    ctx.shadowBlur = 0;
-    ctx.lineWidth = H * 0.035;
-    ctx.strokeStyle = '#fff';
-    ctx.strokeText(text, W / 2, H * 0.55);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    // Neon tube: soft outer glow, the coloured tube, a hot white core.
+    ctx.shadowColor = 'rgba(255,255,255,0.95)';
+    ctx.shadowBlur = H * 0.2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = H * 0.06;
+    ctx.strokeText(text, W / 2, H * 0.54);
+    ctx.shadowBlur = H * 0.05;
     ctx.fillStyle = '#fff';
-    ctx.fillText(text, W / 2, H * 0.55);
+    ctx.fillText(text, W / 2, H * 0.54);
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = 4;
@@ -212,15 +216,79 @@ export function createNameSign(name, { color = 0xffb3cf, height = 0.2, maxWidth 
     let h = height;
     if (w > maxWidth) { h *= maxWidth / w; w = maxWidth; }
     const base = new THREE.Color(color);
-    const mat = new THREE.MeshBasicMaterial({ map: tex, color: base.clone(), transparent: true, depthWrite: false, toneMapped: true });
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
-    mesh.name = 'name-sign';
-    mesh.renderOrder = 2;
+    const group = new THREE.Group();
+    group.name = 'name-sign';
+
+    const tubeMat = new THREE.MeshBasicMaterial({ map: tex, color: base.clone(), transparent: true, depthWrite: false });
+    const tube = new THREE.Mesh(new THREE.PlaneGeometry(w, h), tubeMat);
+    tube.position.z = 0.022;
+    tube.renderOrder = 3;
+
+    // Acrylic board: rounded rectangle, 1.15x the text, faint edge sheen.
+    const bw = w * 1.08 + h * 0.2;
+    const bh = h * 1.15;
+    const r = bh * 0.18;
+    const shape = new THREE.Shape();
+    shape.moveTo(-bw / 2 + r, -bh / 2);
+    shape.lineTo(bw / 2 - r, -bh / 2);
+    shape.quadraticCurveTo(bw / 2, -bh / 2, bw / 2, -bh / 2 + r);
+    shape.lineTo(bw / 2, bh / 2 - r);
+    shape.quadraticCurveTo(bw / 2, bh / 2, bw / 2 - r, bh / 2);
+    shape.lineTo(-bw / 2 + r, bh / 2);
+    shape.quadraticCurveTo(-bw / 2, bh / 2, -bw / 2, bh / 2 - r);
+    shape.lineTo(-bw / 2, -bh / 2 + r);
+    shape.quadraticCurveTo(-bw / 2, -bh / 2, -bw / 2 + r, -bh / 2);
+    const boardGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.006, bevelEnabled: false, curveSegments: 6 });
+    const boardMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.16, depthWrite: false });
+    const board = new THREE.Mesh(boardGeo, boardMat);
+    board.position.z = 0.012;
+    board.renderOrder = 2;
+
+    // Standoffs (brushed metal caps) at the corners.
+    const capGeo = new THREE.CylinderGeometry(0.009, 0.009, 0.024, 12).rotateX(Math.PI / 2);
+    const capMat = new THREE.MeshStandardMaterial({ color: 0xc9c6c0, roughness: 0.3, metalness: 1 });
+    const caps = new THREE.InstancedMesh(capGeo, capMat, 4);
+    const m = new THREE.Matrix4();
+    [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([sx, sy], i) => {
+        caps.setMatrixAt(i, m.makeTranslation(sx * (bw / 2 - r * 0.6), sy * (bh / 2 - r * 0.6), 0.012));
+    });
+
+    // Coloured light on the wall behind (additive, so it never darkens).
+    const glowTex = glowTexture();
+    const glowMat = new THREE.MeshBasicMaterial({ map: glowTex, color: base.clone(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(bw * 1.7, bh * 2.4), glowMat);
+    glow.position.z = 0.002;
+    glow.renderOrder = 1;
+
+    group.add(glow, board, caps, tube);
     return {
-        mesh, material: mat, width: w, height: h,
-        setLevel(k) { mat.color.copy(base).multiplyScalar(k); mat.opacity = Math.min(1, 0.25 + k); },
-        dispose() { tex.dispose(); mat.dispose(); mesh.geometry.dispose(); }
+        mesh: group, width: w, height: h, materials: [boardMat, capMat],
+        setLevel(k) {
+            tubeMat.color.copy(base).multiplyScalar(0.1 + k);
+            tubeMat.opacity = Math.min(1, 0.3 + k);
+            glowMat.color.copy(base).multiplyScalar(0.35 * Math.min(k, 3) / 3);
+        },
+        dispose() {
+            tex.dispose(); glowTex.dispose();
+            [tubeMat, boardMat, capMat, glowMat].forEach((x) => x.dispose());
+            [tube.geometry, boardGeo, capGeo, glow.geometry].forEach((g) => g.dispose());
+        }
     };
+}
+
+function glowTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.45, 'rgba(255,255,255,0.4)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
 }
 
 /* ------------------------------------------------------------------ */

@@ -265,7 +265,7 @@ def tinted_plaster():
     lum = px[:, :3] @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
     mean = lum.mean()
     # Keep the plaster's variation (+-), put it on a warm off-white base.
-    base = np.array([0.72, 0.70, 0.66], dtype=np.float32)  # linear
+    base = np.array([0.80, 0.785, 0.75], dtype=np.float32)  # linear, light neutral-warm
     var = (lum - mean)[:, None] * 0.55
     px[:, :3] = np.clip(base + var, 0, 1)
     img.pixels[:] = px.ravel()
@@ -377,7 +377,7 @@ def stage_build():
     pl = os.path.join(CACHE, 'plastered_wall_04')
     wall = textured_mat('wall_plaster', tinted_plaster(), os.path.join(pl, 'plastered_wall_04_nor_gl_1k.jpg'), None, normal_strength=0.35)
     wall.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.92
-    ceiling = new_mat('ceiling_paint', (0.82, 0.8, 0.76), 0.95)
+    ceiling = new_mat('ceiling_paint', (0.88, 0.87, 0.84), 0.95)
     trim = new_mat('trim_paint', (0.86, 0.84, 0.8), 0.45)
     frame_m = new_mat('window_frame', (0.05, 0.05, 0.055), 0.35, 0.8)
     curtain = new_mat('curtain_linen', (0.78, 0.72, 0.64), 0.95)
@@ -387,9 +387,9 @@ def stage_build():
     gp = glass.node_tree.nodes['Principled BSDF']
     gp.inputs['Transmission Weight'].default_value = 1.0
     glass.blend_method = 'BLEND' if hasattr(glass, 'blend_method') else None
-    warm = kelvin(3600)
+    warm = kelvin(4000)  # ceiling downlights: Thai-condo neutral white
     emit_down = new_mat('emit_downlight', (1, 1, 1), 0.5, emit=warm, emit_strength=12.0)
-    emit_shade = new_mat('emit_lampshade', (0.9, 0.82, 0.68), 0.9, emit=kelvin(2600), emit_strength=3.0)
+    emit_shade = new_mat('emit_lampshade', (0.9, 0.82, 0.68), 0.9, emit=kelvin(2700), emit_strength=3.0)
     hall = new_mat('hall_paint', (0.7, 0.65, 0.58), 0.9)
 
     # --- shell (inner surfaces only; y up three.js coords)
@@ -492,8 +492,6 @@ def stage_build():
     table = import_asset('round_wooden_table_01')
     mn, mx = bbox(table)
     place(table, (tb['x'], 0, tb['z']), 0, tb['height'] / (mx.z - mn.z), EXP)
-    sofa = import_asset('Sofa_01')
-    place(sofa, (L['sofa']['x'], 0, L['sofa']['z']), 90, 1.0, EXP)
     shelves = import_asset('wooden_display_shelves_01')
     drawers = [o for o in shelves if 'drawer' in o.name]
     front_sign = 1 if sum((o.matrix_world @ Vector(o.bound_box[0])).x + (o.matrix_world @ Vector(o.bound_box[6])).x for o in drawers) >= 0 else -1
@@ -551,6 +549,70 @@ def stage_build():
         cylinder(f'EMIT_down_{i}', (dxp, dzp), 0.045, H - 0.003, H - 0.002, emit_down, EXPX, seg=24, caps=(True, False))
         cylinder(f'down_trim_{i}', (dxp, dzp), 0.058, H - 0.004, H - 0.001, trim, EXP, seg=24, caps=(True, False))
 
+    # --- Thai-condo cues (procedural, no licences): modern fabric sofa,
+    # TV console + flat TV, split AC unit; Poly Haven wall clock + succulent.
+    fabric = new_mat('sofa_fabric', (0.30, 0.31, 0.32), 1.0)
+    legs_m = new_mat('sofa_legs', (0.08, 0.06, 0.05), 0.5, 0.2)
+    plastic = new_mat('ac_plastic', (0.86, 0.86, 0.85), 0.35)
+    tv_black = new_mat('tv_panel', (0.01, 0.01, 0.012), 0.08)
+    tv_bezel = new_mat('tv_bezel', (0.02, 0.02, 0.022), 0.4, 0.5)
+    console_m = new_mat('console_wood', (0.30, 0.19, 0.11), 0.45)
+    console_top = new_mat('console_top', (0.22, 0.14, 0.08), 0.35)
+
+    def rbox(name, center, size, mat, coll=EXP, bevel=0.02, segs=3):
+        cx, cy, cz = center
+        sx, sy, sz = size
+        ob = box(name, (cx - sx / 2, cy - sy / 2, cz - sz / 2), (cx + sx / 2, cy + sy / 2, cz + sz / 2), mat, coll)
+        bm = bmesh.new(); bm.from_mesh(ob.data)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+        bm.to_mesh(ob.data); bm.free()
+        if bevel > 0:
+            mod = ob.modifiers.new('bevel', 'BEVEL')
+            mod.width = bevel
+            mod.segments = segs
+            mod.limit_method = 'NONE'
+            bpy.context.view_layer.objects.active = ob
+            bpy.ops.object.modifier_apply(modifier='bevel')
+        smooth(ob, 35)
+        world_uv(ob, 1.0)
+        return ob
+
+    # Sofa against the left wall, facing +x (three.js), 2.0 m three-seater.
+    sx, sz = L['sofa']['x'], L['sofa']['z']
+    dep, wid = 0.9, 2.0
+    x0 = -X + 0.03
+    rbox('sofa_base', (x0 + dep / 2, 0.26, sz), (dep, 0.22, wid), fabric, bevel=0.03)
+    rbox('sofa_back', (x0 + 0.12, 0.6, sz), (0.2, 0.5, wid - 0.02), fabric, bevel=0.06, segs=4)
+    for s in (-1, 1):
+        rbox(f'sofa_arm_{s}', (x0 + dep / 2, 0.43, sz + s * (wid / 2 - 0.09)), (dep, 0.34, 0.18), fabric, bevel=0.06, segs=4)
+    for i in range(3):
+        zc = sz - (wid - 0.36) / 2 + (wid - 0.36) / 3 * (i + 0.5)
+        rbox(f'sofa_seat_{i}', (x0 + 0.22 + 0.33, 0.43, zc), (0.62, 0.13, (wid - 0.36) / 3 - 0.01), fabric, bevel=0.05, segs=4)
+        rbox(f'sofa_cush_{i}', (x0 + 0.3, 0.68, zc), (0.16, 0.36, (wid - 0.36) / 3 - 0.03), fabric, bevel=0.06, segs=4)
+    for lx in (x0 + 0.08, x0 + dep - 0.08):
+        for lz in (sz - wid / 2 + 0.08, sz + wid / 2 - 0.08):
+            cylinder(f'sofa_leg_{lx:.2f}_{lz:.2f}', (lx, lz), 0.018, 0.0, 0.15, legs_m, EXP, seg=10)
+
+    # TV console + flat TV on the right wall (between the column and the door).
+    tz0, tz1 = PIER['z1'] + 0.45, PIER['z1'] + 1.85
+    tzc = (tz0 + tz1) / 2
+    rbox('tv_console', (X - 0.21, 0.24, tzc), (0.4, 0.4, tz1 - tz0), console_m, bevel=0.01, segs=2)
+    rbox('tv_console_top', (X - 0.21, 0.455, tzc), (0.42, 0.03, tz1 - tz0 + 0.02), console_top, bevel=0.006, segs=2)
+    rbox('tv_bezel', (X - 0.035, 1.1, tzc), (0.04, 0.57, 0.98), tv_bezel, bevel=0.008, segs=2)
+    quad('tv_screen', (X - 0.056, 0.83, tzc + 0.475), (X - 0.056, 0.83, tzc - 0.475), (X - 0.056, 1.37, tzc - 0.475), (X - 0.056, 1.37, tzc + 0.475), tv_black, EXP)
+
+    # Split AC unit, high on the right wall near the balcony corner.
+    rbox('ac_unit', (X - 0.12, 2.3, -1.65), (0.22, 0.28, 0.86), plastic, bevel=0.04, segs=4)
+    quad('ac_vent', (X - 0.2305, 2.19, -1.25), (X - 0.2305, 2.19, -2.05), (X - 0.2305, 2.22, -2.05), (X - 0.2305, 2.22, -1.25), tv_black, EXP)
+    ld = light('dark_ac_led', 'POINT', B(X - 0.235, 2.25, -1.3), 0.01, (0.3, 0.6, 1.0), LDARK, size=0.004)
+
+    clock = import_asset('wall_clock')
+    cmn, cmx = bbox(clock)
+    # Face towards -x (into the room) on the right wall above the TV.
+    place(clock, (X - 0.03, 1.95, tzc), -90 if (cmx.y - cmn.y) < (cmx.x - cmn.x) else 0, 1.0, EXP)
+    plant = import_asset('potted_plant_04')
+    place(plant, (X - 0.3, 0.47, tz1 - 0.2), 0, 1.0, EXP)
+
     # --- bake-only: city, sky, corridor
     city_m = bpy.data.materials.new('city_emit')
     city_m.use_nodes = True
@@ -607,8 +669,8 @@ def stage_build():
     # --- party lights
     for i, (dxp, dzp) in enumerate(L['downlights']):
         light(f'party_down_{i}', 'SPOT', B(dxp, H - 0.01, dzp), 32, warm, LPARTY, size=0.04, spot=(110, 0.7))
-    light('party_pendant', 'POINT', pendant_c, 45, kelvin(2900), LPARTY, size=0.07)
-    light('party_floorlamp', 'POINT', B(fl['x'], 1.47, fl['z']), 30, kelvin(2600), LPARTY, size=0.08)
+    light('party_pendant', 'POINT', pendant_c, 45, kelvin(2700), LPARTY, size=0.07)
+    light('party_floorlamp', 'POINT', B(fl['x'], 1.47, fl['z']), 30, kelvin(2700), LPARTY, size=0.08)
     # fairy lights: thin emissive strands (the runtime draws the actual bulbs)
     fairy_m = bpy.data.materials.new('fairy_emit')
     fairy_m.use_nodes = True

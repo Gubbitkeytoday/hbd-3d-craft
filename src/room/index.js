@@ -26,8 +26,8 @@
  *   room.exposure { dark, lit }             suggested toneMappingExposure per state
  */
 import * as THREE from 'three';
-import { precompileScene } from '../render-quality.js';
-import { ROOM, ROOM_SCALE, TABLE, CAKE_SPOT, LETTERS, shotsWorld } from './layout.js';
+import { precompileScene, attachStudioEnvironmentAsync } from '../render-quality.js';
+import { ROOM, ROOM_SCALE, TABLE, CAKE_SPOT, LETTERS, SIGN, shotsWorld } from './layout.js';
 import { createRig } from './rig.js';
 import { createBakeUniforms } from './materials.js';
 import { createCity, createSwitch, createGreybox } from './shell.js';
@@ -85,35 +85,75 @@ function yieldToMain() {
     return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function paintPhotoPlaceholder(colors) {
+/**
+ * What the frame shows without a card photo: a printed greeting card on
+ * cream stock (theme ink), not a blurred "failed image". Name and sender are
+ * drawn by the browser in the page's Noto Sans Thai.
+ */
+function paintPhotoPlaceholder(colors, name, sender) {
+    const W = 512;
+    const H = 640;
     const c = document.createElement('canvas');
-    c.width = 256;
-    c.height = 320;
+    c.width = W;
+    c.height = H;
     const ctx = c.getContext('2d');
-    const g = ctx.createLinearGradient(0, 0, 256, 320);
-    // A warm, out-of-focus "party snapshot" tinted by the theme.
-    g.addColorStop(0, '#' + new THREE.Color(0xe2d2c0).lerp(new THREE.Color(colors[2]), 0.25).getHexString());
-    g.addColorStop(1, '#' + new THREE.Color(0x6e5646).lerp(new THREE.Color(colors[0]), 0.2).getHexString());
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 256, 320);
-    // Soft bokeh, like a blurred party snapshot.
-    for (let i = 0; i < 26; i++) {
-        const x = Math.random() * 256;
-        const y = Math.random() * 320;
-        const r = 10 + Math.random() * 34;
-        const rg = ctx.createRadialGradient(x, y, 0, x, y, r);
-        rg.addColorStop(0, 'rgba(255,240,220,0.55)');
-        rg.addColorStop(1, 'rgba(255,240,220,0)');
-        ctx.fillStyle = rg;
-        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    const hex = (v) => '#' + new THREE.Color(v).getHexString();
+    // Ink: the darkest of the theme's paper colours, so it reads on cream.
+    const ink = [...colors].sort((a, b) => new THREE.Color(a).getHSL({}).l - new THREE.Color(b).getHSL({}).l)[0];
+    const accent = colors[0];
+    ctx.fillStyle = '#f5eee3';
+    ctx.fillRect(0, 0, W, H);
+    // Paper tooth
+    for (let i = 0; i < 1400; i++) {
+        ctx.fillStyle = `rgba(90,70,50,${Math.random() * 0.05})`;
+        ctx.fillRect(Math.random() * W, Math.random() * H, 1.5, 1.5);
+    }
+    ctx.strokeStyle = hex(accent);
+    ctx.lineWidth = 6;
+    // The frame's mat hides ~12 % at each edge: keep everything inside.
+    ctx.strokeRect(70, 80, W - 140, H - 160);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(84, 94, W - 168, H - 188);
+    // Confetti dots
+    for (let i = 0; i < 38; i++) {
+        ctx.fillStyle = hex(colors[i % colors.length]);
+        ctx.globalAlpha = 0.75;
+        const x = 110 + Math.random() * (W - 220);
+        const y = Math.random() < 0.5 ? 120 + Math.random() * 70 : H - 190 + Math.random() * 70;
+        ctx.beginPath();
+        ctx.arc(x, y, 3 + Math.random() * 5, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = hex(ink);
+    ctx.font = '600 26px "Outfit", sans-serif';
+    ctx.fillText('HAPPY BIRTHDAY', W / 2, 232);
+    const who = String(name || '').trim().slice(0, 18);
+    const big = who || 'HBD';
+    let size = 120;
+    ctx.font = `700 ${size}px "Noto Sans Thai", "Outfit", sans-serif`;
+    while (ctx.measureText(big).width > W - 210 && size > 40) {
+        size -= 6;
+        ctx.font = `700 ${size}px "Noto Sans Thai", "Outfit", sans-serif`;
+    }
+    ctx.fillStyle = hex(accent);
+    ctx.fillText(big, W / 2, 322);
+    const from = String(sender || '').trim().slice(0, 24);
+    if (from) {
+        ctx.fillStyle = hex(ink);
+        ctx.font = '500 30px "Noto Sans Thai", "Outfit", sans-serif';
+        ctx.fillText(`จาก ${from}`, W / 2, 432);
     }
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
     return t;
 }
 
 /** Dark-state lift of the DARK lightmap (see applyState). */
-const DARK_GAIN = 2.2;
+const DARK_GAIN = 1.85;
 
 /* ------------------------------------------------------------------ */
 
@@ -125,7 +165,12 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     const abortIfNeeded = () => {
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     };
-    const step = async (p) => {
+    // Dev: [tag, time] marks, matched against long tasks by the perf
+    // scripts to keep every task behind the gate short.
+    const timeline = [];
+    const mark = (tag) => { if (import.meta.env.DEV) timeline.push([tag, Math.round(performance.now())]); };
+    const step = async (p, tag = '') => {
+        mark(tag || String(p));
         onProgress?.(p);
         await yieldToMain();
         abortIfNeeded();
@@ -191,8 +236,9 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     });
     room.add(clusters.mesh);
     const drop = createBalloonDrop({
-        count: q === 0 ? 10 : 18, palette: pal.balloons, rand, material: latexMat, geometry: bGeo,
-        area: { x0: -1.6, x1: 1.3, z0: -1.9, z1: 1.2, wx0: -ROOM.halfX, wx1: ROOM.halfX, wz0: -ROOM.halfZ, wz1: ROOM.halfZ },
+        // Released behind and around the table, well away from every shot.
+        count: q === 0 ? 9 : 14, palette: pal.balloons, rand, material: latexMat, geometry: bGeo,
+        area: { x0: -1.4, x1: 0.9, z0: -1.9, z1: -0.2, wx0: -ROOM.halfX, wx1: ROOM.halfX, wz0: -ROOM.halfZ, wz1: ROOM.halfZ },
         ceilingY: ROOM.height,
         tableTop: { x: TABLE.x, z: TABLE.z, radius: TABLE.radius, y: TABLE.height }
     });
@@ -204,13 +250,18 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     // in a fallback face.
     try {
         await Promise.race([
-            document.fonts?.load('800 64px "Outfit"'),
+            Promise.all([document.fonts?.load('800 64px "Outfit"'), document.fonts?.load('700 64px "Noto Sans Thai"')]),
             new Promise((r) => setTimeout(r, 1500))
         ]);
     } catch { /* fall back to the stack */ }
     abortIfNeeded();
-    const foilMat = createFoilMaterial(config.theme);
-    trackEnv(foilMat, 1.0);
+    // The foil's own reflections: the (per-renderer cached) studio PMREM.
+    let studioEnv = null;
+    try {
+        studioEnv = await attachStudioEnvironmentAsync(renderer, new THREE.Scene());
+    } catch { /* falls back to scene.environment */ }
+    abortIfNeeded();
+    const foilMat = createFoilMaterial(config.theme, studioEnv);
     disposers.push(() => foilMat.dispose());
     const letterRows = [];
     for (const [text, y] of [['HAPPY', LETTERS.row1Y], ['BIRTHDAY', LETTERS.row2Y]]) {
@@ -225,15 +276,17 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         disposers.push(() => row.geometry.dispose());
     }
 
-    const sign = createNameSign(config.recipientName, { color: pal.sign, height: 0.24, maxWidth: 1.3 });
+    const sign = createNameSign(config.recipientName, { color: pal.sign, height: SIGN.height, maxWidth: SIGN.maxWidth });
     if (sign) {
-        sign.mesh.position.set(LETTERS.x, 1.32, LETTERS.z + 0.012);
+        sign.mesh.position.set(LETTERS.x, SIGN.y, LETTERS.z);
         room.add(sign.mesh);
+        sign.materials.forEach((m) => trackEnv(m, 0.8));
         disposers.push(() => sign.dispose());
     }
 
     const X = ROOM.halfX;
     const Z = ROOM.halfZ;
+    await step(0.28, 'sign');
     const bunting = createBunting([
         { a: new THREE.Vector3(-X + 0.05, 2.5, -Z + 0.03), b: new THREE.Vector3(0.9, 2.5, -Z + 0.03), sag: 0.2 },
         { a: new THREE.Vector3(-X + 0.03, 2.48, -Z + 0.05), b: new THREE.Vector3(-X + 0.03, 2.48, 1.2), sag: 0.24 }
@@ -241,6 +294,7 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     room.add(bunting.group);
     disposers.push(() => bunting.dispose());
 
+    await step(0.3, 'bunting');
     // Fairy lights: a curtain over the window + a swag along the back wall.
     const strands = [];
     const W = ROOM.window;
@@ -264,8 +318,8 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     const ribbonFor = (paper) => (new THREE.Color(paper).getHSL({}).l > 0.6 ? pal.balloons[0] : 0xf4e6c8);
     const T = TABLE;
     const giftList = [
-        { pos: [T.x + 0.3, T.height, T.z + 0.18], size: [0.13, 0.1, 0.13], yaw: 0.4 },
-        { pos: [T.x - 0.34, T.height, T.z + 0.12], size: [0.1, 0.14, 0.1], yaw: -0.3 },
+        { pos: [T.x + 0.31, T.height, T.z + 0.16], size: [0.1, 0.08, 0.1], yaw: 0.4 },
+        { pos: [T.x - 0.33, T.height, T.z - 0.02], size: [0.08, 0.11, 0.08], yaw: -0.3 },
         { pos: [-1.7, 0, -1.85], size: [0.34, 0.26, 0.3], yaw: 0.2 },
         { pos: [-1.45, 0, -1.7], size: [0.22, 0.18, 0.22], yaw: -0.5 },
         { pos: [-1.62, 0.26, -1.85], size: [0.16, 0.14, 0.16], yaw: 0.9 },
@@ -279,17 +333,19 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     gifts.materials.forEach((m) => trackEnv(m, 0.8));
     disposers.push(() => gifts.dispose());
     const hats = createHats([
-        { pos: [T.x - 0.2, T.height, T.z + 0.34], yaw: 0, tilt: 0, color: pal.paper[0], pom: 0xffffff },
-        { pos: [T.x + 0.12, T.height, T.z + 0.38], yaw: 0, tilt: 0, color: pal.paper[1], pom: pal.paper[3] },
-        { pos: [T.x + 0.4, T.height + 0.035, T.z - 0.1], yaw: 0, tilt: 1.35, roll: 0.3, color: pal.paper[3], pom: 0xffffff }
+        // Off the lens line of the cake / close-up shots (camera looks from +z).
+        { pos: [T.x - 0.38, T.height, T.z + 0.2], yaw: 0, tilt: 0, color: pal.paper[0], pom: 0xffffff },
+        { pos: [T.x + 0.42, T.height, T.z + 0.05], yaw: 0, tilt: 0, color: pal.paper[1], pom: pal.paper[3] },
+        { pos: [T.x + 0.2, T.height + 0.035, T.z - 0.36], yaw: 0, tilt: 1.35, roll: 0.3, color: pal.paper[3], pom: 0xffffff }
     ], { pomMaterial: pomMat });
     room.add(hats.group);
     hats.materials.forEach((m) => trackEnv(m, 0.8));
     disposers.push(() => hats.dispose());
 
+    await step(0.34, 'gifts');
     // Picture frame on the table (the card's photo when there is one).
-    const photoTex = paintPhotoPlaceholder(pal.paper);
-    const photoMat = new THREE.MeshStandardMaterial({ map: photoTex, color: 0xb8b0a8, roughness: 0.6 });
+    const photoTex = paintPhotoPlaceholder(pal.paper, config.recipientName, config.sender);
+    const photoMat = new THREE.MeshStandardMaterial({ map: photoTex, color: 0xd6d0c8, roughness: 0.7 });
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x6b4a33, roughness: 0.45 });
     trackEnv(photoMat, 0.6);
     trackEnv(frameMat, 0.6);
@@ -312,12 +368,13 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         img.decoding = 'async';
         img.onload = () => {
             if (disposed) return;
-            photoTex.image = coverCrop(img, 256, 320);
+            photoTex.image = coverCrop(img, 512, 640);
             photoTex.needsUpdate = true;
         };
         img.src = config.photo;
     }
 
+    await step(0.37, 'frame');
     const confetti = createConfetti({
         count: q === 0 ? 160 : 360,
         palette: [...pal.balloons, 0xf1c872, 0xffffff],
@@ -353,8 +410,10 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
     // --- Baked room --------------------------------------------------------
     let baked = null;
     try {
+        mark('load:start');
         baked = await loadBakedRoom({ quality: q, uniforms: bake, signal, onProgress: (p) => onProgress?.(0.4 + p * 0.4) });
         abortIfNeeded();
+        mark('load:done');
         room.add(baked.group);
         room.remove(greybox.group);
         greybox.materials.forEach((m) => envTracked.delete(m));
@@ -363,6 +422,9 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         // Baked materials scale their reflections in the shader (uEnvK).
         const photoMesh = baked.group.getObjectByName('PHOTO');
         if (photoMesh) {
+            // glTF UV convention: the print must not be flipped.
+            photoTex.flipY = false;
+            photoTex.needsUpdate = true;
             photoMesh.material = photoMat;
             frame.visible = false;
         }
@@ -419,10 +481,12 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         const envK = THREE.MathUtils.lerp(0.07, 1, lit) * (1 - 0.6 * dim * lit);
         bake.uEnvK.value = envK;
         envTracked.forEach((base, mat) => { mat.envMapIntensity = base * envK; });
+        // Foil mirrors a bright studio: keep it nearly black in the dark.
+        foilMat.envMapIntensity = 2 * THREE.MathUtils.lerp(0.025, 1, lit) * (1 - 0.55 * dim * lit);
         emissive.forEach((m) => { m.emissiveIntensity = m.userData.emitBase * party; });
         fairy.setLit(lit);
         fairy.setDim(dim);
-        sign?.setLevel((0.15 + 2.6 * lit) * (1 - 0.3 * dim));
+        sign?.setLevel((0.12 + 2.8 * lit) * (1 - 0.25 * dim));
         latexUniforms.uRimK.value = 0.12 + 0.3 * lit;
         lightSwitch.setOn(lit > 0.02);
     }
@@ -434,9 +498,11 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         lit = 1;
         applyState();
         await step(0.86);
+        mark('env:start');
         envMap = await captureRoomEnvironment(renderer, scene,
             new THREE.Vector3(TABLE.x * S, 1.25 * S, (TABLE.z + 0.4) * S),
-            { size: q >= 2 ? 256 : 128, near: 0.05 * S, far: 12 * S });
+            { size: q >= 2 ? 256 : 128, near: 0.05 * S, far: 12 * S, mark });
+        mark('env:done');
         scene.environment = envMap;
     } catch (err) {
         if (import.meta.env.DEV) console.warn('[party-room] env capture failed', err);
@@ -453,6 +519,7 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
 
     // --- Per frame ----------------------------------------------------------
     const tmpV = new THREE.Vector3();
+    const camM = new THREE.Vector3();
     let time = 0;
     function update(dt, t) {
         if (disposed) return;
@@ -472,7 +539,7 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         city.update(time);
         letterRows.forEach((r) => { r.mesh.rotation.y = Math.sin(time * 0.45 + r.phase) * 0.02 * sway; });
         confetti.update(d);
-        drop.update(d);
+        drop.update(d, camera.getWorldPosition(camM).divideScalar(S));
     }
 
     function setLights(t) {
@@ -555,6 +622,7 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
         envMap,
         baked: !!baked,
         exposure: { dark: 1.25, lit: 1.0 },
+        timeline,
         get lit() { return lit; },
         get dim() { return dim; }
     };

@@ -28,6 +28,8 @@ const LOOKS = {
 const CAKE_FIELDS = new Set(['theme', 'backdrop', 'cakeModel', 'plate', 'glaze', 'topperChoice', 'topperText', 'candles',
     'strawberries', 'cherries', 'rolls', 'sprinkles', 'decorHearts', 'decorStars', 'letterEnabled', 'letterTheme',
     'glazeColor', 'creamColor', 'plateColor', 'candleColor', 'topperColor', 'envBaseColor', 'envFlapColor', 'envSealColor']);
+const ROOM_TEXT_FIELDS = new Set(['recipientName', 'sender', 'photo']);
+let roomTextTimer = 0;
 const COLOR_FIELDS = ['glazeColor', 'creamColor', 'plateColor', 'candleColor', 'topperColor', 'envBaseColor', 'envFlapColor', 'envSealColor'];
 const TEMPLATED = ['title', 'message', 'letterTitle', 'letterBody'];
 const TEXT_FIELDS_THAT_RETEMPLATE = new Set(['recipientName', 'sender', 'bdate', 'relation']);
@@ -421,6 +423,11 @@ function onFieldChange(e) {
         // dragging. updatePreview coalesces both into one build per frame.
         pushPreview();
         refreshLookEdited();
+    } else if (ROOM_TEXT_FIELDS.has(name)) {
+        // The party room's name sign and frame print follow these; they are
+        // redrawn textures, so wait for a pause in typing.
+        clearTimeout(roomTextTimer);
+        roomTextTimer = setTimeout(pushPreview, 300);
     }
     refreshCounters();
     scheduleDraftSave();

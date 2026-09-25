@@ -130,9 +130,9 @@ export function createBalloonDrop({ count, palette, rand, material, geometry, ar
     const items = [];
     for (let i = 0; i < count; i++) {
         mesh.setColorAt(i, col.setHex(palette[i % palette.length]));
-        items.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), rot: new THREE.Euler(), spin: new THREE.Vector3(), size: 0.85 + rand() * 0.3, delay: 0, rest: false });
+        items.push({ p: new THREE.Vector3(), v: new THREE.Vector3(), rot: new THREE.Euler(), spin: new THREE.Vector3(), size: 0.72 + rand() * 0.26, delay: 0, rest: false });
     }
-    let active = false;
+    let dropped = false; // at least one drop happened: balloons are in the room
     let clock = 0;
 
     function park() {
@@ -143,10 +143,14 @@ export function createBalloonDrop({ count, palette, rand, material, geometry, ar
     park();
 
     function drop() {
-        active = true;
+        dropped = true;
         clock = 0;
         items.forEach((it) => {
-            it.p.set(area.x0 + rand() * (area.x1 - area.x0), ceilingY - 0.18 - rand() * 0.08, area.z0 + rand() * (area.z1 - area.z0));
+            // Never above the table: they would settle on the cake.
+            for (let k = 0; k < 8; k++) {
+                it.p.set(area.x0 + rand() * (area.x1 - area.x0), ceilingY - 0.18 - rand() * 0.08, area.z0 + rand() * (area.z1 - area.z0));
+                if (Math.hypot(it.p.x - tableTop.x, it.p.z - tableTop.z) > tableTop.radius + 0.25) break;
+            }
             it.v.set((rand() - 0.5) * 0.3, -0.2 - rand() * 0.3, (rand() - 0.5) * 0.3);
             it.rot.set(rand() * 6, rand() * 6, rand() * 6);
             it.spin.set((rand() - 0.5) * 3, (rand() - 0.5) * 3, (rand() - 0.5) * 3);
@@ -155,11 +159,13 @@ export function createBalloonDrop({ count, palette, rand, material, geometry, ar
         });
     }
 
-    function update(dt) {
-        if (!active) return;
+    /** cam: camera position in room metres; balloons fade out near the lens. */
+    function update(dt, cam = null) {
+        // After the drop the balloons stay on the floor; they keep being
+        // updated (14 matrices) so the near-lens fade follows the camera.
+        if (!dropped) return;
         clock += dt;
         const step = Math.min(dt, 1 / 30);
-        let moving = false;
         for (let i = 0; i < count; i++) {
             const it = items[i];
             if (clock >= it.delay && !it.rest) {
@@ -171,8 +177,18 @@ export function createBalloonDrop({ count, palette, rand, material, geometry, ar
                 it.rot.y += it.spin.y * step;
                 it.rot.z += it.spin.z * step;
                 const r = 0.16 * it.size;
-                const onTable = Math.hypot(it.p.x - tableTop.x, it.p.z - tableTop.z) < tableTop.radius;
-                const floor = (onTable ? tableTop.y : 0) + r;
+                // The table (and the cake on it) is an obstacle: a balloon
+                // that drifts over it is nudged outwards and rolls off.
+                const dx = it.p.x - tableTop.x;
+                const dz = it.p.z - tableTop.z;
+                const dist = Math.hypot(dx, dz);
+                if (dist < tableTop.radius + r && it.p.y < tableTop.y + 0.6) {
+                    const push = 1.6 * step / Math.max(dist, 0.05);
+                    it.v.x += dx * push;
+                    it.v.z += dz * push;
+                }
+                const onTable = dist < tableTop.radius;
+                const floor = (onTable ? tableTop.y + 0.35 : 0) + r;
                 if (it.p.y < floor) {
                     it.p.y = floor;
                     it.v.y = Math.abs(it.v.y) * 0.45;
@@ -187,18 +203,18 @@ export function createBalloonDrop({ count, palette, rand, material, geometry, ar
                 // Walls
                 it.p.x = THREE.MathUtils.clamp(it.p.x, area.wx0 + r, area.wx1 - r);
                 it.p.z = THREE.MathUtils.clamp(it.p.z, area.wz0 + r, area.wz1 - r);
-                moving = true;
             }
             const visible = clock >= it.delay;
-            _s.setScalar(visible ? it.size : 0);
+            // Never a latex wall in front of the lens: shrink away inside 0.9 m.
+            const near = cam ? THREE.MathUtils.smoothstep(it.p.distanceTo(cam), 0.55, 0.9) : 1;
+            _s.setScalar(visible ? it.size * near : 0);
             _q.setFromEuler(it.rot);
             mesh.setMatrixAt(i, _m.compose(visible ? it.p : _p.set(0, -50, 0), _q, _s));
         }
         mesh.instanceMatrix.needsUpdate = true;
-        if (!moving && clock > 1) active = false;
     }
 
-    return { mesh, drop, update, reset: () => { active = false; park(); } };
+    return { mesh, drop, update, reset: () => { dropped = false; clock = 0; park(); } };
 }
 
 export { balloonGeometry };

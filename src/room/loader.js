@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { MeshoptDecoder as BundledMeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { makeBaked } from './materials.js';
 
 const BASE = `${import.meta.env.BASE_URL || '/'}room/`;
@@ -19,20 +19,74 @@ function abortError() {
     return new DOMException('Aborted', 'AbortError');
 }
 
-function loadTexture(url, signal) {
-    return new Promise((resolve, reject) => {
-        if (signal?.aborted) return reject(abortError());
-        new THREE.TextureLoader().load(url, resolve, undefined, () => reject(new Error(`room: failed ${url}`)));
-    });
+/**
+ * Decoded off the main thread (createImageBitmap, or img.decode() where
+ * ImageBitmap options are unreliable), so the upload in initTexture() is a
+ * copy, not a 100-200 ms synchronous WebP decode.
+ */
+async function loadTexture(url, signal) {
+    if (signal?.aborted) throw abortError();
+    let image;
+    if (typeof createImageBitmap === 'function' && !/^((?!chrome|android).)*safari/i.test(navigator.userAgent)) {
+        const res = await fetch(url, { signal });
+        if (!res.ok) throw new Error(`room: failed ${url}`);
+        image = await createImageBitmap(await res.blob(), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+    } else {
+        image = new Image();
+        image.crossOrigin = 'anonymous';
+        image.src = url;
+        try {
+            await image.decode();
+        } catch {
+            throw new Error(`room: failed ${url}`);
+        }
+    }
+    if (signal?.aborted) throw abortError();
+    const tex = new THREE.Texture(image);
+    tex.needsUpdate = true;
+    return tex;
 }
 
+let decoderPromise = null;
+
+/**
+ * The meshopt decoder spawns its workers from its own function source, and
+ * minification renames what that source refers to ("workerProcess is not
+ * defined"), so the bundled copy can only decode on the main thread. The
+ * worker-capable copy is served untouched from public/room/vendor/ (MIT,
+ * copied from three/examples/jsm/libs) and loaded at runtime; if that fails,
+ * the bundled one decodes on the main thread.
+ */
+function getMeshoptDecoder() {
+    // Dev serves the bundled copy unminified (and refuses to import from
+    // public/), so workers already work there.
+    const source = import.meta.env.DEV
+        ? Promise.resolve({ MeshoptDecoder: BundledMeshoptDecoder })
+        : import(/* @vite-ignore */ roomAssetUrl('vendor/meshopt_decoder.module.js'));
+    decoderPromise ??= source
+        .then(async ({ MeshoptDecoder }) => {
+            await MeshoptDecoder.ready;
+            // Geometry decodes in workers (it was a ~130 ms main-thread block
+            // on a throttled phone profile).
+            if (typeof Worker === 'function') MeshoptDecoder.useWorkers(2);
+            return MeshoptDecoder;
+        })
+        .catch((err) => {
+            console.warn('room: worker decoder unavailable, decoding on the main thread', err);
+            return BundledMeshoptDecoder;
+        });
+    return decoderPromise;
+}
 const glassCache = new Map();
 function glassMaterial(src) {
     const key = src.name;
     if (!glassCache.has(key)) {
+        const win = /window/i.test(key);
+        const lamp = /lamp/i.test(key);
+        // Window: clear sheet. Pendant: frosted (it read as a soap bubble).
         glassCache.set(key, new THREE.MeshStandardMaterial({
-            name: src.name, color: 0x9aa4b0, roughness: 0.04, metalness: 0,
-            transparent: true, opacity: /window/i.test(key) ? 0.1 : 0.16, depthWrite: false
+            name: src.name, color: lamp ? 0xf4efe6 : 0x9aa4b0, roughness: lamp ? 0.5 : 0.04, metalness: 0,
+            transparent: true, opacity: win ? 0.1 : lamp ? 0.35 : 0.16, depthWrite: false
         }));
     }
     src.dispose();
@@ -52,7 +106,7 @@ export async function loadBakedRoom({ quality, uniforms, signal, onProgress }) {
     onProgress?.(0.1);
 
     const loader = new GLTFLoader();
-    loader.setMeshoptDecoder(MeshoptDecoder);
+    loader.setMeshoptDecoder(await getMeshoptDecoder());
     const [gltf, dark, party] = await Promise.all([
         new Promise((resolve, reject) => loader.load(roomAssetUrl(glbFile), resolve,
             (e) => { if (e.total) onProgress?.(0.1 + 0.7 * e.loaded / e.total); }, reject)),
@@ -88,7 +142,7 @@ export async function loadBakedRoom({ quality, uniforms, signal, onProgress }) {
             emissive.add(mat);
             return;
         }
-        if (name.startsWith('glass')) {
+        if (name.includes('glass')) {
             // Blender's transmissive glass would make three render a whole
             // extra transmission pass every frame: a thin reflective sheet
             // reads the same at this size.

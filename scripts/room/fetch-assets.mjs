@@ -19,8 +19,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CACHE = path.join(HERE, 'cache');
 
 const MODELS = [
-    'round_wooden_table_01', 'Sofa_01', 'wooden_display_shelves_01', 'side_table_01',
-    'modern_ceiling_lamp_01', 'standing_picture_frame_01', 'ceramic_vase_01'
+    'round_wooden_table_01', 'wooden_display_shelves_01', 'side_table_01',
+    'modern_ceiling_lamp_01', 'standing_picture_frame_01', 'ceramic_vase_01',
+    'wall_clock', 'potted_plant_04'
 ];
 const TEXTURES = ['herringbone_parquet', 'plastered_wall_04'];
 const TEX_MAPS = ['Diffuse', 'nor_gl', 'arm'];

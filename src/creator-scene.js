@@ -69,6 +69,17 @@ let building = false;
 let ready = false;
 let callbacks = {};
 
+// 'party' backdrop: the real surprise room around the cake, lit (src/room/,
+// loaded on demand). The classic stage stays until the room is ready.
+let partyRoom = null;       // createPartyRoom() result
+let partyKey = '';          // config parts the room is built from
+let partyWanted = false;    // current config asks for the room
+let partyLoading = false;   // a build is in flight
+let partyQueued = null;     // config that arrived during a build
+let partyTimer = 0;
+let partyGen = 0;
+const CLASSIC_VIEW = { fov: 45, far: 100, minDistance: 4.0, maxDistance: 20.0 };
+
 /**
  * Hands the main thread back to the browser (input, paint) between heavy
  * setup steps so no single task blocks for long. scheduler.yield keeps our
@@ -317,7 +328,154 @@ function applySceneBackdrop(config) {
     });
     // The magenta bounce reads as neon spill on pale paper; keep a hint.
     if (bounceLight) bounceLight.intensity = applied.light ? 0.35 : 0.9;
+    syncPartyRoom(config);
+    if (partyRoom) applyPartyLook();
     return applied;
+}
+
+/* ------------------------------------------------------------------ *
+ * Party room preview
+ * ------------------------------------------------------------------ */
+
+function partyKeyOf(config) {
+    return [config.theme, config.recipientName, config.sender, config.photo].join('|');
+}
+
+/**
+ * Keeps the room in step with the config: built when 'party' is chosen,
+ * rebuilt (debounced) when what it shows changes (theme palette, the name
+ * on the sign, the sender on the frame print, the photo), dropped when
+ * another backdrop is chosen.
+ */
+function syncPartyRoom(config) {
+    partyWanted = backdropOf(config) === 'party';
+    clearTimeout(partyTimer);
+    if (!partyWanted) {
+        partyQueued = null;
+        if (partyRoom || partyLoading) leaveParty();
+        return;
+    }
+    if (partyRoom && partyKeyOf(config) === partyKey) return;
+    if (partyLoading) {
+        partyQueued = config;
+        return;
+    }
+    // First build right away; later rebuilds wait for typing to settle.
+    partyTimer = setTimeout(() => buildPartyRoom(config), partyRoom ? 700 : 0);
+}
+
+async function buildPartyRoom(config) {
+    if (!renderer) return;
+    const myGen = ++partyGen;
+    partyLoading = true;
+    const busy = setTimeout(() => callbacks.onBusy?.(true), 180);
+    try {
+        const mod = await import('./room/index.js');
+        if (myGen !== partyGen || !renderer) return;
+        const built = await mod.createPartyRoom({
+            renderer, scene, camera,
+            // Phones: the light tier; desktop: medium (no shadow maps).
+            quality: isMobileViewport() ? 0 : 1,
+            config,
+            bloom
+        });
+        if (myGen !== partyGen || !renderer || !partyWanted) {
+            built.dispose();
+            return;
+        }
+        const old = partyRoom;
+        if (old) {
+            // The cake is parented to the old room's table: move it first.
+            if (cakeRoot) scene.add(cakeRoot);
+            old.dispose();
+        }
+        partyRoom = built;
+        partyKey = partyKeyOf(config);
+        partyRoom.setLights(1);
+        partyRoom.setDim(0);
+        partyRoom.setCandles(1);
+        if (cakeRoot) seatCakeInRoom(cakeRoot);
+        // Re-applies the backdrop from its base values, then the room look.
+        applySceneBackdrop(config);
+        framePartyShot();
+    } catch (err) {
+        // The classic stage simply stays.
+        if (import.meta.env.DEV) console.warn('[preview] party room unavailable', err);
+    } finally {
+        clearTimeout(busy);
+        callbacks.onBusy?.(false);
+        partyLoading = false;
+        const next = partyQueued;
+        partyQueued = null;
+        if (next && myGen === partyGen) syncPartyRoom(next);
+    }
+}
+
+function seatCakeInRoom(cake) {
+    cake.rotation.set(0, cake.rotation.y, 0);
+    // Lights stay on in the preview, so the cake keeps the reflection
+    // strength buildContent gave it (no tracking needed).
+    partyRoom.seatCake(cake);
+}
+
+/** Room mode: studio props off, the room's own light does the work. */
+function applyPartyLook() {
+    if (!partyRoom) return;
+    holographicRings.forEach((r) => { r.visible = false; });
+    if (contactShadow) contactShadow.visible = false;
+    if (extrasRoot) extrasRoot.visible = false;
+    if (bounceLight) bounceLight.intensity = 0;
+    if (lights) {
+        // The studio rig would flatten the baked room: keep a whisper of key
+        // and rim for the cake's sparkle (applyBackdrop resets from base).
+        lights.ambient.intensity *= 0.25;
+        lights.fill.intensity *= 0.3;
+        lights.key.intensity *= 0.35;
+        lights.rim.intensity *= 0.4;
+    }
+}
+
+function framePartyShot() {
+    if (!partyRoom || !camera) return;
+    const aspect = camera.aspect || 1;
+    const shot = partyRoom.shots.preview || partyRoom.shots.cake;
+    camera.position.copy(shot.position);
+    // Fit ~40 deg horizontally (HAPPY BIRTHDAY + the name across the wall),
+    // never narrower than 40 deg vertically (the table and cake below).
+    const hfov = THREE.MathUtils.degToRad(40);
+    const vfov = 2 * Math.atan(Math.tan(hfov / 2) / aspect);
+    camera.fov = Math.min(70, Math.max(40, THREE.MathUtils.radToDeg(vfov)));
+    camera.far = 800;
+    camera.updateProjectionMatrix();
+    controls.target.copy(shot.target);
+    const dist = camera.position.distanceTo(shot.target);
+    controls.minDistance = dist * 0.5;
+    controls.maxDistance = dist * 1.1;
+    controls.update();
+}
+
+function leaveParty() {
+    partyGen++;
+    const room = partyRoom;
+    partyRoom = null;
+    partyKey = '';
+    if (!room) return;
+    if (cakeRoot) {
+        scene.add(cakeRoot);
+        cakeRoot.position.set(0, 0, 0);
+    }
+    if (extrasRoot) extrasRoot.visible = true;
+    room.dispose();
+    if (camera && controls) {
+        camera.fov = CLASSIC_VIEW.fov;
+        camera.far = CLASSIC_VIEW.far;
+        camera.position.set(0, 4.0, 9.5);
+        camera.updateProjectionMatrix();
+        controls.target.set(0, 0.4, 0);
+        controls.minDistance = CLASSIC_VIEW.minDistance;
+        controls.maxDistance = CLASSIC_VIEW.maxDistance;
+        controls.update();
+    }
 }
 
 /** Builds a complete cake + extras off-scene (nothing touches the live scene). */
@@ -385,8 +543,9 @@ function swapIn(built, config) {
         built.cake.rotation.copy(oldCake.rotation);
         built.cake.position.copy(oldCake.position);
     }
-    scene.add(built.cake);
     scene.add(built.extras);
+    if (partyRoom) seatCakeInRoom(built.cake);
+    else scene.add(built.cake);
     cakeRoot = built.cake;
     extrasRoot = built.extras;
     flameMaterial = built.flameMaterial;
@@ -394,7 +553,7 @@ function swapIn(built, config) {
     floatingSprinkles = built.sprinkles;
 
     if (oldCake) {
-        scene.remove(oldCake);
+        oldCake.parent?.remove(oldCake);
         disposeCakeGroup(oldCake);
     }
     if (oldExtras) {
@@ -434,10 +593,14 @@ function startLoop() {
 
         controls?.update();
 
-        if (cakeRoot) {
+        if (cakeRoot && partyRoom) {
+            // On the table: a slow turntable, no floating bob.
+            cakeRoot.rotation.y = still ? 0.5 : elapsed * 0.12;
+        } else if (cakeRoot) {
             cakeRoot.rotation.y = still ? 0.5 : elapsed * 0.18;
             cakeRoot.position.y = still ? 0 : Math.sin(elapsed * 1.5) * 0.08;
         }
+        partyRoom?.update(delta, elapsed);
         if (flameMaterial) flameMaterial.uniforms.uTime.value = elapsed;
 
         if (!still) {
@@ -485,6 +648,7 @@ function resize() {
     camera.updateProjectionMatrix();
     renderer.setSize(width, height);
     bloom?.setSize(width, height);
+    if (partyRoom) framePartyShot();
 }
 
 /** Tears everything down and releases the WebGL context. */
@@ -500,6 +664,17 @@ export function destroyPreview() {
     visibilityObserver = null;
     if (animationId) cancelAnimationFrame(animationId);
     animationId = null;
+    clearTimeout(partyTimer);
+    partyGen++;
+    partyWanted = false;
+    partyQueued = null;
+    if (partyRoom) {
+        // Put the cake back first: the room's dispose must not free it.
+        if (cakeRoot) scene?.add(cakeRoot);
+        partyRoom.dispose();
+        partyRoom = null;
+    }
+    partyKey = '';
 
     if (renderer) {
         // Full dispose, shared kit materials included: each material keeps a

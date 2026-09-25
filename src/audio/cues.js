@@ -1,5 +1,8 @@
 /**
  * Synthesized sound cues for the receiver (no downloads, no licences).
+ * Non-word sounds only: clicks, poppers, room tone, crowd texture, music.
+ * Voices (a whisper, the shout, the cheer) come only from real recordings
+ * dropped into public/audio/ (see README.md there).
  *
  * All take an audio-clock time `at` so a beat can be laid out in one go and
  * stay sample-accurate: switch click at T0, shout at T0+0.15, poppers at
@@ -220,22 +223,6 @@ export function whoosh(engine, at, dur = 0.9, level = 0.22, pan = 0) {
     src.connect(bp); bp.connect(g); g.connect(engine.reverb);
 }
 
-/** A whispered "shhh" from someone hiding in the dark. */
-export function shh(engine, at, pan = 0, dur = 0.9, level = 0.07) {
-    const { ctx } = engine;
-    const src = noiseSource(engine, dur + 0.1, at);
-    const hp = filter(ctx, 'highpass', 1800, 0.7);
-    const bp = filter(ctx, 'bandpass', 3400, 1.4);
-    bp.frequency.setValueAtTime(3000, at);
-    bp.frequency.linearRampToValueAtTime(3800, at + dur);
-    const g = engine.out(pan);
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.linearRampToValueAtTime(level, at + 0.14);
-    g.gain.setValueAtTime(level, at + dur * 0.6);
-    g.gain.exponentialRampToValueAtTime(0.0005, at + dur);
-    src.connect(hp); hp.connect(bp); bp.connect(g); g.connect(engine.reverb);
-}
-
 /** Match strike: a scratch, then a soft flare. */
 export function matchStrike(engine, at, pan = 0, level = 0.2) {
     const { ctx } = engine;
@@ -256,79 +243,61 @@ export function matchStrike(engine, at, pan = 0, level = 0.2) {
 }
 
 /* ------------------------------------------------------------------ *
- * Voices: a small group of friends (formant synthesis)
- * ------------------------------------------------------------------ */
-
-// Formants (Hz) of the vowels we need, roughly averaged over speakers.
-const V = {
-    oe: [480, 1350, 2500],   // เออ in "เซอร์"
-    a: [820, 1300, 2600],    // อา in "ไพร"
-    j: [330, 2150, 2900],    // the ย glide closing "ไพร"
-    e: [420, 2050, 2700],    // เอ in "เย้"
-    o: [450, 900, 2500]      // "woo"
-};
+ * The crowd: texture only, no synthesized words
+ * ------------------------------------------------------------------ *
+ * Worded synthesis of a Thai crowd lands as robotic (review-room.md #2), so
+ * until real recordings exist the people are heard as an unpitched roar of
+ * breath and voices-in-a-room plus applause, and the DOM word carries
+ * "เซอร์ไพรส์!". Real clips (public/audio/README.md) replace this.
+ */
 
 /**
- * One voice: sawtooth glottal source + breath noise through three parallel
- * formant band-passes. `track` lists [time, vowel, f0 multiplier, level].
+ * A room of friends going "woo": band-passed noise in the vowel region,
+ * each band swelling and fluttering on its own, with a rising then falling
+ * centre (the shape of a cheer, not of a word).
  */
-function formantVoice(engine, at, f0, track, pan, level) {
+function crowdRoar(engine, at, dur, level) {
     const { ctx } = engine;
-    const end = at + track[track.length - 1][0] + 0.08;
-    const osc = ctx.createOscillator();
-    osc.type = 'sawtooth';
-    // Natural wobble so a group never sounds like one synth.
-    const vib = ctx.createOscillator();
-    vib.frequency.value = rand(4.5, 6.5);
-    const vibGain = ctx.createGain();
-    vibGain.gain.value = f0 * 0.018;
-    vib.connect(vibGain); vibGain.connect(osc.frequency);
-    const breath = noiseSource(engine, end - at + 0.1, at);
-    const breathGain = ctx.createGain();
-    breathGain.gain.value = 0.25;
-    breath.connect(breathGain);
-    const src = ctx.createGain();
-    osc.connect(src);
-    breathGain.connect(src);
-
-    const outGain = engine.out(pan);
-    const amp = ctx.createGain();
-    amp.connect(outGain);
-    amp.connect(engine.reverb);
-    const bands = [0, 1, 2].map((i) => {
-        const f = filter(ctx, 'bandpass', track[0][1][i], [7, 11, 14][i]);
-        const g = ctx.createGain();
-        g.gain.value = [1.6, 1.05, 0.5][i];
-        src.connect(f); f.connect(g); g.connect(amp);
-        return f;
+    const bands = [[420, 1.4, 0.9], [900, 1.6, 1], [1600, 1.8, 0.7], [2600, 2.2, 0.35]];
+    bands.forEach(([freq, q, lv], i) => {
+        const src = noiseSource(engine, dur + 0.2, at);
+        const bp = filter(ctx, 'bandpass', freq, q);
+        bp.frequency.setValueAtTime(freq * 0.85, at);
+        bp.frequency.linearRampToValueAtTime(freq * 1.12, at + dur * 0.3);
+        bp.frequency.linearRampToValueAtTime(freq * 0.95, at + dur);
+        const g = engine.out((i % 2 ? 0.35 : -0.35) * (i / 3));
+        g.gain.setValueAtTime(0.0001, at);
+        g.gain.linearRampToValueAtTime(level * lv, at + 0.06 + i * 0.02);
+        // A few voices joining and dropping out.
+        for (let k = 1; k < 7; k++) {
+            const t = at + (dur * 0.7 * k) / 7;
+            g.gain.linearRampToValueAtTime(level * lv * rand(0.55, 1), t);
+        }
+        g.gain.exponentialRampToValueAtTime(0.0005, at + dur);
+        src.connect(bp); bp.connect(g); g.connect(engine.reverb);
     });
-
-    amp.gain.setValueAtTime(0.0001, at);
-    track.forEach(([t, vowel, pitch, lv], i) => {
-        const time = at + t;
-        const ramp = i === 0 ? 'setValueAtTime' : 'linearRampToValueAtTime';
-        osc.frequency[ramp](f0 * pitch, time);
-        bands.forEach((f, k) => f.frequency[ramp](vowel[k], time));
-        // First point: 25 ms soft attack (no startle click).
-        if (i === 0) amp.gain.linearRampToValueAtTime(lv * level, time + 0.025);
-        else amp.gain.linearRampToValueAtTime(Math.max(0.0001, lv * level), time);
-    });
-    amp.gain.exponentialRampToValueAtTime(0.0003, end);
-    outGain.gain.value = 1;
-    osc.start(at); vib.start(at);
-    osc.stop(end + 0.05); vib.stop(end + 0.05);
 }
 
-/** A fricative burst ("s", "sh") for one voice. */
-function fricative(engine, at, dur, freq, pan, level) {
-    const { ctx } = engine;
-    const src = noiseSource(engine, dur + 0.05, at);
-    const hp = filter(ctx, 'highpass', freq, 0.8);
-    const g = engine.out(pan);
-    g.gain.setValueAtTime(0.0001, at);
-    g.gain.linearRampToValueAtTime(level, at + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0005, at + dur);
-    src.connect(hp); hp.connect(g);
+/**
+ * Lights-on crowd: roar + applause. soft = reduced motion / gentle (-6 dB,
+ * slower attack). A recorded clip named "surprise" replaces all of it.
+ */
+export function surpriseShout(engine, at, { soft = false, level = 1 } = {}) {
+    const lv = level * (soft ? 0.5 : 1);
+    if (engine.playClip('surprise', { at, gain: 0.8 * lv })) return;
+    crowdRoar(engine, at, soft ? 1.2 : 1.5, 0.22 * lv);
+    setTimeout(() => {
+        if (engine.ctx.state !== 'closed') applause(engine, Math.max(at + 0.35, engine.ctx.currentTime + 0.02), soft ? 1.2 : 1.8, 0.2 * lv);
+    }, soft ? 0 : 200);
+}
+
+/** Finale: a bigger roar + applause (or the recorded "cheer" clip). */
+export function cheer(engine, at, level = 1) {
+    if (engine.playClip('cheer', { at, gain: 0.7 * level })) return;
+    crowdRoar(engine, at, 1.8, 0.2 * level);
+    setTimeout(() => {
+        if (engine.ctx.state !== 'closed') applause(engine, Math.max(at + 0.2, engine.ctx.currentTime + 0.05), 2.4, 0.22 * level);
+    }, 120);
 }
 
 /** Crowd applause: many hands, random, decaying. */
@@ -366,67 +335,6 @@ export function applause(engine, at, dur = 1.6, level = 0.18) {
     setTimeout(() => batch(third * 2, n), 180);
 }
 
-const VOICES = [
-    // f0 (Hz, raised as in shouting), pan, onset jitter (s), level
-    [205, -0.55, 0.0, 1], [330, 0.4, 0.03, 0.9], [245, 0.1, 0.05, 1],
-    [370, -0.25, 0.015, 0.75], [185, 0.65, 0.06, 0.85], [290, -0.7, 0.04, 0.8], [430, 0.25, 0.07, 0.6]
-];
-
-/**
- * "เซอร์ไพรส์!" shouted by a small group, then a "เย้!" and applause tail.
- * soft = the reduced-motion / gentle variant: just the cheer, -6 dB.
- * A recorded clip (CLIP_MANIFEST.surprise) replaces the synthesis when present.
- */
-export function surpriseShout(engine, at, { soft = false, level = 1 } = {}) {
-    const lv = level * (soft ? 0.5 : 1);
-    if (!soft && engine.playClip('surprise', { at, gain: 0.8 * level })) return;
-    if (!soft) {
-        VOICES.forEach(([f0, pan, jit, l]) => {
-            const t = at + jit;
-            const s = rand(0.92, 1.1);        // each friend has their own tempo
-            fricative(engine, t, 0.09 * s, 4200, pan, 0.05 * l * lv);
-            formantVoice(engine, t + 0.07 * s, f0, [
-                [0, V.oe, 0.95, 0.5],
-                [0.12 * s, V.oe, 1.02, 0.65],
-                [0.17 * s, V.oe, 1.0, 0.08],       // "p" closure
-                [0.2 * s, V.a, 1.3, 1],            // accented "PRAI"
-                [0.36 * s, V.a, 1.24, 0.95],
-                [0.5 * s, V.j, 1.08, 0.55],
-                [0.62 * s, V.j, 0.92, 0.12]
-            ], pan, 0.11 * l * lv);
-        });
-    }
-    // "เย้!" from half the room, staggered. Built a moment later (it starts
-    // 0.78 s after the shout) so the reveal frame only pays for the shout.
-    const yayAt = soft ? at : at + 0.78;
-    const yay = () => engine.ctx.state !== 'closed' && VOICES.forEach(([f0, pan, jit, l], i) => {
-        if (i % 2 && !soft) return;
-        const t = Math.max(yayAt + jit * 3 + rand(0, 0.12), engine.ctx.currentTime + 0.02);
-        formantVoice(engine, t, f0 * 1.1, [
-            [0, V.j, 1.0, 0.4],
-            [0.08, V.e, 1.25, 1],
-            [0.35, V.e, 1.32, 0.85],
-            [0.6, V.o, 1.05, 0.3]
-        ], pan, 0.06 * l * lv);
-    });
-    if (soft) yay(); else setTimeout(yay, 140);
-    setTimeout(() => applause(engine, soft ? at + 0.1 : at + 0.55, soft ? 1.2 : 1.8, 0.2 * lv), soft ? 0 : 260);
-}
-
-/** Finale: "เย้!" + applause, a little bigger than the shout's tail. */
-export function cheer(engine, at, level = 1) {
-    if (engine.playClip('cheer', { at, gain: 0.7 * level })) return;
-    VOICES.forEach(([f0, pan, jit, l]) => {
-        const t = at + jit * 2 + rand(0, 0.15);
-        formantVoice(engine, t, f0 * 1.05, [
-            [0, V.j, 1.0, 0.4],
-            [0.09, V.e, 1.28, 1],
-            [0.45, V.e, 1.34, 0.8],
-            [0.8, V.o, 1.02, 0.25]
-        ], pan, 0.055 * l * level);
-    });
-    setTimeout(() => applause(engine, Math.max(at + 0.2, engine.ctx.currentTime + 0.05), 2.4, 0.22 * level), 120);
-}
 
 /* ------------------------------------------------------------------ *
  * Party groove (plays under the tour to the cake)

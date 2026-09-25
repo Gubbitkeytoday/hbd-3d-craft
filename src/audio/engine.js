@@ -14,8 +14,12 @@
  * Must be created synchronously inside a user gesture (iOS unlock).
  */
 
-/** Optional recorded clips (public/audio/, see CREDITS.md there). Empty = synthesis only. */
-export const CLIP_MANIFEST = Object.freeze({});
+/**
+ * Recorded clips the receiver knows how to use (public/audio/README.md).
+ * public/audio/clips.json maps these names to files; a missing name, file or
+ * manifest simply means that cue is synthesized (or, for voices, silent).
+ */
+export const CLIP_NAMES = Object.freeze(['surprise', 'cheer', 'whisper']);
 
 export function createAudioEngine({ muted = false } = {}) {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -132,15 +136,23 @@ export function createAudioEngine({ muted = false } = {}) {
             return gain;
         },
 
-        /** Decodes the clips in CLIP_MANIFEST in the background; missing ones fall back to synthesis. */
+        /** Decodes the clips listed in public/audio/clips.json; anything missing falls back. */
         async preloadClips(base = import.meta.env.BASE_URL || '/') {
-            await Promise.all(Object.entries(CLIP_MANIFEST).map(async ([name, file]) => {
+            let manifest = {};
+            try {
+                const res = await fetch(`${base}audio/clips.json`, { cache: 'force-cache' });
+                // SPA hosts answer unknown paths with index.html: only JSON counts.
+                if (res.ok && (res.headers.get('content-type') || '').includes('json')) manifest = await res.json();
+            } catch { return; }
+            await Promise.all(CLIP_NAMES.map(async (name) => {
+                const file = typeof manifest?.[name] === 'string' ? manifest[name] : '';
+                // Plain file names only (no paths, no other origins).
+                if (!/^[\w.-]+\.(ogg|opus|mp3|m4a|webm|wav)$/i.test(file)) return;
                 try {
                     const res = await fetch(`${base}audio/${file}`);
                     if (!res.ok) return;
-                    const data = await res.arrayBuffer();
-                    clips.set(name, await ctx.decodeAudioData(data));
-                } catch { /* synthesis fallback */ }
+                    clips.set(name, await ctx.decodeAudioData(await res.arrayBuffer()));
+                } catch { /* stays synthesized */ }
             }));
         },
 

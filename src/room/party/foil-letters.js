@@ -117,7 +117,8 @@ export function inflateLetter(ch, { height = 0.36, depth = 0.05, font = '"Outfit
                 h = Math.sqrt(t);
                 // Crinkles: strongest just inside the seam, where the film puckers.
                 const pucker = Math.exp(-Math.pow((dc - lip - 1.5) / 1.6, 2));
-                h += (hash(x, y) - 0.5) * 0.09 * pucker;
+                // plus a fine all-over crinkle so the mirror breaks up like real film.
+                h += (hash(x, y) - 0.5) * (0.16 * pucker + 0.035);
                 h = Math.max(0, h);
             }
             cornerIndex[y * (N + 1) + x] = pos.length / 4;
@@ -167,27 +168,36 @@ export function inflateLetter(ch, { height = 0.36, depth = 0.05, font = '"Outfit
 export function foilLook(theme) {
     switch (theme) {
         case 'neon-rose':
-        case 'sakura-blossom': return { color: 0xf2b8a8, roughness: 0.16, iridescence: 0 }; // rose gold
+        case 'sakura-blossom': return { color: 0xffb49c, roughness: 0.07, iridescence: 0 }; // rose gold
         case 'pastel-mint':
         case 'lavender-dream':
-        case 'cosmic-nebula': return { color: 0xe6e9ef, roughness: 0.14, iridescence: 0 }; // silver
-        case 'cyber-retro': return { color: 0xdfe6f2, roughness: 0.12, iridescence: 0.8 }; // holographic
-        default: return { color: 0xf1c872, roughness: 0.16, iridescence: 0 }; // gold
+        case 'cosmic-nebula': return { color: 0xeef1f6, roughness: 0.06, iridescence: 0 }; // silver
+        case 'cyber-retro': return { color: 0xe6ecf6, roughness: 0.06, iridescence: 0.8 }; // holographic
+        default: return { color: 0xffd27a, roughness: 0.07, iridescence: 0 }; // gold
     }
 }
 
-export function createFoilMaterial(theme) {
+/**
+ * Mylar: a near-mirror metal under a glossy clearcoat, with only a hint of
+ * anisotropy. It reflects its own studio-style environment (set by the
+ * room: envMap = the RoomEnvironment PMREM), not the warm room capture,
+ * which turned "mirror" into brown bronze.
+ */
+export function createFoilMaterial(theme, envMap = null) {
     const look = foilLook(theme);
     return new THREE.MeshPhysicalMaterial({
         color: look.color,
         metalness: 1,
         roughness: look.roughness,
-        anisotropy: 0.45,
+        anisotropy: 0.15,
         anisotropyRotation: Math.PI / 2,
+        clearcoat: 1,
+        clearcoatRoughness: 0.04,
         iridescence: look.iridescence,
         iridescenceIOR: 1.6,
         iridescenceThicknessRange: [180, 520],
-        envMapIntensity: 1
+        envMap,
+        envMapIntensity: 2
     });
 }
 

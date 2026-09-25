@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 
 export default [
-    { ignores: ['dist/', 'node_modules/', '.playwright-mcp/'] },
+    { ignores: ['dist/', 'node_modules/', '.playwright-mcp/', 'public/', 'scripts/room/cache/'] },
     js.configs.recommended,
     {
         languageOptions: {

@@ -933,10 +933,18 @@ html[lang="ja"] .rcv-title { word-break: auto-phrase; }
     color: #fff4d6;
     -webkit-text-stroke: 0.07em rgba(70, 18, 36, 0.92);
     paint-order: stroke fill;
-    text-shadow: 0 6px 30px rgba(40, 10, 20, 0.55);
+    text-shadow: 0 4px 14px rgba(40, 10, 20, 0.5);
     transform: translate(-50%, -50%) scale(1.15);
     opacity: 0;
     pointer-events: none;
+}
+/* Rasterized during the dark phase: an almost invisible promoted layer, so
+   the reveal frame only animates opacity/transform (its first raster at DPR 3
+   was a ~110 ms frame). */
+.rcv-surprise.is-warm {
+    opacity: 0.001;
+    will-change: transform, opacity;
+    contain: layout paint;
 }
 .rcv-surprise.is-hit { animation: rcvSurprise 1.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
 
@@ -1023,8 +1031,9 @@ html[lang="ja"] .rcv-title { word-break: auto-phrase; }
 @media (prefers-reduced-motion: reduce) {
     .rcv-switch-ring { animation: none; }
     .rcv-switch.is-urgent .rcv-switch-hand { animation: none; }
-    .rcv-surprise.is-hit { animation-name: rcvSurpriseCalm; }
-    @keyframes rcvSurpriseCalm { 0%, 100% { opacity: 0; transform: translate(-50%, -50%); } 12%, 70% { opacity: 1; transform: translate(-50%, -50%); } }
+    /* The global reduced-motion rule zeroes animation durations, so the
+       word is simply shown, still, for its 2 s (viewer.js removes is-hit). */
+    .rcv-surprise.is-hit { animation: none !important; opacity: 1; transform: translate(-50%, -50%); }
     .rcv-lyrics, .rcv-cake-coming { animation: none; }
 }
 /* The wish line sits over the candle-lit table: give it the lyric pill. */
@@ -1036,3 +1045,59 @@ html[lang="ja"] .rcv-title { word-break: auto-phrase; }
     color: #fff6e6;
     text-shadow: none;
 }
+
+/* Party: the name pill fades in where it docks (no travel from a hero spot
+   over the foil letters, no mid-transition ellipsis), and steps aside while
+   the lyric line and the wish carry the name. */
+.rcv[data-backdrop="party"] .rcv-title { transition: opacity 0.5s ease; }
+.rcv .rcv-title.is-tucked { opacity: 0; }
+
+/* ---------- Desktop message card: a centred paper card, not a tall rail ---------- */
+@media (min-width: 900px) {
+    .rcv-card {
+        top: 50%;
+        bottom: auto;
+        right: 32px;
+        width: 480px;
+        height: auto;
+        max-height: calc(100vh - 48px);
+        max-height: calc(100dvh - 48px);
+        border-radius: 28px;
+        transform: translate(calc(100% + 48px), -50%);
+        background:
+            radial-gradient(120% 60% at 50% 0%, rgba(255, 255, 255, 0.9), transparent 70%),
+            var(--rcv-paper);
+    }
+    .rcv-card.is-open { transform: translate(0, -50%); }
+    .rcv-card::before {
+        /* A thin gold rule across the top: the card reads as stationery. */
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 48px;
+        right: 48px;
+        height: 4px;
+        border-radius: 0 0 4px 4px;
+        background: linear-gradient(90deg, transparent, var(--rcv-gold-2), var(--rcv-gold-1), var(--rcv-gold-2), transparent);
+    }
+    .rcv-card-scroll { padding: 34px 44px 30px; }
+    .rcv-card-to { font-size: 0.9rem; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+    .rcv-card-text h2 { font-size: 2.35rem; line-height: 1.3; margin: 8px 0 18px; }
+    .rcv-card-message { font-size: 1.14rem; line-height: 1.95; margin-bottom: 22px; }
+    .rcv-card-signature { font-size: 1.25rem; margin-bottom: 26px; }
+    .rcv-card-photo { width: 100%; max-width: none; aspect-ratio: 4 / 3; border-radius: 18px; margin: 10px 0 20px; }
+    .rcv-card-text::after {
+        content: "";
+        display: block;
+        width: 56px;
+        height: 1px;
+        margin: 0 auto 22px;
+        background: var(--rcv-hair);
+    }
+    .rcv-end { border-top: 0; padding-top: 0; }
+    .rcv-card.is-open ~ .rcv-hud .rcv-controls,
+    .rcv-hud:has(~ .rcv-card.is-open) .rcv-controls { right: 528px; }
+}
+/* The reveal frame holds the letters, the name and the table: the word
+   sits over the empty ceiling instead of on the foil. */
+.rcv[data-backdrop="party"] .rcv-surprise { top: 21%; }

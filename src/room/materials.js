@@ -27,7 +27,10 @@ export function createBakeUniforms() {
         uLmK: { value: new THREE.Vector2(1, 0) },
         // White balance of the party bake (a camera would not render 3600 K
         // bulbs this orange; a touch cooler reads as clean warm white).
-        uPartyWB: { value: new THREE.Color(0.95, 1.0, 1.14) },
+        uPartyWB: { value: new THREE.Color(0.93, 1.0, 1.12) },
+        // Night is blue-ish: the dark bake (city glow + a warm corridor) is
+        // cooled so the flip goes cool -> warm, not warm -> warmer.
+        uDarkTint: { value: new THREE.Color(0.78, 0.86, 1.08) },
         uEnvK: { value: 0.1 },
         uCandlePos: { value: new THREE.Vector3() },
         uCandleCol: { value: new THREE.Color(0, 0, 0) },
@@ -39,6 +42,7 @@ const FRAGMENT_PARS = /* glsl */`
 uniform sampler2D uLmParty;
 uniform vec2 uLmK;
 uniform vec3 uPartyWB;
+uniform vec3 uDarkTint;
 uniform float uEnvK;
 uniform vec3 uCandlePos;
 uniform vec3 uCandleCol;
@@ -52,7 +56,7 @@ const FRAGMENT_BAKE = /* glsl */`
 {
     vec3 lmD = texture2D( lightMap, vLightMapUv ).rgb;
     vec3 lmP = texture2D( uLmParty, vLightMapUv ).rgb;
-    irradiance = lmD * lmD * uLmK.x + lmP * lmP * uLmK.y * uPartyWB;
+    irradiance = lmD * lmD * uLmK.x * uDarkTint + lmP * lmP * uLmK.y * uPartyWB;
     vec3 toC = uCandlePos - geometryPosition;
     float d2 = dot( toC, toC );
     float nl = dot( geometryNormal, toC * inversesqrt( max( d2, 1e-4 ) ) ) * 0.7 + 0.3;

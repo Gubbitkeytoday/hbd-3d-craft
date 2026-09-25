@@ -40,19 +40,44 @@ export const CAKE_SPOT = Object.freeze({ x: -0.3, z: -0.78 });
 export const PENDANT = Object.freeze({ x: -0.3, y: 1.82, z: -0.75 });
 
 /** Where the foil letters hang (back wall, centred behind the table). */
-export const LETTERS = Object.freeze({ x: -0.3, z: -2.36, row1Y: 2.12, row2Y: 1.68, height: 0.36 });
+// 0.3 m letters: a real 12-inch foil kit; BIRTHDAY is ~2 m wide.
+export const LETTERS = Object.freeze({ x: -0.3, z: -2.36, row1Y: 2.06, row2Y: 1.7, height: 0.3 });
+
+/** The LED name sign under the letters (centre y, text height, max width). */
+export const SIGN = Object.freeze({ y: 1.25, height: 0.4, maxWidth: 1.6 });
 
 /**
  * Camera presets in metres (converted to world units by shotsWorld()).
- * entry: standing in the doorway, the glowing switch and the city window in
- * frame (also on a 9:19.5 phone). wide: the whole decorated room. cake:
- * table height, cake centred with the letters behind. closeUp: the flames.
+ *   entry    standing in the doorway: the glowing switch and the city window
+ *   reveal   same spot, head turned to the party: HAPPY BIRTHDAY, the name
+ *            sign and the table with the cake in one frame, portrait too
+ *            (the letters' wall is ~5.2 m away; 62 deg portrait vfov shows
+ *            ~2.9 m of it, BIRTHDAY is ~2.4 m). Tween controls.target from
+ *            entry.target to here right after the lights come on.
+ *   wide     the whole decorated room
+ *   cake     table height, cake centred with the letters behind
+ *   closeUp  the flames (nothing between the lens and the cake)
+ *   preview  the creator's live preview (letters + name + cake)
+ * fov: recommended vertical fov per aspect (portrait = height > width). The
+ * letters' top edge stays below the top ~18 % of the frame (hero title
+ * zone) at these values. portrait: optional position/target overrides for
+ * tall screens (the letters leave the frame cleanly instead of being cut).
  */
 export const SHOTS_M = Object.freeze({
-    entry: { position: [1.9, 1.56, 2.3], target: [2.15, 1.3, -0.3] },
-    wide: { position: [1.75, 1.62, 2.05], target: [-0.36, 1.15, -1.6] },
-    cake: { position: [0.1, 1.3, 0.95], target: [-0.3, 1.1, -0.85] },
-    closeUp: { position: [-0.18, 1.08, -0.18], target: [-0.3, 0.9, -0.8] }
+    entry: { position: [1.9, 1.56, 2.3], target: [2.15, 1.3, -0.3], fov: { portrait: 58, landscape: 45 } },
+    reveal: {
+        position: [1.85, 1.58, 2.35], target: [-0.3, 1.52, -2.36], fov: { portrait: 62, landscape: 50 },
+        portrait: { position: [1.85, 1.58, 2.35], target: [-0.3, 1.38, -2.36] }
+    },
+    wide: { position: [1.75, 1.62, 2.05], target: [-0.36, 1.15, -1.6], fov: { portrait: 60, landscape: 45 } },
+    cake: {
+        position: [0.1, 1.3, 0.95], target: [-0.3, 1.1, -0.85], fov: { portrait: 60, landscape: 45 },
+        // Portrait: step back so all of BIRTHDAY fits (~2 m of wall visible).
+        portrait: { position: [0.1, 1.25, 1.35], target: [-0.3, 1.0, -0.85] }
+    },
+    closeUp: { position: [-0.17, 1.1, -0.12], target: [-0.3, 0.9, -0.8], fov: { portrait: 55, landscape: 45 } },
+    // Creator preview: cake, letters and name sign together (fit ~40 deg hfov).
+    preview: { position: [0.4, 1.5, 1.75], target: [-0.3, 1.2, -1.1], fov: { portrait: 62, landscape: 42 } }
 });
 
 /** Night-city panorama arc outside the window (scripts/room/layout.json "city"). */
@@ -62,10 +87,22 @@ export function toWorld(v, out = new THREE.Vector3()) {
     return out.set(v[0], v[1], v[2]).multiplyScalar(ROOM_SCALE);
 }
 
+/**
+ * World-space shots: { position, target, fov: { portrait, landscape },
+ * portrait?: { position, target } }, plus forAspect(aspect) returning the
+ * { position, target, fov } to use for width / height = aspect.
+ */
 export function shotsWorld() {
     const shots = {};
     for (const [name, s] of Object.entries(SHOTS_M)) {
-        shots[name] = { position: toWorld(s.position), target: toWorld(s.target) };
+        const shot = { position: toWorld(s.position), target: toWorld(s.target), fov: { ...s.fov } };
+        if (s.portrait) shot.portrait = { position: toWorld(s.portrait.position), target: toWorld(s.portrait.target) };
+        shot.forAspect = (aspect) => {
+            const tall = aspect < 1;
+            const p = tall && shot.portrait ? shot.portrait : shot;
+            return { position: p.position, target: p.target, fov: tall ? shot.fov.portrait : shot.fov.landscape };
+        };
+        shots[name] = shot;
     }
     return shots;
 }
