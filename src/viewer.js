@@ -11,6 +11,11 @@ import {
     createBloomComposer,
     isMobileViewport
 } from './render-quality.js';
+import {
+    buildCakeModel,
+    getCakeLayout,
+    createHolographicScannerTexture
+} from './cake-models.js';
 
 // Realistic Organic Teardrop Candle Flame Shader with Natural S-curve Flicker & Heat Glow
 const flameVertexShader = `
@@ -102,6 +107,7 @@ let candles = [];       // { group, flame, light, isLit }
 let balloons = [];      // { mesh, floatSpeed, swaySpeed, swayOffset }
 let gifts = [];         // { mesh, floatSpeed, swaySpeed, swayOffset, rotSpeed }
 let notes = [];         // { mesh, floatSpeed, swaySpeed, swayOffset, rotSpeed }
+let viewerDomBound = false;
 let embers = [];        // { mesh, speedY, speedX, life }
 let holographicRings = [];
 let floatingSprinkles = [];
@@ -127,7 +133,7 @@ function logToCyberConsole(text, type = 'default') {
     else if (type === 'green') line.className = 'console-line text-green';
     else if (type === 'warning') line.className = 'console-line text-warning';
     
-    line.innerHTML = `&gt; ${text}`;
+    line.textContent = `> ${text}`;
     container.appendChild(line);
     
     // Auto-scroll to bottom
@@ -160,139 +166,6 @@ function streamBootSequence() {
             }
         }, item.delay);
     });
-}
-
-// Procedural Canvas Texture Generators
-function createCakeCrumbBumpTexture() {
-    const SIZE = 512;
-    const canvas = document.createElement('canvas');
-    canvas.width = SIZE;
-    canvas.height = SIZE;
-    const ctx = canvas.getContext('2d');
-
-    // Fill base gray (middle height)
-    ctx.fillStyle = '#808080';
-    ctx.fillRect(0, 0, SIZE, SIZE);
-
-    // Palette-knife swipe marks. Fine crumb noise alone left the tier sides
-    // looking like smooth plastic — the broad vertical strokes a spatula
-    // leaves while smoothing buttercream are the real tell of a frosted cake.
-    // Deterministic (no Math.random) so the finish stays stable per card.
-    const SWIPES = 34;
-    ctx.lineCap = 'round';
-    for (let i = 0; i < SWIPES; i++) {
-        const t = i / SWIPES;
-        const x = t * SIZE;
-        const lift = Math.sin(i * 2.7) * 26;
-        const width = 12 + Math.abs(Math.cos(i * 1.9)) * 20;
-        const bow = Math.sin(i * 1.3) * 26;
-
-        ctx.strokeStyle = `rgba(${128 + lift}, ${128 + lift}, ${128 + lift}, 0.55)`;
-        ctx.lineWidth = width;
-        ctx.beginPath();
-        ctx.moveTo(x, -10);
-        ctx.quadraticCurveTo(x + bow, SIZE / 2, x + Math.sin(i * 2.1) * 14, SIZE + 10);
-        ctx.stroke();
-
-        // Thin bright ridge on one side of the stroke, where frosting piles up
-        ctx.strokeStyle = `rgba(${150 + lift * 0.4}, ${150 + lift * 0.4}, ${150 + lift * 0.4}, 0.3)`;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(x + width * 0.4, -10);
-        ctx.quadraticCurveTo(x + bow + width * 0.4, SIZE / 2, x + Math.sin(i * 2.1) * 14 + width * 0.4, SIZE + 10);
-        ctx.stroke();
-    }
-
-    // Generate organic micro-pores and cake crumbs over the swipes
-    for (let i = 0; i < 26000; i++) {
-        const x = Math.random() * SIZE;
-        const y = Math.random() * SIZE;
-        const radius = 0.4 + Math.random() * 1.6;
-        const heightVal = Math.floor(Math.random() * 60) - 30;
-        const color = Math.min(255, Math.max(0, 128 + heightVal));
-        ctx.fillStyle = `rgba(${color}, ${color}, ${color}, 0.55)`;
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    // Fewer repeats than before: the swipe marks have to read at cake scale,
-    // not tile into fine noise.
-    texture.repeat.set(3, 1);
-    return texture;
-}
-
-function createCarbonFiberTexture() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#111113';
-    ctx.fillRect(0, 0, 64, 64);
-    
-    ctx.fillStyle = '#1c1c1f';
-    for (let y = 0; y < 64; y += 8) {
-        for (let x = 0; x < 64; x += 8) {
-            if ((x + y) % 16 === 0) {
-                ctx.fillRect(x, y, 4, 8);
-                ctx.fillRect(x + 4, y + 4, 4, 8);
-            }
-        }
-    }
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(12, 12);
-    return texture;
-}
-
-function createHolographicScannerTexture(colorStr) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, 512, 512);
-    
-    // Draw concentric neon rings
-    ctx.strokeStyle = colorStr;
-    ctx.shadowColor = colorStr;
-    ctx.shadowBlur = 18;
-    
-    // Ring 1 (Dashed outer)
-    ctx.lineWidth = 4;
-    ctx.setLineDash([20, 20, 5, 20]);
-    ctx.beginPath();
-    ctx.arc(256, 256, 220, 0, Math.PI * 2);
-    ctx.stroke();
-    
-    // Ring 2 (Solid thinner)
-    ctx.lineWidth = 1;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(256, 256, 185, 0, Math.PI * 2);
-    ctx.stroke();
-    
-    // Ring 3 (Inner complex dashed with ticks)
-    ctx.lineWidth = 3;
-    ctx.setLineDash([8, 15]);
-    ctx.beginPath();
-    ctx.arc(256, 256, 140, 0, Math.PI * 2);
-    ctx.stroke();
-    
-    // Ticks & Tech markings
-    ctx.shadowBlur = 6;
-    ctx.font = 'bold 9px "Courier New", monospace';
-    ctx.fillStyle = colorStr;
-    ctx.textAlign = 'center';
-    ctx.fillText('QUANTUM GRID PROJ V4.0', 256, 256 - 95);
-    ctx.fillText('STATUS // ACTIVE_SCAN', 256, 256 + 105);
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    return texture;
 }
 
 // Parallax target tracking
@@ -340,14 +213,21 @@ const defaultBlessings = [
 export function initViewer(config) {
     activeConfig = config;
     allCandlesExtinguished = false;
-    
+
+    // #receiver-view is static markup that survives route changes, so its DOM
+    // listeners are bound once; binding on every mount stacked duplicates.
+    const firstMount = !viewerDomBound;
+    viewerDomBound = true;
+
     // Bind UI HUD controls
-    setupHUDListeners();
+    if (firstMount) setupHUDListeners();
 
     // Initialize Receiver Language Switcher
     const receiverLangSwitcher = document.getElementById('lang-switcher-receiver');
     if (receiverLangSwitcher) {
         receiverLangSwitcher.value = getCurrentLang();
+    }
+    if (receiverLangSwitcher && firstMount) {
         receiverLangSwitcher.addEventListener('change', (e) => {
             saveLanguageSetting(e.target.value);
             applyDOMTranslations();
@@ -359,8 +239,17 @@ export function initViewer(config) {
     // Setup Envelope Welcome Gate trigger
     const btnOpen = document.getElementById('btn-open-envelope');
     const gate = document.getElementById('envelope-gate');
+
+    // The gate is shared markup: a previous card's opening animation left it
+    // hidden with the envelope scaled to zero, so reset it for this card.
+    if (gate) gate.classList.add('active-gate');
+    const envelopeCard = document.querySelector('#envelope-gate .envelope');
+    if (envelopeCard) {
+        envelopeCard.style.opacity = '';
+        envelopeCard.style.transform = '';
+    }
     
-    if (btnOpen) {
+    if (btnOpen && firstMount) {
         btnOpen.addEventListener('click', () => {
             if (gate) {
                 // Animate envelope opening transition
@@ -387,7 +276,7 @@ export function initViewer(config) {
 
     // Bind back to creator button
     const btnBack = document.getElementById('btn-back-creator');
-    if (btnBack) {
+    if (btnBack && firstMount) {
         btnBack.addEventListener('click', () => {
             window.location.hash = '#/';
         });
@@ -395,7 +284,7 @@ export function initViewer(config) {
 
     // Bind close letter popup button
     const btnCloseLetter = document.getElementById('btn-close-letter');
-    if (btnCloseLetter) {
+    if (btnCloseLetter && firstMount) {
         btnCloseLetter.addEventListener('click', () => {
             closeLetterPopup();
         });
@@ -403,7 +292,7 @@ export function initViewer(config) {
 
     // Bind close greeting card button
     const btnCloseCard = document.getElementById('btn-close-greeting-card');
-    if (btnCloseCard) {
+    if (btnCloseCard && firstMount) {
         btnCloseCard.addEventListener('click', () => {
             const cardWrapper = document.getElementById('greeting-card-wrapper');
             if (cardWrapper) {
@@ -417,7 +306,7 @@ export function initViewer(config) {
 
     // Bind click/tap listener to the interactive envelope container to open it manually
     const envContainer = document.getElementById('letter-envelope-container');
-    if (envContainer) {
+    if (envContainer && firstMount) {
         envContainer.addEventListener('click', () => {
             if (!envContainer.classList.contains('open')) {
                 openEnvelopeWithAnimation();
@@ -476,14 +365,14 @@ export function destroyViewer() {
         notes = [];
         
         holographicRings.forEach(r => {
-            scene.remove(r);
+            scene?.remove(r);
             if (r.geometry) r.geometry.dispose();
             if (r.material) r.material.dispose();
         });
         holographicRings = [];
 
         floatingSprinkles.forEach(s => {
-            scene.remove(s.mesh);
+            scene?.remove(s.mesh);
             if (s.mesh.geometry) s.mesh.geometry.dispose();
             if (s.mesh.material) s.mesh.material.dispose();
         });
@@ -507,7 +396,7 @@ export function destroyViewer() {
 
         if (celebrationConfetti) {
             celebrationConfetti.forEach(c => {
-                scene.remove(c.mesh);
+                scene?.remove(c.mesh);
                 if (c.mesh.geometry) c.mesh.geometry.dispose();
                 if (c.mesh.material) c.mesh.material.dispose();
             });
@@ -533,7 +422,7 @@ export function destroyViewer() {
 
         // V4.1 Envelope and pointer cleanup
         if (envelopeGroup) {
-            scene.remove(envelopeGroup);
+            scene?.remove(envelopeGroup);
             envelopeGroup.traverse(child => {
                 if (child.geometry) child.geometry.dispose();
                 if (child.material) {
@@ -544,13 +433,13 @@ export function destroyViewer() {
             envelopeGroup = null;
         }
         if (envelopePointer) {
-            scene.remove(envelopePointer);
+            scene?.remove(envelopePointer);
             if (envelopePointer.geometry) envelopePointer.geometry.dispose();
             if (envelopePointer.material) envelopePointer.material.dispose();
             envelopePointer = null;
         }
         if (envelopeLabel) {
-            scene.remove(envelopeLabel);
+            scene?.remove(envelopeLabel);
             if (envelopeLabel.material) {
                 if (envelopeLabel.material.map) envelopeLabel.material.map.dispose();
                 envelopeLabel.material.dispose();
@@ -1085,6 +974,11 @@ function init3DScene() {
     function renderLoop() {
         animationId = requestAnimationFrame(renderLoop);
 
+        if (document.hidden) {
+            clock.getDelta();
+            return;
+        }
+
         const delta = clock.getDelta();
         const elapsed = clock.getElapsedTime();
 
@@ -1221,6 +1115,7 @@ function init3DScene() {
                 scene.remove(ember.mesh);
             }
         });
+        embers = embers.filter(e => e.life > 0);
         // Update celebrationConfetti particles (V4.6 volumetric confetti updates)
         celebrationConfetti.forEach(particle => {
             particle.angle += particle.orbitSpeed * delta;
@@ -1357,1302 +1252,33 @@ function onViewerResize() {
 
 // 5. CAKE AND ASSETS BUILDERS FOR VIEW MODE
 
-function createBeveledCylinder(radius, height, bevelRadius) {
-    const shape = new THREE.Shape();
-    shape.absarc(0, 0, radius - bevelRadius, 0, Math.PI * 2, false);
-
-    // Scale the silhouette resolution with the actual radius. A flat 24 left
-    // the big 2-unit tiers visibly faceted while over-tessellating the small
-    // stand parts nobody looks at.
-    const curveSegments = Math.min(96, Math.max(24, Math.round(radius * 36)));
-    
-    const extrudeSettings = {
-        depth: height - bevelRadius * 2,
-        steps: 1,
-        bevelEnabled: true,
-        bevelSegments: 6,
-        bevelSize: bevelRadius,
-        bevelThickness: bevelRadius,
-        curveSegments
-    };
-    
-    const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    geo.center();
-    geo.rotateX(Math.PI / 2);
-    return geo;
-}
-
-// 3D Parametric Heart Shape Generator
-function getHeartShape(scale = 1.0) {
-    const shape = new THREE.Shape();
-    const s = scale * 0.95;
-    shape.moveTo(0, 0.45 * s);
-    shape.bezierCurveTo(0.1 * s, 0.9 * s, 0.8 * s, 1.5 * s, 1.45 * s, 1.5 * s);
-    shape.bezierCurveTo(2.15 * s, 1.5 * s, 2.15 * s, 0.85 * s, 2.15 * s, 0.45 * s);
-    shape.bezierCurveTo(2.15 * s, -0.35 * s, 1.2 * s, -1.15 * s, 0, -1.85 * s);
-    shape.bezierCurveTo(-1.2 * s, -1.15 * s, -2.15 * s, -0.35 * s, -2.15 * s, 0.45 * s);
-    shape.bezierCurveTo(-2.15 * s, 0.85 * s, -2.15 * s, 1.5 * s, -1.45 * s, 1.5 * s);
-    shape.bezierCurveTo(-0.8 * s, 1.5 * s, -0.1 * s, 0.9 * s, 0, 0.45 * s);
-    return shape;
-}
-
-// Extruded 3D Heart Cake with Chamfered Frosting Bevel
-function createHeartCakeGeometry(scale, height, bevelSize) {
-    const shape = getHeartShape(scale);
-    const extrudeSettings = {
-        depth: height - bevelSize * 2,
-        steps: 1,
-        bevelEnabled: true,
-        bevelSegments: 6,
-        bevelSize: bevelSize,
-        bevelThickness: bevelSize,
-        curveSegments: 56
-    };
-    const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    geo.center();
-    geo.rotateX(-Math.PI / 2); // Point faces toward front (+Z)
-    return geo;
-}
-
-// Hexagonal Prism Cake Geometry
-function createHexPrismGeometry(radius, height, bevelRadius) {
-    const shape = new THREE.Shape();
-    const sides = 6;
-    for (let i = 0; i < sides; i++) {
-        const a = (i / sides) * Math.PI * 2;
-        const x = Math.cos(a) * (radius - bevelRadius);
-        const y = Math.sin(a) * (radius - bevelRadius);
-        if (i === 0) shape.moveTo(x, y);
-        else shape.lineTo(x, y);
-    }
-    shape.closePath();
-    const extrudeSettings = {
-        depth: height - bevelRadius * 2,
-        steps: 1,
-        bevelEnabled: true,
-        bevelSegments: 4,
-        bevelSize: bevelRadius,
-        bevelThickness: bevelRadius,
-        curveSegments: 16
-    };
-    const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    geo.center();
-    geo.rotateX(Math.PI / 2);
-    return geo;
-}
-
-// Pipes Victorian Ruffled Buttercream Frills along the Heart Perimeter
-function addHeartPipingRing(group, shape, y, count = 38, scale = 1.0) {
-    const points = shape.getSpacedPoints(count);
-    for (let i = 0; i < points.length; i++) {
-        const pt = points[i];
-        const seed = i * 2.1;
-        const cream = createPipedCreamMesh(0xfffafb, seed);
-        // Note: heart geometry is rotated so pt.y corresponds to Z axis
-        cream.position.set(pt.x * scale, y, -pt.y * scale);
-        const angle = Math.atan2(-pt.y, pt.x);
-        cream.rotation.set(0.12, -angle, 0.05);
-        const s = 1.4 + Math.sin(seed * 2.3) * 0.1;
-        cream.scale.set(s, s * 1.2, s);
-        group.add(cream);
-    }
-}
-
-// String of Lustrous Sugar Pearls along Tier Rim
-function addPearlBorderRing(group, count, radius, y, material) {
-    const pearlGeo = new THREE.SphereGeometry(0.045, 12, 12);
-    for (let i = 0; i < count; i++) {
-        const a = (i / count) * Math.PI * 2;
-        const pearl = new THREE.Mesh(pearlGeo, material);
-        pearl.position.set(Math.cos(a) * radius, y, Math.sin(a) * radius);
-        pearl.castShadow = true;
-        group.add(pearl);
-    }
-}
-
-// Cute Minimalist Sugar Daisy Flower (Bento Aesthetic)
-function createDaisyFlowerMesh() {
-    const flowerGroup = new THREE.Group();
-    const centerMat = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.4 });
-    const centerMesh = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 10), centerMat);
-    centerMesh.scale.set(1, 0.45, 1);
-    flowerGroup.add(centerMesh);
-
-    const petalMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
-    const petalGeo = new THREE.SphereGeometry(0.035, 8, 8);
-    for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2;
-        const petal = new THREE.Mesh(petalGeo, petalMat);
-        petal.scale.set(1.5, 0.35, 0.85);
-        petal.position.set(Math.cos(a) * 0.055, 0, Math.sin(a) * 0.055);
-        petal.rotation.y = -a;
-        flowerGroup.add(petal);
-    }
-    return flowerGroup;
-}
-
-// Edible Sugar Rose Rosette
-function createRoseRosetteMesh(colorHex = 0xff3366) {
-    const roseGroup = new THREE.Group();
-    const roseMat = new THREE.MeshStandardMaterial({
-        color: colorHex,
-        roughness: 0.6,
-        metalness: 0.05
-    });
-    const bud = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), roseMat);
-    bud.scale.set(0.8, 1.2, 0.8);
-    roseGroup.add(bud);
-
-    const petalGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.02, 10);
-    for (let p = 0; p < 8; p++) {
-        const a = (p / 8) * Math.PI * 2 + p * 0.4;
-        const petal = new THREE.Mesh(petalGeo, roseMat);
-        petal.scale.set(0.6 + p * 0.07, 0.3, 0.5 + p * 0.05);
-        petal.position.set(Math.cos(a) * (0.04 + p * 0.015), p * 0.008, Math.sin(a) * (0.04 + p * 0.015));
-        petal.rotation.set(0.25, -a, 0.15);
-        roseGroup.add(petal);
-    }
-    return roseGroup;
-}
-
-// Gourmet French Macaron
-function createMacaronMesh(colorHex = 0xffd700) {
-    const macGroup = new THREE.Group();
-    const macMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.45, metalness: 0.05 });
-    const creamMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
-    
-    const shellGeo = new THREE.SphereGeometry(0.08, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-    const topShell = new THREE.Mesh(shellGeo, macMat);
-    topShell.scale.set(1.2, 0.6, 1.2);
-    topShell.position.y = 0.02;
-    topShell.castShadow = true;
-    macGroup.add(topShell);
-
-    const botShell = new THREE.Mesh(shellGeo, macMat);
-    botShell.scale.set(1.2, 0.6, 1.2);
-    botShell.rotation.x = Math.PI;
-    botShell.position.y = -0.02;
-    botShell.castShadow = true;
-    macGroup.add(botShell);
-
-    const creamGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.03, 16);
-    const cream = new THREE.Mesh(creamGeo, creamMat);
-    macGroup.add(cream);
-
-    return macGroup;
-}
-
-// Floating Cyber Crystal Shard
-function createCrystalShardMesh(colorHex = 0x00f2fe) {
-    const shardGeo = new THREE.OctahedronGeometry(0.14, 0);
-    const shardMat = new THREE.MeshPhysicalMaterial({
-        color: colorHex,
-        emissive: colorHex,
-        emissiveIntensity: 0.6,
-        roughness: 0.08,
-        metalness: 0.15,
-        transmission: 0.85,
-        thickness: 0.35,
-        ior: 1.6
-    });
-    const shard = new THREE.Mesh(shardGeo, shardMat);
-    shard.scale.set(0.75, 1.9, 0.75);
-    shard.castShadow = true;
-    return shard;
-}
-
-function getPlateMaterial(plateStyle, customColor = '') {
-    let mat;
-    switch (plateStyle) {
-        case 'crystal':
-            mat = new THREE.MeshPhysicalMaterial({
-                color: 0xffe6f2,
-                roughness: 0.04,
-                metalness: 0.05,
-                transmission: 0.9,
-                thickness: 0.4,
-                ior: 1.52,
-                transparent: true,
-                opacity: 0.85,
-                clearcoat: 1.0,
-                clearcoatRoughness: 0.02
-            });
-            break;
-        case 'golden':
-            // Physical, not Standard: clearcoat is a MeshPhysicalMaterial
-            // property and was being silently dropped here.
-            mat = new THREE.MeshPhysicalMaterial({
-                color: 0xd4af37,
-                roughness: 0.12,
-                metalness: 0.95,
-                clearcoat: 0.8,
-                clearcoatRoughness: 0.08
-            });
-            break;
-        case 'cosmic':
-            mat = new THREE.MeshPhysicalMaterial({
-                color: 0x090712,
-                roughness: 0.22,
-                metalness: 0.88,
-                bumpMap: createCarbonFiberTexture(),
-                bumpScale: 0.015,
-                clearcoat: 1.0,
-                clearcoatRoughness: 0.02
-            });
-            break;
-        case 'ceramic':
-        default:
-            mat = new THREE.MeshPhysicalMaterial({
-                color: 0xfbfbf8,
-                roughness: 0.15,
-                metalness: 0.02,
-                clearcoat: 0.9,
-                clearcoatRoughness: 0.05
-            });
-            break;
-    }
-    if (customColor && mat) {
-        mat.color.set(customColor);
-    }
-    return mat;
-}
-
-function getGlazeMaterial(glazeStyle, customColor = '') {
-    let colorHex = 0xfffaf0;
-    let roughness = 0.2;
-    let clearcoat = 1.0;
-    
-    switch (glazeStyle) {
-        case 'chocolate':
-            colorHex = 0x311a11;
-            roughness = 0.12;
-            break;
-        case 'strawberry':
-            colorHex = 0xe92e52;
-            roughness = 0.08;
-            break;
-        case 'mint':
-            colorHex = 0x7be2a6;
-            roughness = 0.15;
-            break;
-        case 'cream':
-        default:
-            colorHex = 0xfffcf7;
-            roughness = 0.18;
-            break;
-    }
-    
-    if (customColor) {
-        colorHex = new THREE.Color(customColor);
-    }
-    
-    return new THREE.MeshPhysicalMaterial({
-        color: colorHex,
-        roughness: roughness,
-        metalness: 0.02,
-        clearcoat: clearcoat,
-        clearcoatRoughness: 0.08,
-        transmission: 0.88,
-        thickness: 0.55,
-        ior: 1.333,
-        transparent: true
-    });
-}
-
-function createWaferRollTexture() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 128;
-    const ctx = canvas.getContext('2d');
-    
-    ctx.fillStyle = '#edd1b8';
-    ctx.fillRect(0, 0, 128, 128);
-    
-    ctx.strokeStyle = '#42250d';
-    ctx.lineWidth = 14;
-    for (let offset = -128; offset < 256; offset += 32) {
-        ctx.beginPath();
-        ctx.moveTo(offset, 0);
-        ctx.lineTo(offset + 128, 128);
-        ctx.stroke();
-    }
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(2, 1);
-    return texture;
-}
-
-function createStrawberryMesh() {
-    const group = new THREE.Group();
-    
-    // Enough segments to resolve the seed dimples below.
-    const bodyGeo = new THREE.SphereGeometry(0.12, 34, 26);
-    const pos = bodyGeo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-        let x = pos.getX(i);
-        const y = pos.getY(i);
-        let z = pos.getZ(i);
-
-        if (y < 0) {
-            let scaleFactor = 1.0 + y * 2.2;
-            if (scaleFactor < 0.15) scaleFactor = 0.15;
-            x *= scaleFactor;
-            z *= scaleFactor;
-        }
-
-        // Seed pits. A smooth red teardrop reads as plastic; the achene
-        // dimples are what make it legible as a strawberry at a glance.
-        const radial = Math.hypot(x, z);
-        if (radial > 1e-6) {
-            const theta = Math.atan2(z, x);
-            const phi = Math.asin(THREE.MathUtils.clamp(y / 0.12, -1, 1));
-            const pit = Math.cos(theta * 9 + phi * 3) * Math.cos(phi * 13);
-            const depth = Math.max(0, pit) * 0.009;
-            const scale = (radial - depth) / radial;
-            x *= scale;
-            z *= scale;
-        }
-
-        pos.setXYZ(i, x, y, z);
-    }
-    bodyGeo.computeVertexNormals();
-
-    // Physical, for the waxy skin highlight a real strawberry has
-    const bodyMat = new THREE.MeshPhysicalMaterial({
-        color: 0xcc1124,
-        roughness: 0.32,
-        metalness: 0.02,
-        clearcoat: 0.55,
-        clearcoatRoughness: 0.25
-    });
-    
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.scale.set(1.0, 1.35, 1.0);
-    body.rotation.x = Math.PI;
-    body.position.y = 0.08;
-    body.castShadow = true;
-    group.add(body);
-    
-    const leafGeo = new THREE.ConeGeometry(0.05, 0.03, 5);
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x276336, roughness: 0.7 });
-    for (let i = 0; i < 5; i++) {
-        const leaf = new THREE.Mesh(leafGeo, leafMat);
-        const angle = (i / 5) * Math.PI * 2;
-        leaf.position.set(Math.cos(angle) * 0.045, 0.15, Math.sin(angle) * 0.045);
-        leaf.rotation.set(0.18, angle, 0.25);
-        group.add(leaf);
-    }
-    
-    return group;
-}
-
-function createCherryMesh() {
-    const group = new THREE.Group();
-    
-    const cherryGeo = new THREE.SphereGeometry(0.1, 30, 22);
-    const cPos = cherryGeo.attributes.position;
-    for (let i = 0; i < cPos.count; i++) {
-        let x = cPos.getX(i);
-        let y = cPos.getY(i);
-        let z = cPos.getZ(i);
-
-        // Stem dimple: real cherries are pressed in where the stalk attaches,
-        // not perfectly round on top.
-        const topT = Math.max(0, y / 0.1);
-        y -= Math.pow(topT, 6) * 0.035;
-
-        // Suture line — the shallow crease running down one side
-        const theta = Math.atan2(z, x);
-        const radial = Math.hypot(x, z);
-        if (radial > 1e-6) {
-            const crease = Math.exp(-Math.pow(Math.sin(theta / 2), 2) * 40) * 0.006;
-            const scale = (radial - crease) / radial;
-            x *= scale;
-            z *= scale;
-        }
-
-        cPos.setXYZ(i, x, y, z);
-    }
-    cherryGeo.computeVertexNormals();
-
-    const cherryMat = new THREE.MeshPhysicalMaterial({
-        color: 0x730211,
-        roughness: 0.03,
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.02
-    });
-    const body = new THREE.Mesh(cherryGeo, cherryMat);
-    body.castShadow = true;
-    group.add(body);
-    
-    const stemGroup = new THREE.Group();
-    const segmentCount = 6;
-    const stemMat = new THREE.MeshStandardMaterial({ color: 0x567527, roughness: 0.85 });
-    const stemRadius = 0.008;
-    const segmentHeight = 0.045;
-    
-    let lastY = 0.08;
-    let lastX = 0;
-    
-    for (let i = 0; i < segmentCount; i++) {
-        const segGeo = new THREE.CylinderGeometry(stemRadius, stemRadius, segmentHeight, 6);
-        const seg = new THREE.Mesh(segGeo, stemMat);
-        
-        const angle = 0.15 + (i * 0.08);
-        seg.rotation.z = angle;
-        
-        const dx = Math.sin(angle) * segmentHeight;
-        const dy = Math.cos(angle) * segmentHeight;
-        seg.position.set(lastX + dx/2, lastY + dy/2, 0);
-        lastX += dx;
-        lastY += dy;
-        
-        stemGroup.add(seg);
-    }
-    group.add(stemGroup);
-    return group;
-}
-
-function createTopperMesh(topperStyle, customText = '', customRimColor = '') {
-    if (topperStyle === 'none' && !customText) return null;
-    
-    const group = new THREE.Group();
-    
-    const rodGeo = new THREE.CylinderGeometry(0.015, 0.015, 1.25, 8);
-    const rodMat = new THREE.MeshStandardMaterial({ color: 0xe0e0e0, metalness: 0.9, roughness: 0.1 });
-    const rod = new THREE.Mesh(rodGeo, rodMat);
-    rod.position.y = 0.6;
-    rod.castShadow = true;
-    group.add(rod);
-    
-    let signMesh = null;
-    const extrudeSettings = {
-        depth: 0.06,
-        bevelEnabled: true,
-        bevelSegments: 4,
-        steps: 1,
-        bevelSize: 0.015,
-        bevelThickness: 0.015
-    };
-    
-    if (customText) {
-        const themeName = activeConfig.theme || 'neon-rose';
-        const canvasTexture = createCustomTopperTexture(customText, themeName, customRimColor);
-        
-        const frontBackMat = new THREE.MeshPhysicalMaterial({
-            map: canvasTexture,
-            transparent: true,
-            roughness: 0.1,
-            metalness: 0.1,
-            clearcoat: 1.0,
-            clearcoatRoughness: 0.05
-        });
-        
-        let sideColor = 0xffd700; // Gold rim by default
-        if (themeName === 'neon-rose') sideColor = 0xff0055;
-        else if (themeName === 'pastel-mint') sideColor = 0x00f2fe;
-        else if (themeName === 'lavender-dream') sideColor = 0x8000ff;
-        
-        if (customRimColor) {
-            sideColor = new THREE.Color(customRimColor);
-        }
-        
-        const sideMat = new THREE.MeshStandardMaterial({
-            color: sideColor,
-            roughness: 0.1,
-            metalness: 0.9
-        });
-        
-        const materials = [
-            sideMat, // right
-            sideMat, // left
-            sideMat, // top
-            sideMat, // bottom
-            frontBackMat, // front
-            frontBackMat  // back
-        ];
-        
-        const plaqueGeo = new THREE.BoxGeometry(1.2, 0.6, 0.04);
-        signMesh = new THREE.Mesh(plaqueGeo, materials);
-        signMesh.position.y = 1.25;
-    } else if (topperStyle === 'best-senpai') {
-        const heartShape = new THREE.Shape();
-        heartShape.moveTo(0, 0.1);
-        heartShape.bezierCurveTo(0, 0.3, 0.15, 0.5, 0.35, 0.5);
-        heartShape.bezierCurveTo(0.55, 0.5, 0.65, 0.35, 0.65, 0.2);
-        heartShape.bezierCurveTo(0.65, 0.0, 0.4, -0.25, 0, -0.55);
-        heartShape.bezierCurveTo(-0.4, -0.25, -0.65, 0, -0.65, 0.2);
-        heartShape.bezierCurveTo(-0.65, 0.35, -0.55, 0.5, -0.35, 0.5);
-        heartShape.bezierCurveTo(-0.15, 0.5, 0, 0.3, 0, 0.1);
-        
-        const heartGeo = new THREE.ExtrudeGeometry(heartShape, extrudeSettings);
-        heartGeo.center();
-        
-        let heartColor = 0xec1a4e;
-        if (customRimColor) heartColor = new THREE.Color(customRimColor);
-        
-        const heartMat = new THREE.MeshPhysicalMaterial({
-            color: heartColor,
-            roughness: 0.1,
-            metalness: 0.15,
-            clearcoat: 1.0,
-            clearcoatRoughness: 0.02,
-            emissive: customRimColor ? new THREE.Color(customRimColor).multiplyScalar(0.25) : 0x3d0006
-        });
-        signMesh = new THREE.Mesh(heartGeo, heartMat);
-        signMesh.position.y = 1.25;
-        
-    } else if (topperStyle === 'star') {
-        const starShape = new THREE.Shape();
-        const spikes = 5;
-        const outer = 0.42;
-        const inner = 0.18;
-        for (let i = 0; i < spikes * 2; i++) {
-            const angle = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
-            const r = i % 2 === 0 ? outer : inner;
-            const x = Math.cos(angle) * r;
-            const y = Math.sin(angle) * r;
-            if (i === 0) starShape.moveTo(x, y);
-            else starShape.lineTo(x, y);
-        }
-        starShape.closePath();
-        
-        const starGeo = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
-        starGeo.center();
-        
-        let starColor = 0xffd700;
-        if (customRimColor) starColor = new THREE.Color(customRimColor);
-        
-        const starMat = new THREE.MeshStandardMaterial({
-            color: starColor,
-            roughness: 0.1,
-            metalness: 0.92,
-            emissive: customRimColor ? new THREE.Color(customRimColor).multiplyScalar(0.25) : 0x3f2f00
-        });
-        
-        signMesh = new THREE.Mesh(starGeo, starMat);
-        signMesh.position.y = 1.25;
-        
-    } else if (topperStyle === 'hbd') {
-        const crownShape = new THREE.Shape();
-        crownShape.moveTo(-0.5, -0.2);
-        crownShape.lineTo(-0.5, 0.2);
-        crownShape.lineTo(-0.35, 0.14);
-        crownShape.lineTo(-0.18, 0.32);
-        crownShape.lineTo(0, 0.18);
-        crownShape.lineTo(0.18, 0.32);
-        crownShape.lineTo(0.35, 0.14);
-        crownShape.lineTo(0.5, 0.2);
-        crownShape.lineTo(0.5, -0.2);
-        crownShape.closePath();
-        
-        const crownGeo = new THREE.ExtrudeGeometry(crownShape, extrudeSettings);
-        crownGeo.center();
-        
-        let crownColor = 0xffa500;
-        if (customRimColor) crownColor = new THREE.Color(customRimColor);
-        
-        const crownMat = new THREE.MeshStandardMaterial({
-            color: crownColor,
-            roughness: 0.1,
-            metalness: 0.95,
-            emissive: customRimColor ? new THREE.Color(customRimColor).multiplyScalar(0.25) : 0x331a00
-        });
-        
-        signMesh = new THREE.Mesh(crownGeo, crownMat);
-        signMesh.position.y = 1.25;
-    }
-    
-    if (signMesh) {
-        signMesh.castShadow = true;
-        group.add(signMesh);
-    }
-    
-    return group;
-}
-
 /**
- * Scatters crumbs and stray sprinkles on the cake stand.
- *
- * A spotless stand is one of the strongest CG tells — a cake that was actually
- * assembled and decorated always sheds a little onto the plate.
+ * All cake geometry now lives in src/cake-models.js, shared with the creator
+ * preview so both render exactly the same cake from the same code.
  */
-function addStandDebris(group, standY, standRadius, creamColorHex) {
-    const crumbGeo = new THREE.DodecahedronGeometry(0.022, 0);
-    const crumbMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(creamColorHex).multiplyScalar(0.75),
-        roughness: 0.9,
-        metalness: 0.0
-    });
-    const strayGeo = new THREE.CylinderGeometry(0.014, 0.014, 0.055, 6);
-    const strayColors = [0xff6b8b, 0xffd166, 0x06d6a0, 0x118ab2, 0xff9f1c];
-
-    for (let i = 0; i < 26; i++) {
-        const seed = 2.4 + i * 1.61;
-        // Keep debris in the visible ring between the cake base and the rim.
-        // Starts at 2.2 to clear the bottom piping, which reaches out to ~2.17.
-        const r = 2.2 + Math.abs(Math.sin(seed * 1.7)) * (standRadius - 2.3);
-        const theta = seed * 2.399; // golden-angle-ish spread, no clumping
-
-        if (i % 3 === 0) {
-            const stray = new THREE.Mesh(
-                strayGeo,
-                new THREE.MeshStandardMaterial({
-                    color: strayColors[i % strayColors.length],
-                    roughness: 0.45
-                })
-            );
-            stray.position.set(Math.cos(theta) * r, standY + 0.028, Math.sin(theta) * r);
-            // Lying flat on the plate, not standing up
-            stray.rotation.set(Math.PI / 2, seed * 1.3, Math.sin(seed) * 0.9);
-            stray.castShadow = true;
-            group.add(stray);
-        } else {
-            const crumb = new THREE.Mesh(crumbGeo, crumbMat);
-            crumb.position.set(Math.cos(theta) * r, standY + 0.022, Math.sin(theta) * r);
-            crumb.rotation.set(seed, seed * 1.7, seed * 0.6);
-            const s = 0.5 + Math.abs(Math.sin(seed * 3.1)) * 0.8;
-            crumb.scale.setScalar(s);
-            crumb.castShadow = true;
-            group.add(crumb);
-        }
-    }
-}
-
-/**
- * Hangs a ring of glaze drips off the top edge.
- *
- * Running glaze is uneven: each drip has its own length, thickness, taper and
- * a slight sideways lean, and the bead at the tip swells by how far it ran.
- * Even spacing with identical 6-sided cylinders was the giveaway before.
- */
-function addGlazeDrips(group, glazeMat, count, radius, topY, seedBase) {
-    // Shared bead geometry — only the per-instance scale differs.
-    const beadGeo = new THREE.SphereGeometry(0.04, 14, 12);
-
-    for (let i = 0; i < count; i++) {
-        const seed = seedBase + i * 2.11;
-        const angle = (i / count) * Math.PI * 2 + Math.sin(seed * 1.7) * 0.02;
-        const dripLength = 0.14 + Math.sin(i * 2.3 + 1.2) * 0.08;
-        // Thicker drips run further, so tie thickness to length
-        const thickness = 0.023 + (dripLength - 0.14) * 0.06 + Math.sin(seed) * 0.003;
-
-        const dripGroup = new THREE.Group();
-
-        const dripCylGeo = new THREE.CylinderGeometry(thickness * 1.15, thickness * 0.85, dripLength, 12);
-        const dripCyl = new THREE.Mesh(dripCylGeo, glazeMat);
-        dripCyl.position.y = -dripLength / 2;
-        dripCyl.castShadow = true;
-        dripGroup.add(dripCyl);
-
-        const dripBulb = new THREE.Mesh(beadGeo, glazeMat);
-        dripBulb.position.y = -dripLength;
-        // Longer runs pool into a fatter, more elongated bead
-        const beadScale = 0.85 + dripLength * 1.1;
-        dripBulb.scale.set(beadScale, beadScale * 1.25, beadScale);
-        dripBulb.castShadow = true;
-        dripGroup.add(dripBulb);
-
-        dripGroup.position.set(
-            Math.cos(angle) * radius,
-            topY,
-            Math.sin(angle) * radius
-        );
-        // Lean each run slightly off plumb
-        dripGroup.rotation.set(
-            Math.sin(seed * 1.4) * 0.06,
-            0,
-            Math.cos(seed * 1.9) * 0.06
-        );
-        group.add(dripGroup);
-    }
-}
-
-/**
- * Pipes a ring of cream rosettes around a tier.
- *
- * Hand-piped cream is never evenly spaced or uniformly sized, so every rosette
- * gets its own deterministic jitter in angle, radius, height, scale and spin.
- * The offsets are derived from the index (no Math.random) so the same card link
- * always renders the same cake.
- */
-function addPipingRing(group, count, radius, y, seedBase) {
-    for (let i = 0; i < count; i++) {
-        const seed = seedBase + i * 1.7;
-        const angle = (i / count) * Math.PI * 2 + Math.sin(seed * 2.3) * 0.012;
-        const r = radius + Math.sin(seed * 1.9) * 0.012;
-        const cream = createPipedCreamMesh(0xfffafb, seed);
-
-        cream.position.set(
-            Math.cos(angle) * r,
-            y + Math.sin(seed * 3.1) * 0.008,
-            Math.sin(angle) * r
-        );
-        cream.rotation.set(
-            0.1 + Math.sin(seed * 1.3) * 0.05,
-            -angle + Math.cos(seed) * 0.25,
-            Math.sin(seed * 2.7) * 0.04
-        );
-
-        const s = 1.5 + Math.sin(seed * 4.1) * 0.11;
-        cream.scale.set(s, s * (1.0 + Math.cos(seed * 1.6) * 0.06), s);
-        group.add(cream);
-    }
-}
-
-// Helper: Fluffy whipped cream mesh generated via point deformation on a SphereGeometry
-function createPipedCreamMesh(colorHex = 0xfffafb, seed = 0) {
-    const R = 0.1;
-    // Ridges need enough segments around the circumference to resolve cleanly.
-    const geo = new THREE.SphereGeometry(R, 28, 18);
-    const pos = geo.attributes.position;
-
-    // A real star nozzle leaves 5 vertical ridges, and lifting the bag while
-    // piping twists them into a spiral. That silhouette — not a smooth dome —
-    // is what reads as piped cream rather than a white ball.
-    const RIDGE_COUNT = 5;
-
-    for (let i = 0; i < pos.count; i++) {
-        let x = pos.getX(i);
-        let y = pos.getY(i);
-        let z = pos.getZ(i);
-
-        if (y > 0) {
-            // Clamp at 0: the top pole vertex can land a hair above the radius
-            // in float math, and Math.pow(negative, 0.45) is NaN — which
-            // poisoned the whole geometry's bounding sphere (breaking frustum
-            // culling and raycast hits on the cream).
-            const factor = Math.max(0, 1.0 - (y / R));
-            x *= Math.pow(factor, 0.45);
-            z *= Math.pow(factor, 0.45);
-            y *= 1.35; // pull tip upwards
-        }
-
-        const radial = Math.hypot(x, z);
-        if (radial > 1e-6) {
-            const theta = Math.atan2(z, x);
-            // 0 at the base, 1 at the tip
-            const heightT = THREE.MathUtils.clamp((y + R) / (R * 2), 0, 1);
-            // Ridges are deepest at the base and smooth out into the tip.
-            // Keep this shallow — around a tenth of the radius. Deeper than
-            // that and the rosette turns into sharp fins instead of cream.
-            const depth = R * 0.11 * (1 - heightT);
-            const ridge = Math.cos(theta * RIDGE_COUNT + heightT * 2.4 + seed) * depth;
-            const scale = (radial + ridge) / radial;
-            x *= scale;
-            z *= scale;
-        }
-
-        // Per-instance lean so a ring of them never looks stamped from one mold
-        const lean = Math.sin(seed) * 0.07;
-        x += y * lean;
-
-        pos.setXYZ(i, x, y, z);
-    }
-    geo.computeVertexNormals();
-
-    const mat = new THREE.MeshPhysicalMaterial({
-        color: colorHex,
-        roughness: 0.28,
-        metalness: 0.02,
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.02,
-        sheen: 0.95,
-        sheenColor: new THREE.Color(0xffe6eb)
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
-}
-
 function build3DViewerCake() {
-    const cakeModel = activeConfig.cakeModel || 'classic-tiered';
-    const plateStyle = activeConfig.plate || 'ceramic';
-    const glazeStyle = activeConfig.glaze || 'chocolate';
-    const topperStyle = activeConfig.topper || 'best-senpai';
-    const strawberriesCount = activeConfig.strawberries !== undefined ? parseInt(activeConfig.strawberries) : 4;
-    const cherriesCount = activeConfig.cherries !== undefined ? parseInt(activeConfig.cherries) : 4;
-    const rollsCount = activeConfig.rolls !== undefined ? parseInt(activeConfig.rolls) : 3;
-    const sprinklesEnabled = activeConfig.sprinkles !== undefined ? !!activeConfig.sprinkles : true;
-
-    // Gather custom colors
-    const glazeColor = activeConfig.glazeColor || '';
-    const creamColor = activeConfig.creamColor || '';
-    const plateColor = activeConfig.plateColor || '';
-    const topperColor = activeConfig.topperColor || '';
-
-    const themeColors = getThemeRGBColors(activeConfig.theme);
-    const glazeMat = getGlazeMaterial(glazeStyle, glazeColor);
-    const plateMat = getPlateMaterial(plateStyle, plateColor);
-    const crumbBumpTex = createCakeCrumbBumpTexture();
-
-    const colorTier1 = creamColor ? new THREE.Color(creamColor) : themeColors.tier1;
-    const colorTier2 = creamColor ? new THREE.Color(creamColor) : themeColors.tier2;
-
-    let topDecorY = 1.36;
-    let topDecorRadius = 1.12;
-    let topperBaseY = 1.35;
-
-    // Build the specific 3D Cake Model
-    if (cakeModel === 'vintage-heart') {
-        topDecorY = 0.86;
-        topDecorRadius = 0.95;
-        topperBaseY = 0.88;
-
-        // Pedestal Plate (Heart Base)
-        const standPlateGeo = createHeartCakeGeometry(1.45, 0.12, 0.02);
-        const standPlate = new THREE.Mesh(standPlateGeo, plateMat);
-        standPlate.position.y = -0.55;
-        standPlate.receiveShadow = true;
-        standPlate.castShadow = true;
-        cakeGroup.add(standPlate);
-
-        const standStem = new THREE.Mesh(createBeveledCylinder(0.5, 0.5, 0.03), plateMat);
-        standStem.position.y = -0.85;
-        cakeGroup.add(standStem);
-
-        const standBase = new THREE.Mesh(createBeveledCylinder(1.3, 0.08, 0.02), plateMat);
-        standBase.position.y = -1.1;
-        cakeGroup.add(standBase);
-
-        // Heart Cake Sponge Tier
-        const heartSpongeGeo = createHeartCakeGeometry(1.22, 1.35, 0.08);
-        const heartMat = new THREE.MeshStandardMaterial({
-            color: colorTier1,
-            roughness: 0.65,
-            metalness: 0.05,
-            bumpMap: crumbBumpTex,
-            bumpScale: 0.14
-        });
-        const heartSponge = new THREE.Mesh(heartSpongeGeo, heartMat);
-        heartSponge.position.y = 0.15;
-        heartSponge.castShadow = true;
-        heartSponge.receiveShadow = true;
-        cakeGroup.add(heartSponge);
-
-        // Heart Glaze Top Cap
-        const heartGlazeGeo = createHeartCakeGeometry(1.18, 0.08, 0.02);
-        const heartGlaze = new THREE.Mesh(heartGlazeGeo, glazeMat);
-        heartGlaze.position.y = 0.83;
-        heartGlaze.castShadow = true;
-        cakeGroup.add(heartGlaze);
-
-        // Victorian Ruffled Shell Frills around Heart
-        addHeartPipingRing(cakeGroup, getHeartShape(1.24), -0.45, 38, 1.24);
-        addHeartPipingRing(cakeGroup, getHeartShape(1.20), 0.84, 34, 1.20);
-
-        // Buttercream Rosettes at Heart Lobes and Tip
-        const rosettePositions = [
-            { x: 0, y: 0.86, z: 2.1 },
-            { x: 0, y: 0.86, z: -0.48 },
-            { x: -1.35, y: 0.86, z: -1.35 },
-            { x: 1.35, y: 0.86, z: -1.35 }
-        ];
-        rosettePositions.forEach(pos => {
-            const rMesh = createPipedCreamMesh(0xfffafb, pos.x + pos.z);
-            rMesh.position.set(pos.x, pos.y, pos.z);
-            rMesh.scale.set(1.9, 1.5, 1.9);
-            cakeGroup.add(rMesh);
-        });
-
-    } else if (cakeModel === 'korean-bento') {
-        topDecorY = 0.76;
-        topDecorRadius = 1.35;
-        topperBaseY = 0.76;
-
-        // Bento Ceramic Tray Platter
-        const trayGeo = createBeveledCylinder(2.4, 0.08, 0.02);
-        const tray = new THREE.Mesh(trayGeo, plateMat);
-        tray.position.y = -0.52;
-        tray.receiveShadow = true;
-        tray.castShadow = true;
-        cakeGroup.add(tray);
-
-        // Single Wide Velvet Tier
-        const bentoGeo = createBeveledCylinder(1.95, 1.25, 0.12);
-        const bentoMat = new THREE.MeshStandardMaterial({
-            color: colorTier1,
-            roughness: 0.85,
-            metalness: 0.02,
-            bumpMap: crumbBumpTex,
-            bumpScale: 0.12
-        });
-        const bentoMesh = new THREE.Mesh(bentoGeo, bentoMat);
-        bentoMesh.position.y = 0.10;
-        bentoMesh.castShadow = true;
-        bentoMesh.receiveShadow = true;
-        cakeGroup.add(bentoMesh);
-
-        // Glaze Top Layer
-        const bentoGlazeGeo = createBeveledCylinder(1.90, 0.06, 0.02);
-        const bentoGlaze = new THREE.Mesh(bentoGlazeGeo, glazeMat);
-        bentoGlaze.position.y = 0.73;
-        bentoGlaze.castShadow = true;
-        cakeGroup.add(bentoGlaze);
-
-        // Scalloped Waved Piped Cream Ribbon around Perimeter
-        for (let i = 0; i < 32; i++) {
-            const a = (i / 32) * Math.PI * 2;
-            const waveY = 0.735 + Math.sin(i * 4) * 0.018;
-            const piped = createPipedCreamMesh(0xfffcf7, i);
-            piped.position.set(Math.cos(a) * 1.91, waveY, Math.sin(a) * 1.91);
-            piped.scale.set(1.1, 1.1, 1.1);
-            cakeGroup.add(piped);
-        }
-
-        // Minimalist Daisy Sugar Flowers
-        for (let i = 0; i < 6; i++) {
-            const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
-            const daisy = createDaisyFlowerMesh();
-            daisy.position.set(Math.cos(a) * 1.45, 0.76, Math.sin(a) * 1.45);
-            daisy.rotation.y = a;
-            cakeGroup.add(daisy);
-        }
-
-    } else if (cakeModel === 'triple-luxury') {
-        topDecorY = 1.52;
-        topDecorRadius = 0.70;
-        topperBaseY = 1.52;
-
-        // Grand Gilded Stand
-        const standPlate = new THREE.Mesh(createBeveledCylinder(2.7, 0.12, 0.02), plateMat);
-        standPlate.position.y = -0.65;
-        standPlate.receiveShadow = true;
-        standPlate.castShadow = true;
-        cakeGroup.add(standPlate);
-
-        const standStem = new THREE.Mesh(createBeveledCylinder(0.55, 0.45, 0.03), plateMat);
-        standStem.position.y = -0.92;
-        cakeGroup.add(standStem);
-
-        const standBase = new THREE.Mesh(createBeveledCylinder(1.4, 0.08, 0.02), plateMat);
-        standBase.position.y = -1.18;
-        cakeGroup.add(standBase);
-
-        // Tier 1 (Bottom)
-        const t1 = new THREE.Mesh(createBeveledCylinder(2.2, 0.75, 0.06), new THREE.MeshStandardMaterial({
-            color: colorTier1, roughness: 0.6, metalness: 0.05, bumpMap: crumbBumpTex, bumpScale: 0.14
-        }));
-        t1.position.y = -0.22;
-        t1.castShadow = true;
-        cakeGroup.add(t1);
-
-        // Tier 2 (Middle)
-        const t2 = new THREE.Mesh(createBeveledCylinder(1.55, 0.70, 0.05), new THREE.MeshStandardMaterial({
-            color: colorTier2, roughness: 0.55, metalness: 0.05, bumpMap: crumbBumpTex, bumpScale: 0.14
-        }));
-        t2.position.set(0.01, 0.52, -0.01);
-        t2.castShadow = true;
-        cakeGroup.add(t2);
-
-        // Tier 3 (Top)
-        const t3 = new THREE.Mesh(createBeveledCylinder(0.95, 0.60, 0.04), new THREE.MeshStandardMaterial({
-            color: colorTier1, roughness: 0.5, metalness: 0.05, bumpMap: crumbBumpTex, bumpScale: 0.14
-        }));
-        t3.position.set(-0.01, 1.18, 0.01);
-        t3.castShadow = true;
-        cakeGroup.add(t3);
-
-        // Gold Pearl Border Strings around all 3 tiers
-        const goldMat = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.2, metalness: 0.85 });
-        addPearlBorderRing(cakeGroup, 44, 2.22, -0.58, goldMat);
-        addPearlBorderRing(cakeGroup, 32, 1.57, 0.18, goldMat);
-        addPearlBorderRing(cakeGroup, 22, 0.97, 0.89, goldMat);
-
-        // Glaze Cap & Drips on Tier 3 & Tier 2
-        const glazeTop = new THREE.Mesh(createBeveledCylinder(0.98, 0.08, 0.02), glazeMat);
-        glazeTop.position.y = 1.48;
-        cakeGroup.add(glazeTop);
-        addGlazeDrips(cakeGroup, glazeMat, 16, 0.96, 1.48, 7);
-        addGlazeDrips(cakeGroup, glazeMat, 22, 1.56, 0.87, 13);
-
-        // Diagonal Cascading Sugar Roses & French Macarons
-        const cascadeItems = [
-            { x: -0.65, y: 1.48, z: 0.55, type: 'rose', color: 0xff3366 },
-            { x: -0.85, y: 1.25, z: 0.70, type: 'mac', color: 0xffd700 },
-            { x: -1.15, y: 0.95, z: 0.85, type: 'rose', color: 0xff6699 },
-            { x: -1.35, y: 0.68, z: 1.05, type: 'mac', color: 0xff3377 },
-            { x: -1.65, y: 0.35, z: 1.25, type: 'rose', color: 0xff1155 },
-            { x: -1.85, y: -0.05, z: 1.35, type: 'mac', color: 0xffd700 },
-            { x: -2.05, y: -0.35, z: 1.45, type: 'rose', color: 0xff3366 }
-        ];
-        cascadeItems.forEach(item => {
-            if (item.type === 'rose') {
-                const rose = createRoseRosetteMesh(item.color);
-                rose.position.set(item.x, item.y, item.z);
-                rose.scale.set(1.4, 1.4, 1.4);
-                rose.rotation.set(0.4, 0.6, 0.2);
-                cakeGroup.add(rose);
-            } else {
-                const mac = createMacaronMesh(item.color);
-                mac.position.set(item.x, item.y, item.z);
-                mac.rotation.set(0.3, -0.5, 0.8);
-                cakeGroup.add(mac);
-            }
-        });
-
-    } else if (cakeModel === 'cyber-prism') {
-        topDecorY = 1.22;
-        topDecorRadius = 1.15;
-        topperBaseY = 1.22;
-
-        // Faceted Hex Prism Base Stand
-        const standPlate = new THREE.Mesh(createHexPrismGeometry(2.6, 0.12, 0.02), plateMat);
-        standPlate.position.y = -0.55;
-        standPlate.receiveShadow = true;
-        standPlate.castShadow = true;
-        cakeGroup.add(standPlate);
-
-        const standStem = new THREE.Mesh(createHexPrismGeometry(0.55, 0.5, 0.03), plateMat);
-        standStem.position.y = -0.85;
-        cakeGroup.add(standStem);
-
-        const standBase = new THREE.Mesh(createHexPrismGeometry(1.35, 0.08, 0.02), plateMat);
-        standBase.position.y = -1.1;
-        cakeGroup.add(standBase);
-
-        // Tier 1 (Hexagon Sponge)
-        const hexMat1 = new THREE.MeshPhysicalMaterial({
-            color: colorTier1,
-            roughness: 0.25,
-            metalness: 0.85,
-            clearcoat: 1.0,
-            clearcoatRoughness: 0.05
-        });
-        const hexTier1 = new THREE.Mesh(createHexPrismGeometry(2.1, 0.9, 0.05), hexMat1);
-        hexTier1.position.y = -0.05;
-        hexTier1.castShadow = true;
-        cakeGroup.add(hexTier1);
-
-        // Tier 2 (Hexagon Top Tier)
-        const hexMat2 = new THREE.MeshPhysicalMaterial({
-            color: colorTier2,
-            roughness: 0.25,
-            metalness: 0.85,
-            clearcoat: 1.0,
-            clearcoatRoughness: 0.05
-        });
-        const hexTier2 = new THREE.Mesh(createHexPrismGeometry(1.45, 0.75, 0.04), hexMat2);
-        hexTier2.position.y = 0.78;
-        hexTier2.rotation.y = Math.PI / 6;
-        hexTier2.castShadow = true;
-        cakeGroup.add(hexTier2);
-
-        // Top Glaze Cap
-        const hexGlaze = new THREE.Mesh(createHexPrismGeometry(1.47, 0.08, 0.02), glazeMat);
-        hexGlaze.position.y = 1.18;
-        hexGlaze.rotation.y = Math.PI / 6;
-        cakeGroup.add(hexGlaze);
-
-        // Floating Crystal Shards Orbiting Tier 1
-        for (let i = 0; i < 6; i++) {
-            const a = (i / 6) * Math.PI * 2;
-            const shard = createCrystalShardMesh(0x00f2fe);
-            shard.position.set(Math.cos(a) * 2.35, 0.25 + Math.sin(i * 1.5) * 0.15, Math.sin(a) * 2.35);
-            shard.rotation.set(0.3, a, 0.4);
-            cakeGroup.add(shard);
-        }
-
-    } else {
-        // Default: 'classic-tiered'
-        topDecorY = 1.36;
-        topDecorRadius = 1.12;
-        topperBaseY = 1.35;
-
-        // Cake Stand
-        const standPlateGeo = createBeveledCylinder(2.6, 0.12, 0.02);
-        const standPlate = new THREE.Mesh(standPlateGeo, plateMat);
-        standPlate.position.y = -0.55;
-        standPlate.receiveShadow = true;
-        standPlate.castShadow = true;
-        cakeGroup.add(standPlate);
-
-        const standStemGeo = createBeveledCylinder(0.5, 0.5, 0.03);
-        const standStem = new THREE.Mesh(standStemGeo, plateMat);
-        standStem.position.y = -0.85;
-        standStem.receiveShadow = true;
-        standStem.castShadow = true;
-        cakeGroup.add(standStem);
-
-        const standBaseGeo = createBeveledCylinder(1.3, 0.08, 0.02);
-        const standBase = new THREE.Mesh(standBaseGeo, plateMat);
-        standBase.position.y = -1.1;
-        standBase.receiveShadow = true;
-        standBase.castShadow = true;
-        cakeGroup.add(standBase);
-
-        // Cake Tier 1
-        const tier1Geo = createBeveledCylinder(2.0, 1.0, 0.08);
-        const tier1Mat = new THREE.MeshStandardMaterial({
-            color: colorTier1,
-            roughness: 0.65,
-            metalness: 0.05,
-            bumpMap: crumbBumpTex,
-            bumpScale: 0.16
-        });
-        const tier1 = new THREE.Mesh(tier1Geo, tier1Mat);
-        tier1.position.y = 0.0;
-        tier1.castShadow = true;
-        tier1.receiveShadow = true;
-        cakeGroup.add(tier1);
-
-        // Cake Tier 2
-        const tier2Geo = createBeveledCylinder(1.4, 0.8, 0.06);
-        const tier2Mat = new THREE.MeshStandardMaterial({
-            color: colorTier2,
-            roughness: 0.55,
-            metalness: 0.05,
-            bumpMap: crumbBumpTex,
-            bumpScale: 0.16
-        });
-        const tier2 = new THREE.Mesh(tier2Geo, tier2Mat);
-        tier2.position.set(0.018, 0.9, -0.012);
-        tier2.rotation.z = 0.008;
-        tier2.rotation.x = -0.005;
-        tier2.castShadow = true;
-        tier2.receiveShadow = true;
-        cakeGroup.add(tier2);
-
-        // Procedural Whipped Cream Star Piping Rings
-        addPipingRing(cakeGroup, 36, 2.02, -0.46, 11);
-        addPipingRing(cakeGroup, 28, 1.42, 0.52, 47);
-
-        // Glaze Cap
-        const glazeTopGeo = createBeveledCylinder(1.44, 0.12, 0.03);
-        const glazeTop = new THREE.Mesh(glazeTopGeo, glazeMat);
-        glazeTop.position.y = 1.3;
-        glazeTop.castShadow = true;
-        glazeTop.receiveShadow = true;
-        cakeGroup.add(glazeTop);
-
-        // Glaze Drips
-        addGlazeDrips(cakeGroup, glazeMat, 24, 1.425, 1.3, 5);
-
-        // Crumbs and stray sprinkles shed onto the stand during decorating
-        addStandDebris(cakeGroup, -0.49, 2.6, creamColor || themeColors.tier1);
-    }
-
-    // Strawberries (V4.6 Tagged for click interactivity)
-    if (strawberriesCount > 0) {
-        for (let i = 0; i < strawberriesCount; i++) {
-            const seed = 3.7 + i * 2.3;
-            const angle = (i / strawberriesCount) * Math.PI * 2 + Math.sin(seed) * 0.07;
-            const r = topDecorRadius + Math.sin(seed * 1.7) * 0.05;
-            const strawberry = createStrawberryMesh();
-            strawberry.position.set(
-                Math.cos(angle) * r,
-                topDecorY + Math.sin(seed * 2.9) * 0.018,
-                Math.sin(angle) * r
-            );
-            strawberry.rotation.set(
-                0.12 + Math.sin(seed * 1.4) * 0.09,
-                angle + Math.PI / 2 + Math.cos(seed) * 0.35,
-                Math.sin(seed * 3.3) * 0.13
-            );
-            const s = 1.0 + Math.sin(seed * 2.1) * 0.09;
-            strawberry.scale.set(s, s * (1 + Math.cos(seed) * 0.05), s);
-            strawberry.name = 'strawberry';
-            cakeGroup.add(strawberry);
-        }
-    }
-
-    // Cherries (V4.6 Tagged for click interactivity)
-    if (cherriesCount > 0) {
-        for (let i = 0; i < cherriesCount; i++) {
-            const seed = 8.1 + i * 1.9;
-            const angleOffset = (strawberriesCount > 0) ? (Math.PI / cherriesCount) : 0;
-            const angle = (i / cherriesCount) * Math.PI * 2 + angleOffset + Math.sin(seed) * 0.06;
-            const r = topDecorRadius + Math.cos(seed * 1.6) * 0.05;
-            const cherry = createCherryMesh();
-            cherry.position.set(
-                Math.cos(angle) * r,
-                topDecorY + 0.04 + Math.sin(seed * 2.4) * 0.015,
-                Math.sin(angle) * r
-            );
-            cherry.rotation.set(
-                Math.sin(seed * 1.8) * 0.12,
-                angle - Math.PI / 2 + Math.cos(seed) * 0.4,
-                Math.sin(seed * 2.6) * 0.16
-            );
-            const s = 0.94 + Math.sin(seed * 3.1) * 0.1;
-            cherry.scale.setScalar(s);
-            cherry.name = 'cherry';
-            cakeGroup.add(cherry);
-        }
-    }
-
-    // Wafer Rolls (V4.6 Tagged for click interactivity)
-    if (rollsCount > 0) {
-        const rollTexture = createWaferRollTexture();
-        const rollGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.75, 18);
-        const rollMat = new THREE.MeshStandardMaterial({
-            map: rollTexture,
-            roughness: 0.65,
-            metalness: 0.05
-        });
-        
-        for (let i = 0; i < rollsCount; i++) {
-            const angle = (i / rollsCount) * Math.PI * 2 + Math.PI / 8;
-            const rollGroup = new THREE.Group();
-            
-            const rollMesh = new THREE.Mesh(rollGeo, rollMat);
-            rollMesh.castShadow = true;
-            rollGroup.add(rollMesh);
-            
-            const seed = 1.3 + i * 2.7;
-            const lean = 0.55 + Math.sin(seed) * 0.13;
-            rollGroup.position.set(
-                Math.cos(angle) * (topDecorRadius * 1.08 + Math.sin(seed * 1.5) * 0.04),
-                topDecorY - 0.25 + Math.sin(seed * 2.2) * 0.03,
-                Math.sin(angle) * (topDecorRadius * 1.08 + Math.sin(seed * 1.5) * 0.04)
-            );
-            rollGroup.rotation.x = -Math.sin(angle) * lean;
-            rollGroup.rotation.z = Math.cos(angle) * lean;
-            rollGroup.rotation.y = -angle;
-            rollGroup.name = 'wafer-roll';
-            
-            cakeGroup.add(rollGroup);
-        }
-    }
-
-    // Sprinkles
-    if (sprinklesEnabled) {
-        const colors = [0xff6b8b, 0xffd166, 0x06d6a0, 0x118ab2, 0xff9f1c, 0xb5179e];
-        const sprinkleGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.06, 5);
-        
-        for (let i = 0; i < 60; i++) {
-            const color = colors[i % colors.length];
-            const sprinkleMat = new THREE.MeshStandardMaterial({ color, roughness: 0.45 });
-            const sprinkle = new THREE.Mesh(sprinkleGeo, sprinkleMat);
-            
-            const r = Math.sqrt(Math.random()) * (topDecorRadius * 0.95);
-            const theta = Math.random() * Math.PI * 2;
-            
-            sprinkle.position.set(
-                Math.cos(theta) * r,
-                topDecorY + 0.005,
-                Math.sin(theta) * r
-            );
-            
-            sprinkle.rotation.set(
-                Math.PI / 2 + (Math.random() - 0.5) * 0.15,
-                Math.random() * Math.PI * 2,
-                (Math.random() - 0.5) * 0.15
-            );
-            sprinkle.castShadow = true;
-            cakeGroup.add(sprinkle);
-        }
-    }
-
-    // Center Topper
-    const topper = createTopperMesh(topperStyle, activeConfig.topperText, topperColor);
-    if (topper) {
-        topper.position.set(0, topperBaseY, 0);
-        cakeGroup.add(topper);
-    }
+    buildCakeModel(cakeGroup, {
+        cakeModel: activeConfig.cakeModel || 'classic-tiered',
+        plateStyle: activeConfig.plate || 'ceramic',
+        glazeStyle: activeConfig.glaze || 'chocolate',
+        topperStyle: activeConfig.topper || 'best-senpai',
+        topperText: activeConfig.topperText,
+        themeName: activeConfig.theme || 'neon-rose',
+        themeColors: getThemeRGBColors(activeConfig.theme),
+        strawberries: activeConfig.strawberries !== undefined ? parseInt(activeConfig.strawberries) : 4,
+        cherries: activeConfig.cherries !== undefined ? parseInt(activeConfig.cherries) : 4,
+        rolls: activeConfig.rolls !== undefined ? parseInt(activeConfig.rolls) : 3,
+        sprinkles: activeConfig.sprinkles !== undefined ? !!activeConfig.sprinkles : true,
+        glazeColor: activeConfig.glazeColor || '',
+        creamColor: activeConfig.creamColor || '',
+        plateColor: activeConfig.plateColor || '',
+        topperColor: activeConfig.topperColor || '',
+        // Phones get thinner decoration rings and coarser piped cream.
+        detail: isMobileViewport() ? 0.6 : 1,
+        // Only the viewer raycasts the fruit for the click-to-bounce
+        // interaction, so only it needs the meshes named.
+        tagDecor: true
+    });
 }
 
 function getThemeRGBColors(themeName) {
@@ -2718,26 +1344,12 @@ function getThemeRGBColors(themeName) {
 // Mount custom count of candles
 function setupViewerCandles() {
     candles = [];
-    const cakeModel = activeConfig.cakeModel || 'classic-tiered';
 
-    let candlePlacerRadius = 0.72;
-    let candleBaseY = 1.35;
-    let isHeartShape = false;
-
-    if (cakeModel === 'vintage-heart') {
-        candlePlacerRadius = 0.65;
-        candleBaseY = 0.85;
-        isHeartShape = true;
-    } else if (cakeModel === 'korean-bento') {
-        candlePlacerRadius = 0.60;
-        candleBaseY = 0.74;
-    } else if (cakeModel === 'triple-luxury') {
-        candlePlacerRadius = 0.48;
-        candleBaseY = 1.50;
-    } else if (cakeModel === 'cyber-prism') {
-        candlePlacerRadius = 0.68;
-        candleBaseY = 1.20;
-    }
+    // These used to be a third hand-maintained copy of the per-model metrics,
+    // which is how they drifted out of sync with the cake itself.
+    const { candlePlacerRadius, candleBaseY, isHeartShape } =
+        getCakeLayout(activeConfig.cakeModel || 'classic-tiered');
+    const candleCount = Math.min(10, Math.max(1, parseInt(activeConfig.candles, 10) || 5));
 
     // Realistic Candles builder
     const candleGeo = new THREE.CylinderGeometry(0.046, 0.052, 0.45, 20);
@@ -2811,8 +1423,9 @@ function setupViewerCandles() {
 
         const fireLight = new THREE.PointLight(0xffb800, 2.0, 4);
         fireLight.position.set(0, 0.7, 0);
-        fireLight.castShadow = true;
-        fireLight.shadow.bias = -0.002;
+        // A point-light shadow re-renders the scene six times per candle,
+        // which is the single most expensive thing on the page. The key
+        // light already casts the cake's shadow.
         candleGroup.add(fireLight);
 
         let cX = Math.cos(angle) * candlePlacerRadius;
@@ -3412,111 +2025,6 @@ function setupFloatingSprinkles() {
     }
 }
 
-function createCustomTopperTexture(text, themeName, customGlowColor = '') {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d');
-    
-    ctx.clearRect(0, 0, 512, 256);
-    
-    let bgColor = 'rgba(15, 10, 25, 0.85)';
-    let textColor = '#ff0055';
-    let borderColor = '#00f2fe';
-    let glowColor = '#ff0055';
-    let fontName = 'Outfit';
-
-    if (themeName === 'midnight-gold') {
-        bgColor = 'rgba(10, 8, 5, 0.9)';
-        textColor = '#ffd700';
-        borderColor = '#ffd700';
-        glowColor = '#ffd700';
-        fontName = 'Playfair Display';
-    } else if (themeName === 'pastel-mint') {
-        bgColor = 'rgba(5, 15, 20, 0.85)';
-        textColor = '#00f2fe';
-        borderColor = '#4facfe';
-        glowColor = '#00f2fe';
-        fontName = 'Outfit';
-    } else if (themeName === 'lavender-dream') {
-        bgColor = 'rgba(15, 5, 20, 0.88)';
-        textColor = '#f355ff';
-        borderColor = '#8000ff';
-        glowColor = '#f355ff';
-        fontName = 'Outfit';
-    } else if (themeName === 'sakura-blossom') {
-        bgColor = 'rgba(31, 12, 17, 0.9)';
-        textColor = '#ff758f'; // Cherry bloom pink
-        borderColor = '#ffb3c6';
-        glowColor = '#ff758f';
-        fontName = 'Great Vibes';
-    } else if (themeName === 'cyber-retro') {
-        bgColor = 'rgba(24, 0, 38, 0.9)';
-        textColor = '#ff3399'; // Hot neon pink
-        borderColor = '#ff9966';
-        glowColor = '#ff3399';
-        fontName = 'Outfit';
-    } else if (themeName === 'forest-moss') {
-        bgColor = 'rgba(0, 23, 10, 0.9)';
-        textColor = '#00ff88'; // Emerald green
-        borderColor = '#ffd700';
-        glowColor = '#00ff88';
-        fontName = 'Playfair Display';
-    } else if (themeName === 'cosmic-nebula') {
-        bgColor = 'rgba(7, 0, 20, 0.9)';
-        textColor = '#8a2be2'; // Celestial violet
-        borderColor = '#00f2fe';
-        glowColor = '#00ffd5';
-        fontName = 'Outfit';
-    } else if (themeName === 'choco-monarch') {
-        bgColor = 'rgba(20, 9, 4, 0.9)';
-        textColor = '#cca43b'; // Honey gold
-        borderColor = '#5c3d2e';
-        glowColor = '#cca43b';
-        fontName = 'Playfair Display';
-    }
-
-    if (customGlowColor) {
-        textColor = customGlowColor;
-        borderColor = customGlowColor;
-        glowColor = customGlowColor;
-    }
-    
-    ctx.fillStyle = bgColor;
-    ctx.strokeStyle = borderColor;
-    ctx.lineWidth = 12;
-    
-    const r = 24;
-    ctx.beginPath();
-    ctx.moveTo(r, 0);
-    ctx.lineTo(512 - r, 0);
-    ctx.quadraticCurveTo(512, 0, 512, r);
-    ctx.lineTo(512, 256 - r);
-    ctx.quadraticCurveTo(512, 256, 512 - r, 256);
-    ctx.lineTo(r, 256);
-    ctx.quadraticCurveTo(0, 256, 0, 256 - r);
-    ctx.lineTo(0, r);
-    ctx.quadraticCurveTo(0, 0, r, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = 15;
-    ctx.fillStyle = textColor;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    let fontSize = 56;
-    if (text.length > 10) fontSize = 44;
-    if (text.length > 14) fontSize = 36;
-    
-    ctx.font = `bold ${fontSize}px "${fontName}", "Outfit", sans-serif`;
-    ctx.fillText(text, 256, 128);
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    return texture;
-}
 
 function createFloatingLabelSprite(text, colorStr) {
     const canvas = document.createElement('canvas');
@@ -4486,7 +2994,7 @@ function popGift(giftGroup, event) {
     
     // HTML Floating glassmorphic Surpise bubble!
     const bubble = document.createElement('div');
-    bubble.innerHTML = text;
+    bubble.textContent = text;
     
     bubble.style.position = 'absolute';
     bubble.style.left = `${event.clientX}px`;

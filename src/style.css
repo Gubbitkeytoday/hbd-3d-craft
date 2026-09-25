@@ -250,7 +250,9 @@ body {
     display: grid;
     grid-template-columns: 420px 1.3fr; /* Compacted sidebar, expanded vast room for 3D Preview */
     gap: 2.5rem;
-    align-items: stretch; /* Stretches the 3D Preview to occupy the full sidebar height beautifully */
+    /* Stretching made the preview as tall as the whole form (~2000px), which
+       pushed the cake far below the fold. It now stays pinned in view. */
+    align-items: start;
 }
 
 .customizer-sidebar {
@@ -765,8 +767,12 @@ body {
 .preview-area {
     display: flex;
     flex-direction: column;
-    height: 100%;
-    min-height: 720px;
+    position: sticky;
+    top: 1.5rem;
+    height: calc(100vh - 3rem);
+    height: calc(100dvh - 3rem);
+    min-height: 520px;
+    max-height: 900px;
     padding: 2rem;
 }
 
@@ -803,7 +809,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 560px;
+    min-height: 0;
     width: 100%;
 }
 
@@ -1294,14 +1300,40 @@ body {
         gap: 2rem;
     }
     
+    /* Keep a compact preview pinned at the top so every change on the form
+       below is visible without scrolling back up. */
     .preview-area {
-        min-height: 520px;
+        top: 0;
+        z-index: 20;
+        height: auto;
+        min-height: 0;
+        max-height: none;
+        padding: 0.75rem 1rem 1rem;
+        background: rgba(10, 6, 18, 0.94);
+    }
+
+    .preview-header {
+        margin-bottom: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+
+    .preview-canvas-container {
+        flex: none;
+        height: 38vh;
+        height: 38svh;
+        min-height: 220px;
     }
 }
 
 @media (max-width: 600px) {
     #creator-view {
         padding: 1.5rem 1rem;
+    }
+
+    /* The pinned preview is short on phones; the drag hint is not worth a
+       second line of header. */
+    .preview-header .badge {
+        display: none;
     }
     
     .logo h1 {
@@ -2566,3 +2598,32 @@ body {
 
 
 
+
+/* 13. ACCESSIBILITY */
+:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
+.switch-wrapper input:focus-visible + .switch-slider {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

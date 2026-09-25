@@ -6,6 +6,20 @@
     <!-- SEO and Title -->
     <title>Interactive 3D Happy Birthday Experience</title>
     <meta name="description" content="Design and share stunning, highly interactive 3D birthday greetings featuring dynamic 3D cakes, microphone-based candle blowing, and animated surprises!">
+    <meta name="theme-color" content="#0b0714">
+    <link rel="canonical" href="https://hbd-3d-craft.pages.dev/">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%82%3C/text%3E%3C/svg%3E">
+
+    <!-- Link previews (LINE, Facebook, X). Card data lives in the URL
+         fragment, which crawlers never see, so every link shares this card. -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="HBD 3D Craft">
+    <meta property="og:title" content="You have a 3D birthday surprise 🎂">
+    <meta property="og:description" content="Open it to light the candles, make a wish and blow them out.">
+    <meta property="og:url" content="https://hbd-3d-craft.pages.dev/">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="You have a 3D birthday surprise 🎂">
+    <meta name="twitter:description" content="Open it to light the candles, make a wish and blow them out.">
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,16 +38,16 @@
             <!-- Glassmorphic Top Nav Bar -->
             <nav class="app-nav-bar glass-panel">
                 <div class="nav-logo">
-                    <i class="fa-solid fa-cake-candles icon-glow"></i>
+                    <i class="fa-solid fa-cake-candles icon-glow" aria-hidden="true"></i>
                     <span data-i18n="appTitle">HBD 3D Craft</span>
                 </div>
                 <div class="nav-links">
-                    <a href="index.html" class="nav-item active" data-i18n="navCreator"><i class="fa-solid fa-wand-magic-sparkles"></i> 3D Creator</a>
+                    <a href="index.html" class="nav-item active" data-i18n="navCreator"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> 3D Creator</a>
                     
                     <!-- Modern Glass Language Switcher -->
                     <div class="lang-selector-wrapper">
-                        <i class="fa-solid fa-globe lang-icon"></i>
-                        <select id="lang-switcher" class="lang-select">
+                        <i class="fa-solid fa-globe lang-icon" aria-hidden="true"></i>
+                        <select id="lang-switcher" class="lang-select" aria-label="Language">
                             <option value="en">EN</option>
                             <option value="th">TH</option>
                             <option value="ja">JA</option>
@@ -44,7 +58,7 @@
 
             <header class="dashboard-header">
                 <div class="logo">
-                    <span class="logo-icon"><i class="fa-solid fa-cake-candles"></i></span>
+                    <span class="logo-icon"><i class="fa-solid fa-cake-candles" aria-hidden="true"></i></span>
                     <h1>HBD 3D Craft</h1>
                 </div>
                 <p class="subtitle" data-i18n="appSubtitle">Design an unforgettable interactive 3D birthday card for Khun Ploy</p>
@@ -53,18 +67,18 @@
             <div class="creator-container">
                 <!-- Customizer Sidebar -->
                 <section class="customizer-sidebar glass-panel">
-                    <h2 class="section-title" data-i18n="customizeCard"><i class="fa-solid fa-sliders"></i> Customize Card</h2>
+                    <h2 class="section-title" data-i18n="customizeCard"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Customize Card</h2>
                     
                     <!-- Sidebar Tabs Navigation -->
                     <div class="sidebar-tabs">
                         <button type="button" class="tab-btn active" data-tab="tab-info" data-i18n="wishDetails">
-                            <i class="fa-solid fa-pen-to-square"></i> Wish Details
+                            <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i> Wish Details
                         </button>
                         <button type="button" class="tab-btn" data-tab="tab-decor" data-i18n="decorCake">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> Decorate Cake
+                            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Decorate Cake
                         </button>
                         <button type="button" class="tab-btn" data-tab="tab-colors" data-i18n="customColors">
-                            <i class="fa-solid fa-palette"></i> Custom Colors
+                            <i class="fa-solid fa-palette" aria-hidden="true"></i> Custom Colors
                         </button>
                     </div>
 
@@ -73,45 +87,45 @@
                         <div id="tab-info" class="tab-panel active">
                             <!-- Recipient Name -->
                             <div class="form-group">
-                                <label for="recipient-name">Recipient's Name (คุณพลอย)</label>
+                                <label for="recipient-name" data-i18n="recipientLabel">Recipient's Name</label>
                                 <div class="input-wrapper">
-                                    <i class="fa-solid fa-user input-icon"></i>
-                                    <input type="text" id="recipient-name" value="คุณพลอย" placeholder="e.g. คุณพลอย" required maxlength="25">
+                                    <i class="fa-solid fa-user input-icon" aria-hidden="true"></i>
+                                    <input type="text" id="recipient-name" value="คุณพลอย" data-i18n="recipientPlh" placeholder="e.g. คุณพลอย" required maxlength="25">
                                 </div>
                             </div>
 
                             <!-- Birthday Date -->
                             <div class="form-group">
-                                <label for="birth-date">Birthday Date (วันเกิด)</label>
+                                <label for="birth-date" data-i18n="birthDateLabel">Birthday Date</label>
                                 <div class="input-wrapper">
-                                    <i class="fa-solid fa-cake-candles input-icon"></i>
+                                    <i class="fa-solid fa-cake-candles input-icon" aria-hidden="true"></i>
                                     <input type="date" id="birth-date" value="2026-08-17">
                                 </div>
                             </div>
 
                             <!-- Main Title / Wish Title -->
                             <div class="form-group">
-                                <label for="wish-title">Greeting Title</label>
+                                <label for="wish-title" data-i18n="titleLabel">Greeting Title</label>
                                 <div class="input-wrapper">
-                                    <i class="fa-solid fa-wand-magic input-icon"></i>
-                                    <input type="text" id="wish-title" value="สุขสันต์วันเกิดย้อนหลังนะค้าบคุณพลอย! 🎂🖤" placeholder="e.g. Happy Birthday!" required maxlength="40">
+                                    <i class="fa-solid fa-wand-magic input-icon" aria-hidden="true"></i>
+                                    <input type="text" id="wish-title" data-i18n="titlePlh" value="สุขสันต์วันเกิดย้อนหลังนะค้าบคุณพลอย! 🎂🖤" placeholder="e.g. Happy Birthday!" required maxlength="40">
                                 </div>
                             </div>
 
                             <!-- Birthday Message -->
                             <div class="form-group">
-                                <label for="wish-message">Personal Message / Wishes</label>
+                                <label for="wish-message" data-i18n="messageLabel">Personal Message / Wishes</label>
                                 <div class="textarea-wrapper">
-                                    <i class="fa-solid fa-heart input-icon"></i>
-                                    <textarea id="wish-message" rows="4" placeholder="Write something sweet and warm..." required>Happy Belated Birthday นะค้าบคุณพลอย! 🎂✨ ถึงจะมาช้าไปนิด แต่ความหวังดีมีให้เสมอ ขอให้ปีนี้เป็นปีที่ดี มีรอยยิ้มเยอะๆ สุขภาพแข็งแรง และเท่/น่ารักขึ้นทุกวันเลยน้า 🎉🖤</textarea>
+                                    <i class="fa-solid fa-heart input-icon" aria-hidden="true"></i>
+                                    <textarea id="wish-message" rows="4" data-i18n="messagePlh" placeholder="Write something sweet and warm..." required>Happy Belated Birthday นะค้าบคุณพลอย! 🎂✨ ถึงจะมาช้าไปนิด แต่ความหวังดีมีให้เสมอ ขอให้ปีนี้เป็นปีที่ดี มีรอยยิ้มเยอะๆ สุขภาพแข็งแรง และเท่/น่ารักขึ้นทุกวันเลยน้า 🎉🖤</textarea>
                                 </div>
                             </div>
 
                             <!-- Greeting Card Font -->
                             <div class="form-group">
-                                <label for="card-font">Greeting Card Font</label>
+                                <label for="card-font" data-i18n="fontLabel">Greeting Card Font</label>
                                 <div class="select-wrapper">
-                                    <i class="fa-solid fa-font input-icon"></i>
+                                    <i class="fa-solid fa-font input-icon" aria-hidden="true"></i>
                                     <select id="card-font">
                                         <option value="outfit">Outfit Modern (Clean)</option>
                                         <option value="playfair">Playfair Serif (Elegant)</option>
@@ -122,12 +136,12 @@
 
                             <!-- Memory Photo URL -->
                             <div class="form-group">
-                                <label for="memory-photo-url">Memory Photo URL (Optional)</label>
+                                <label for="memory-photo-url" data-i18n="photoLabel">Memory Photo URL (Optional)</label>
                                 <div class="input-wrapper">
-                                    <i class="fa-solid fa-image input-icon"></i>
-                                    <input type="url" id="memory-photo-url" placeholder="e.g. https://i.imgur.com/XYZ.jpg" title="Direct URL to image (CORS enabled).">
+                                    <i class="fa-solid fa-image input-icon" aria-hidden="true"></i>
+                                    <input type="url" id="memory-photo-url" data-i18n="photoPlh" placeholder="e.g. https://i.imgur.com/XYZ.jpg" title="Direct URL to image (CORS enabled).">
                                 </div>
-                                <span class="form-help-text" style="font-size: 0.72rem; opacity: 0.7; margin-top: 4px; display: block; line-height: 1.3;">
+                                <span class="form-help-text" data-i18n="photoHelp" style="font-size: 0.72rem; opacity: 0.7; margin-top: 4px; display: block; line-height: 1.3;">
                                     Use direct image links from Imgur or Discord. If CORS fails, a beautiful silhouette fallback is used.
                                 </span>
                             </div>
@@ -137,31 +151,31 @@
                                 <label data-i18n="themeLabel">Theme & Visual Palette</label>
                                 <div class="theme-grid">
                                     <button type="button" class="theme-btn" data-theme="neon-rose" style="background: linear-gradient(135deg, #ff0055, #7a00ff);" title="Neon Rose theme">
-                                        <span>Neon Rose</span>
+                                        <span data-i18n="themeNeonRose">Neon Rose</span>
                                     </button>
                                     <button type="button" class="theme-btn active" data-theme="midnight-gold" style="background: linear-gradient(135deg, #ffd700, #111111);" title="Midnight Gold theme">
-                                        <span>Midnight Gold</span>
+                                        <span data-i18n="themeMidnightGold">Midnight Gold</span>
                                     </button>
                                     <button type="button" class="theme-btn" data-theme="pastel-mint" style="background: linear-gradient(135deg, #00f2fe, #4facfe);" title="Ocean Breeze theme">
-                                        <span>Ocean Breeze</span>
+                                        <span data-i18n="themeOceanBreeze">Ocean Breeze</span>
                                     </button>
                                     <button type="button" class="theme-btn" data-theme="lavender-dream" style="background: linear-gradient(135deg, #f355ff, #8000ff);" title="Lavender Dream theme">
-                                        <span>Lavender Dream</span>
+                                        <span data-i18n="themeLavenderDream">Lavender Dream</span>
                                     </button>
                                     <button type="button" class="theme-btn" data-theme="sakura-blossom" style="background: linear-gradient(135deg, #ff758f, #ffb3c6);" title="Sakura Blossom theme">
-                                        <span>Sakura Bloom</span>
+                                        <span data-i18n="themeSakuraBloom">Sakura Bloom</span>
                                     </button>
                                     <button type="button" class="theme-btn" data-theme="cyber-retro" style="background: linear-gradient(135deg, #ff3399, #ff9966);" title="Cyber Retro theme">
-                                        <span>Cyber Retro</span>
+                                        <span data-i18n="themeCyberRetro">Cyber Retro</span>
                                     </button>
                                     <button type="button" class="theme-btn" data-theme="forest-moss" style="background: linear-gradient(135deg, #00ff88, #38b000);" title="Forest Moss theme">
-                                        <span>Forest Moss</span>
+                                        <span data-i18n="themeForestMoss">Forest Moss</span>
                                     </button>
                                     <button type="button" class="theme-btn" data-theme="cosmic-nebula" style="background: linear-gradient(135deg, #8a2be2, #00f2fe);" title="Cosmic Nebula theme">
-                                        <span>Cosmic Void</span>
+                                        <span data-i18n="themeCosmicVoid">Cosmic Void</span>
                                     </button>
                                     <button type="button" class="theme-btn" data-theme="choco-monarch" style="background: linear-gradient(135deg, #cca43b, #5c3d2e);" title="Choco Monarch theme">
-                                        <span>Choco Gold</span>
+                                        <span data-i18n="themeChocoGold">Choco Gold</span>
                                     </button>
                                 </div>
                             </div>
@@ -179,7 +193,7 @@
                             <div class="form-group">
                                 <label for="music-track" data-i18n="musicLabel">Background Track</label>
                                 <div class="select-wrapper">
-                                    <i class="fa-solid fa-music input-icon"></i>
+                                    <i class="fa-solid fa-music input-icon" aria-hidden="true"></i>
                                     <select id="music-track">
                                         <option value="happy-birthday-lofi">Lo-Fi Acoustic Birthday (Warm)</option>
                                         <option value="happy-birthday-piano">Chopin Style Piano HBD (Elegant)</option>
@@ -205,7 +219,7 @@
                                 <div class="form-group">
                                     <label for="letter-theme" data-i18n="letterTheme">Envelope/Letter Style</label>
                                     <div class="select-wrapper">
-                                        <i class="fa-solid fa-envelope input-icon"></i>
+                                        <i class="fa-solid fa-envelope input-icon" aria-hidden="true"></i>
                                         <select id="letter-theme">
                                             <option value="cyber">Cyberpunk Neon (Cyan/Magenta)</option>
                                             <option value="royal" selected>Golden Royal (Glossy Gold)</option>
@@ -219,8 +233,8 @@
                                 <div class="form-group">
                                     <label for="letter-title" data-i18n="letterTitleLabel">Letter Title</label>
                                     <div class="input-wrapper">
-                                        <i class="fa-solid fa-pen-nib input-icon"></i>
-                                        <input type="text" id="letter-title" value="ถึงคุณพลอยคนเท่ ✨" placeholder="e.g. To Khun Ploy" data-i18n="letterTitle" maxlength="30">
+                                        <i class="fa-solid fa-pen-nib input-icon" aria-hidden="true"></i>
+                                        <input type="text" id="letter-title" value="ถึงคุณพลอยคนเท่ ✨" placeholder="e.g. To Khun Ploy" maxlength="30">
                                     </div>
                                 </div>
 
@@ -228,8 +242,8 @@
                                 <div class="form-group">
                                     <label for="letter-body" data-i18n="letterBodyLabel">Handwritten Letter Body</label>
                                     <div class="textarea-wrapper">
-                                        <i class="fa-solid fa-message input-icon"></i>
-                                        <textarea id="letter-body" rows="4" placeholder="Write a special letter message..." data-i18n="letterBody">ถึงคุณพลอย,
+                                        <i class="fa-solid fa-message input-icon" aria-hidden="true"></i>
+                                        <textarea id="letter-body" rows="4" placeholder="Write a special letter message...">ถึงคุณพลอย,
 
 จดหมายลับใบนี้ลอยข้ามกาลเวลามา HBD ย้อนหลังนะค้าบ ✉️✨
 
@@ -247,17 +261,17 @@
                             <div class="form-group">
                                 <label data-i18n="presetsLabel">One-Click Aesthetic Presets</label>
                                 <div class="preset-grid">
-                                    <button type="button" class="preset-btn" data-preset="chocolate-royal">
-                                        <i class="fa-solid fa-cookie"></i> Choco Royal
+                                    <button type="button" class="preset-btn" data-preset="chocolate-royal" data-i18n="presetChocoRoyal">
+                                        <i class="fa-solid fa-cookie" aria-hidden="true"></i> Choco Royal
                                     </button>
-                                    <button type="button" class="preset-btn" data-preset="pink-dream">
-                                        <i class="fa-solid fa-heart"></i> Pink Dream
+                                    <button type="button" class="preset-btn" data-preset="pink-dream" data-i18n="presetPinkDream">
+                                        <i class="fa-solid fa-heart" aria-hidden="true"></i> Pink Dream
                                     </button>
-                                    <button type="button" class="preset-btn" data-preset="mint-chocolate">
-                                        <i class="fa-solid fa-leaf"></i> Mint Breeze
+                                    <button type="button" class="preset-btn" data-preset="mint-chocolate" data-i18n="presetMintBreeze">
+                                        <i class="fa-solid fa-leaf" aria-hidden="true"></i> Mint Breeze
                                     </button>
-                                    <button type="button" class="preset-btn" data-preset="midnight-gold">
-                                        <i class="fa-solid fa-crown"></i> Midnight Royal
+                                    <button type="button" class="preset-btn" data-preset="midnight-gold" data-i18n="presetMidnightRoyal">
+                                        <i class="fa-solid fa-crown" aria-hidden="true"></i> Midnight Royal
                                     </button>
                                 </div>
                             </div>
@@ -266,7 +280,7 @@
                             <div class="form-group">
                                 <label for="cake-model" data-i18n="cakeModelLabel">3D Cake Model & Shape</label>
                                 <div class="select-wrapper">
-                                    <i class="fa-solid fa-cake-candles input-icon"></i>
+                                    <i class="fa-solid fa-cake-candles input-icon" aria-hidden="true"></i>
                                     <select id="cake-model">
                                         <option value="classic-tiered" selected data-i18n="modelClassic">🎂 Classic Royal 2-Tier</option>
                                         <option value="vintage-heart" data-i18n="modelVintageHeart">💖 Vintage Coquette Heart</option>
@@ -279,9 +293,9 @@
 
                             <!-- Cake Stand / Plate -->
                             <div class="form-group">
-                                <label for="plate-style">Plate / Stand Style</label>
+                                <label for="plate-style" data-i18n="plateStyle">Plate / Stand Style</label>
                                 <div class="select-wrapper">
-                                    <i class="fa-solid fa-compact-disc input-icon"></i>
+                                    <i class="fa-solid fa-compact-disc input-icon" aria-hidden="true"></i>
                                     <select id="plate-style">
                                         <option value="ceramic">Ceramic White (Elegant)</option>
                                         <option value="crystal">Rose Crystal Glass (Glossy)</option>
@@ -293,9 +307,9 @@
 
                             <!-- Glaze Style -->
                             <div class="form-group">
-                                <label for="glaze-style">Glaze / Cream Glaze</label>
+                                <label for="glaze-style" data-i18n="glazeStyle">Glaze / Cream Glaze</label>
                                 <div class="select-wrapper">
-                                    <i class="fa-solid fa-droplet input-icon"></i>
+                                    <i class="fa-solid fa-droplet input-icon" aria-hidden="true"></i>
                                     <select id="glaze-style">
                                         <option value="chocolate">Rich Dark Chocolate</option>
                                         <option value="strawberry">Fresh Sweet Strawberry</option>
@@ -307,9 +321,9 @@
 
                             <!-- Cake Center Topper -->
                             <div class="form-group">
-                                <label for="topper-style">Cake Center Topper</label>
+                                <label for="topper-style" data-i18n="topperStyle">Cake Center Topper</label>
                                 <div class="select-wrapper">
-                                    <i class="fa-solid fa-crown input-icon"></i>
+                                    <i class="fa-solid fa-crown input-icon" aria-hidden="true"></i>
                                     <select id="topper-style">
                                         <option value="best-senpai">"Best Cream 💖"</option>
                                         <option value="hbd">"Happy Birthday 🎂"</option>
@@ -323,7 +337,7 @@
                             <div class="form-group" id="custom-topper-text-group">
                                 <label for="custom-topper-text" data-i18n="customTopperTextLabel">Or Custom Topper Text (Max 16 chars)</label>
                                 <div class="input-wrapper">
-                                    <i class="fa-solid fa-keyboard input-icon"></i>
+                                    <i class="fa-solid fa-keyboard input-icon" aria-hidden="true"></i>
                                     <input type="text" id="custom-topper-text" value="" placeholder="e.g. CREAM #1" maxlength="16">
                                 </div>
                                 <span class="form-help-text" data-i18n="customTopperHelp" style="font-size: 0.72rem; opacity: 0.7; margin-top: 4px; display: block; line-height: 1.3;">
@@ -333,7 +347,7 @@
 
                             <!-- Strawberries Quantity -->
                             <div class="form-group">
-                                <label for="decor-strawberries">Fresh Strawberries (0 - 8)</label>
+                                <label for="decor-strawberries" data-i18n="strawberriesCount">Fresh Strawberries (0 - 8)</label>
                                 <div class="slider-group">
                                     <input type="range" id="decor-strawberries" min="0" max="8" value="4">
                                     <span class="slider-val" id="decor-strawberries-display">4</span>
@@ -342,7 +356,7 @@
 
                             <!-- Cherries Quantity -->
                             <div class="form-group">
-                                <label for="decor-cherries">Sweet Cherries (0 - 8)</label>
+                                <label for="decor-cherries" data-i18n="cherriesCount">Sweet Cherries (0 - 8)</label>
                                 <div class="slider-group">
                                     <input type="range" id="decor-cherries" min="0" max="8" value="4">
                                     <span class="slider-val" id="decor-cherries-display">4</span>
@@ -351,7 +365,7 @@
 
                             <!-- Chocolate Rolls Quantity -->
                             <div class="form-group">
-                                <label for="decor-rolls">Choco Wafer Rolls (0 - 6)</label>
+                                <label for="decor-rolls" data-i18n="rollsCount">Choco Wafer Rolls (0 - 6)</label>
                                 <div class="slider-group">
                                     <input type="range" id="decor-rolls" min="0" max="6" value="3">
                                     <span class="slider-val" id="decor-rolls-display">3</span>
@@ -472,8 +486,8 @@
                         </div>
 
                         <!-- Action Button -->
-                        <button type="button" id="btn-generate-card" class="btn-primary">
-                            <i class="fa-solid fa-link"></i> Generate & Share Card
+                        <button type="button" id="btn-generate-card" class="btn-primary" data-i18n="btnGenerate">
+                            <i class="fa-solid fa-link" aria-hidden="true"></i> Generate & Share Card
                         </button>
                     </form>
                 </section>
@@ -481,14 +495,14 @@
                 <!-- Live Preview Block -->
                 <section class="preview-area glass-panel">
                     <div class="preview-header">
-                        <h3 data-i18n="previewTitle"><i class="fa-solid fa-eye"></i> Real-time 3D Preview</h3>
+                        <h3 data-i18n="previewTitle"><i class="fa-solid fa-eye" aria-hidden="true"></i> Real-time 3D Preview</h3>
                         <span class="badge" data-i18n="dragRotate">Drag to Rotate 3D Cake</span>
                     </div>
                     <div class="preview-canvas-container" id="preview-canvas-wrapper">
                         <!-- Three.js Canvas will mount here -->
                         <div class="canvas-loading">
-                            <i class="fa-solid fa-circle-notch fa-spin"></i>
-                            <p>Loading 3D Canvas...</p>
+                            <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+                            <p data-i18n="loadingCanvas">Loading 3D Canvas...</p>
                         </div>
                     </div>
                 </section>
@@ -496,22 +510,22 @@
 
             <!-- Share Modal -->
             <div id="share-modal" class="modal-overlay">
-                <div class="modal-content glass-panel">
-                    <button class="modal-close" id="btn-modal-close"><i class="fa-solid fa-xmark"></i></button>
-                    <div class="modal-icon"><i class="fa-solid fa-circle-check"></i></div>
+                <div class="modal-content glass-panel" role="dialog" aria-modal="true" aria-label="Share your card">
+                    <button type="button" class="modal-close" id="btn-modal-close" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+                    <div class="modal-icon"><i class="fa-solid fa-circle-check" aria-hidden="true"></i></div>
                     <h3 data-i18n="readyTitle">Your 3D Birthday Card is Ready!</h3>
                     <p data-i18n="readyHint">Copy the unique URL below and send it to your Senpai. Since it's fully encoded, it requires no hosting database!</p>
                     
                     <div class="copy-url-group">
-                        <input type="text" id="share-url-input" readonly>
+                        <input type="text" id="share-url-input" readonly aria-label="Share link">
                         <button id="btn-copy-url" class="btn-secondary" data-i18n="readyCopyBtn">
-                            <i class="fa-solid fa-copy"></i> Copy
+                            <i class="fa-solid fa-copy" aria-hidden="true"></i> Copy
                         </button>
                     </div>
                     
                     <div class="modal-actions">
-                        <a href="" id="btn-test-link" target="_blank" class="btn-outline">
-                            <i class="fa-solid fa-arrow-up-right-from-square"></i> Test Card Now
+                        <a href="" id="btn-test-link" target="_blank" rel="noopener" class="btn-outline" data-i18n="testCardBtn">
+                            <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> Test Card Now
                         </a>
                     </div>
                 </div>
@@ -524,8 +538,8 @@
             <div id="envelope-gate" class="gate-overlay active-gate">
                 <!-- Floating Receiver Lang Selector -->
                 <div class="lang-selector-wrapper floating-receiver-lang">
-                    <i class="fa-solid fa-globe lang-icon"></i>
-                    <select id="lang-switcher-receiver" class="lang-select">
+                    <i class="fa-solid fa-globe lang-icon" aria-hidden="true"></i>
+                    <select id="lang-switcher-receiver" class="lang-select" aria-label="Language">
                         <option value="en">EN</option>
                         <option value="th">TH</option>
                         <option value="ja">JA</option>
@@ -534,11 +548,11 @@
                 
                 <div class="envelope-container">
                     <div class="envelope glass-panel">
-                        <div class="envelope-top-heart"><i class="fa-solid fa-heart"></i></div>
+                        <div class="envelope-top-heart"><i class="fa-solid fa-heart" aria-hidden="true"></i></div>
                         <h2 data-i18n="gateTitle">You Have a Special Message!</h2>
                         <p class="envelope-hint" data-i18n="gateHint">Click the envelope below to unlock your custom 3D birthday surprise...</p>
                         <button id="btn-open-envelope" class="envelope-seal-btn" data-i18n="gateBtn">
-                            <i class="fa-solid fa-envelope-open"></i> Open Surprise
+                            <i class="fa-solid fa-envelope-open" aria-hidden="true"></i> Open Surprise
                         </button>
                     </div>
                 </div>
@@ -580,23 +594,23 @@
             <div class="receiver-hud">
                 <!-- Top Instructions Overlay -->
                 <div class="hud-instructions glass-panel" id="hud-instructions">
-                    <span class="inst-icon pulse"><i class="fa-solid fa-microphone"></i></span>
-                    <p id="instruction-text" data-i18n="hudBlow">Blow into your mic or click on the candle flames to blow them out!</p>
+                    <span class="inst-icon pulse"><i class="fa-solid fa-microphone" aria-hidden="true"></i></span>
+                    <p id="instruction-text" aria-live="polite" data-i18n="hudBlow">Blow into your mic or click on the candle flames to blow them out!</p>
                 </div>
 
                 <!-- Right Side Control Overlays -->
                 <div class="hud-controls">
-                    <button id="btn-hud-card" class="hud-btn" title="View Greeting Card">
-                        <i class="fa-solid fa-heart"></i>
+                    <button type="button" id="btn-hud-card" aria-label="View Greeting Card" class="hud-btn" title="View Greeting Card">
+                        <i class="fa-solid fa-heart" aria-hidden="true"></i>
                     </button>
-                    <button id="btn-hud-mic" class="hud-btn active" title="Toggle Mic Blow Detection">
-                        <i class="fa-solid fa-microphone"></i>
+                    <button type="button" id="btn-hud-mic" aria-label="Toggle Mic Blow Detection" class="hud-btn active" title="Toggle Mic Blow Detection">
+                        <i class="fa-solid fa-microphone" aria-hidden="true"></i>
                     </button>
-                    <button id="btn-hud-audio" class="hud-btn" title="Toggle Background Music">
-                        <i class="fa-solid fa-volume-xmark"></i>
+                    <button type="button" id="btn-hud-audio" aria-label="Toggle Background Music" class="hud-btn" title="Toggle Background Music">
+                        <i class="fa-solid fa-volume-xmark" aria-hidden="true"></i>
                     </button>
-                    <button id="btn-hud-reset" class="hud-btn" title="Relight Candles">
-                        <i class="fa-solid fa-rotate-left"></i>
+                    <button type="button" id="btn-hud-reset" aria-label="Relight Candles" class="hud-btn" title="Relight Candles">
+                        <i class="fa-solid fa-rotate-left" aria-hidden="true"></i>
                     </button>
                 </div>
                 
@@ -609,8 +623,8 @@
                 <!-- Final Revealed Greeting Message Card -->
                 <div id="greeting-card-wrapper" class="hidden-card">
                     <div class="greeting-card glass-panel" id="reveal-card">
-                        <button id="btn-close-greeting-card" class="card-close-btn" title="Close Card">
-                            <i class="fa-solid fa-xmark"></i>
+                        <button type="button" id="btn-close-greeting-card" aria-label="Close Card" class="card-close-btn" title="Close Card">
+                            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                         </button>
                         <div class="sparkles-container">
                             <span class="sparkle size-1">✨</span>
@@ -618,7 +632,7 @@
                             <span class="sparkle size-3">✨</span>
                         </div>
                         <header class="greeting-card-header">
-                            <i class="fa-solid fa-quote-left quote-decoration"></i>
+                            <i class="fa-solid fa-quote-left quote-decoration" aria-hidden="true"></i>
                             <h2 id="view-title">Happy Birthday, คุณพลอย!</h2>
                             <p id="view-date" class="greeting-card-date"></p>
                         </header>
@@ -634,13 +648,13 @@
                 <!-- Glassmorphic Letter Popup Modal Overlay -->
                 <div id="letter-popup-overlay" class="letter-overlay-gate">
                     <div class="letter-popup-wrapper">
-                        <button id="btn-close-letter" class="letter-close-btn" title="Close Letter Card">
-                            <i class="fa-solid fa-xmark"></i>
+                        <button type="button" id="btn-close-letter" aria-label="Close Letter Card" class="letter-close-btn" title="Close Letter Card">
+                            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                         </button>
                         
                         <!-- Premium floating hint telling user to click open -->
                         <div class="letter-open-hint" id="letter-open-hint">
-                            <i class="fa-solid fa-envelope-open-text pulse"></i>
+                            <i class="fa-solid fa-envelope-open-text pulse" aria-hidden="true"></i>
                             <span data-i18n="letterOpenHint">แตะตราประทับขี้ผึ้งหรือซองจดหมายเพื่อเปิดอ่าน ✉️</span>
                         </div>
                         
@@ -651,7 +665,7 @@
                             
                             <!-- Sliding letter paper sheet inside -->
                             <div class="envelope-paper glass-panel" id="letter-paper">
-                                <div class="letter-stamp-seal"><i class="fa-solid fa-envelope-open-text"></i></div>
+                                <div class="letter-stamp-seal"><i class="fa-solid fa-envelope-open-text" aria-hidden="true"></i></div>
                                 <div class="letter-inner-content">
                                     <h2 id="letter-popup-title">ถึงคุณพลอยคนเท่ ✨</h2>
                                     <div class="letter-body-scroll">

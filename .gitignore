@@ -12,3 +12,6 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 .system_generated/
+
+# Browser automation output
+.playwright-mcp/

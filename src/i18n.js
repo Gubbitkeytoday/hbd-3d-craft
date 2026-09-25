@@ -1,4 +1,5 @@
-// HBD 3D Craft i18n Translation Engine (V4.4)
+// HBD 3D Craft i18n Translation Engine (V4.5)
+// All three language objects MUST share an identical key set.
 export const translations = {
     en: {
         appTitle: "HBD 3D Craft",
@@ -8,8 +9,9 @@ export const translations = {
         wishDetails: "Wish Details",
         decorCake: "Decorate Cake",
         customColors: "Custom Colors",
-        recipientLabel: "Recipient's Name (Senpai)",
+        recipientLabel: "Recipient's Name",
         recipientPlh: "e.g. My Dear Senpai",
+        birthDateLabel: "Birthday Date",
         titleLabel: "Greeting Title",
         titlePlh: "e.g. Happy Birthday!",
         messageLabel: "Personal Message / Wishes",
@@ -17,20 +19,20 @@ export const translations = {
         fontLabel: "Greeting Card Font",
         photoLabel: "Memory Photo URL (Optional)",
         photoPlh: "e.g. https://i.imgur.com/XYZ.jpg",
-        photoHelp: "Provide a direct image link (CORS enabled) to float a nostalgic polaroid photo next to the cake!",
+        photoHelp: "Use a direct image link (e.g. Imgur or Discord). If the image can't be loaded (CORS), a beautiful silhouette fallback is shown instead.",
         btnGenerate: "Generate & Share Card",
-        plateStyle: "Choose Plate Base",
-        glazeStyle: "Choose Gourmet Glaze Presets",
-        topperStyle: "Choose Center Topper",
-        candlesCount: "Candles Count",
-        strawberriesCount: "Decor Strawberries",
-        cherriesCount: "Decor Cherries",
-        rollsCount: "Decor Chocolate Rolls",
+        plateStyle: "Plate / Stand Style",
+        glazeStyle: "Glaze / Cream Style",
+        topperStyle: "Cake Center Topper",
+        candlesCount: "Candles to Blow Out (1 - 10)",
+        strawberriesCount: "Fresh Strawberries (0 - 8)",
+        cherriesCount: "Sweet Cherries (0 - 8)",
+        rollsCount: "Choco Wafer Rolls (0 - 6)",
         sprinklesEnabled: "Enable Colorful Sprinkles",
-        letterTheme: "Choose Letter Theme",
+        letterTheme: "Envelope / Letter Style",
         letterEnabled: "Include Secret Letter Card",
         gateTitle: "You Have a Special Message!",
-        gateHint: "Click the envelope below to unlock your custom 3D birthday surprise...",
+        gateHint: "Tap the button below to open your 3D birthday surprise...",
         gateBtn: "Open Surprise",
         hudBlow: "Blow into your mic or click on the candle flames to blow them out!",
         hudRelight: "Relight Candles",
@@ -38,6 +40,8 @@ export const translations = {
         readyTitle: "Your 3D Birthday Card is Ready!",
         readyHint: "Copy the unique URL below and send it to your Senpai. Since it's fully encoded, it requires no hosting database!",
         readyCopyBtn: "Copy Surprise Link",
+        testCardBtn: "Test Card Now",
+        loadingCanvas: "Loading 3D Canvas...",
         dragRotate: "Drag to Rotate 3D Cake",
         topperColor: "Topper Border & Text",
         glazeColor: "Cake Glaze Color",
@@ -52,12 +56,25 @@ export const translations = {
         btnBackCreator: "Build Your Own",
         appSubtitle: "Design an unforgettable interactive 3D birthday card for your Senpai",
         themeLabel: "Theme & Visual Palette",
+        themeNeonRose: "Neon Rose",
+        themeMidnightGold: "Midnight Gold",
+        themeOceanBreeze: "Ocean Breeze",
+        themeLavenderDream: "Lavender Dream",
+        themeSakuraBloom: "Sakura Bloom",
+        themeCyberRetro: "Cyber Retro",
+        themeForestMoss: "Forest Moss",
+        themeCosmicVoid: "Cosmic Void",
+        themeChocoGold: "Choco Gold",
         musicLabel: "Background Music Track",
         letterEnabledTitle: "Interactive 3D Letter",
         letterEnabledDesc: "Attach a floating 3D envelope card in WebGL",
         letterTitleLabel: "Letter Header Title",
         letterBodyLabel: "Handwritten Letter Body",
         presetsLabel: "One-Click Aesthetic Presets",
+        presetChocoRoyal: "Choco Royal",
+        presetPinkDream: "Pink Dream",
+        presetMintBreeze: "Mint Breeze",
+        presetMidnightRoyal: "Midnight Royal",
         customTopperTextLabel: "Or Custom Topper Text (Max 16 chars)",
         customTopperHelp: "If typed, this overrides the default selection with a custom 3D glowing plaque topper.",
         rainbowSprinklesTitle: "Rainbow Sprinkles",
@@ -84,8 +101,9 @@ export const translations = {
         wishDetails: "ข้อมูลคำอวยพร",
         decorCake: "ตกแต่งหน้าเค้ก",
         customColors: "ปรับแต่งสีสัน",
-        recipientLabel: "ชื่อผู้รับ (คุณพลอย)",
+        recipientLabel: "ชื่อผู้รับ",
         recipientPlh: "เช่น คุณพลอย",
+        birthDateLabel: "วันเกิด",
         titleLabel: "หัวข้ออวยพร",
         titlePlh: "เช่น สุขสันต์วันเกิดคุณพลอย!",
         messageLabel: "ข้อความอวยพรส่วนตัว",
@@ -93,20 +111,20 @@ export const translations = {
         fontLabel: "ฟอนต์เขียนการ์ดอวยพร",
         photoLabel: "ลิงก์รูปถ่ายความทรงจำ (ถ้ามี)",
         photoPlh: "เช่น https://i.imgur.com/XYZ.jpg",
-        photoHelp: "ใส่ลิงก์รูปถ่ายโดยตรง (CORS) เพื่อลอยภาพโพลารอยด์แห่งความทรงจำเคียงคู่ไปกับเค้กวันเกิด!",
-        btnGenerate: "สร้างและคัดลอกลิงก์การ์ด",
-        plateStyle: "เลือกรูปแบบจานรอง",
-        glazeStyle: "สไตล์การเคลือบเค้ก",
-        topperStyle: "เลือกป้ายปักบนเค้ก",
-        candlesCount: "จำนวนเทียนอวยพร",
-        strawberriesCount: "ตกแต่งสตรอว์เบอร์รี่",
-        cherriesCount: "ตกแต่งเชอร์รี่",
-        rollsCount: "ตกแต่งช็อกโกแลตโรล",
-        sprinklesEnabled: "เปิดใช้งานเกล็ดน้ำตาลเรืองแสง",
-        letterTheme: "เลือกธีมซองจดหมาย",
+        photoHelp: "ใช้ลิงก์รูปภาพโดยตรง (เช่น Imgur หรือ Discord) หากโหลดรูปไม่ได้เพราะ CORS ระบบจะแสดงภาพเงาสวย ๆ แทนให้",
+        btnGenerate: "สร้างและแชร์การ์ด",
+        plateStyle: "รูปแบบจาน / ฐานรองเค้ก",
+        glazeStyle: "รูปแบบซอสเคลือบ / ครีม",
+        topperStyle: "ป้ายปักกลางเค้ก",
+        candlesCount: "จำนวนเทียนที่จะเป่า (1 - 10)",
+        strawberriesCount: "สตรอว์เบอร์รี่สด (0 - 8)",
+        cherriesCount: "เชอร์รี่หวาน (0 - 8)",
+        rollsCount: "เวเฟอร์ช็อกโกแลตโรล (0 - 6)",
+        sprinklesEnabled: "เปิดใช้งานเกล็ดน้ำตาลหลากสี",
+        letterTheme: "รูปแบบซองจดหมาย",
         letterEnabled: "แนบการ์ดจดหมายลับ",
         gateTitle: "คุณได้รับข้อความสุดพิเศษ!",
-        gateHint: "กดเปิดซองจดหมายด้านล่างเพื่อเปิดดูการ์ดวันเกิด 3 มิติของคุณ...",
+        gateHint: "แตะปุ่มด้านล่างเพื่อเปิดการ์ดวันเกิด 3 มิติของคุณ...",
         gateBtn: "เปิดอ่านข้อความ",
         hudBlow: "เป่าลมใส่ไมโครโฟน หรือแตะที่เปลวไฟเพื่อเป่าเทียนวันเกิด!",
         hudRelight: "จุดเทียนใหม่อีกครั้ง",
@@ -114,9 +132,13 @@ export const translations = {
         readyTitle: "การ์ดวันเกิด 3D ของคุณพร้อมส่งแล้ว!",
         readyHint: "คัดลอก URL ด้านล่างนี้เพื่อส่งให้ผู้รับได้ทันที ข้อมูลทั้งหมดถูกเข้ารหัสในลิงก์อย่างปลอดภัย!",
         readyCopyBtn: "คัดลอกลิงก์การ์ด",
+        testCardBtn: "ทดลองเปิดการ์ด",
+        loadingCanvas: "กำลังโหลดฉาก 3D...",
         dragRotate: "คลิกค้างแล้วลากเพื่อหมุนเค้กแบบ 3D",
         topperColor: "สีกรอบป้ายและข้อความ",
         glazeColor: "สีซอสเคลือบหน้าเค้ก",
+        creamColor: "สีครีมชั้นเนื้อเค้ก",
+        plateColor: "สีจาน / ฐานเซรามิก",
         candleColor: "สีเทียนไขวันเกิด",
         envBaseColor: "สีซองจดหมายด้านหลัง",
         envFlapColor: "สีฝาซองสามเหลี่ยม",
@@ -126,12 +148,25 @@ export const translations = {
         btnBackCreator: "สร้างการ์ดของคุณเอง",
         appSubtitle: "ออกแบบการ์ดวันเกิด 3 มิติแบบโต้ตอบที่จะตราตรึงใจแด่คุณพลอย",
         themeLabel: "ธีม & จานสีทัศนศิลป์",
+        themeNeonRose: "นีออนโรส",
+        themeMidnightGold: "ทองราตรี",
+        themeOceanBreeze: "สายลมทะเล",
+        themeLavenderDream: "ลาเวนเดอร์ดรีม",
+        themeSakuraBloom: "ซากุระบาน",
+        themeCyberRetro: "ไซเบอร์เรโทร",
+        themeForestMoss: "ป่ามอสส์",
+        themeCosmicVoid: "ห้วงจักรวาล",
+        themeChocoGold: "ช็อกโกทอง",
         musicLabel: "เพลงบรรเลงประกอบฉาก",
         letterEnabledTitle: "ซองจดหมายลับ 3 มิติ",
         letterEnabledDesc: "แนบซองจดหมายลับแบบลอยตัวในมิติ 3D WebGL",
         letterTitleLabel: "หัวข้อกระดาษจดหมาย",
         letterBodyLabel: "ข้อความลายมือเขียนจดหมาย",
-        presetsLabel: "ชุดตกแต่งสำเร็จรูปขั้นเทพ",
+        presetsLabel: "ชุดตกแต่งสำเร็จรูปในคลิกเดียว",
+        presetChocoRoyal: "ช็อกโกรอยัล",
+        presetPinkDream: "พิงก์ดรีม",
+        presetMintBreeze: "มินต์บรีซ",
+        presetMidnightRoyal: "มิดไนต์รอยัล",
         customTopperTextLabel: "หรือพิมพ์ข้อความป้ายปักเค้กเอง (ไม่เกิน 16 อักษร)",
         customTopperHelp: "หากพิมพ์ข้อความลงไป ระบบจะสร้างป้ายข้อความสามมิติเรืองแสงแทนรูปแบบปกติให้ทันที",
         rainbowSprinklesTitle: "เกล็ดน้ำตาลสายรุ้ง",
@@ -144,11 +179,11 @@ export const translations = {
         customColorsHelp: "ปรับค่าสีของส่วนประกอบชิ้นใดก็ได้ เพื่อสร้างสรรค์การ์ดวันเกิด 3 มิติที่เป็นเอกลักษณ์และดีที่สุดของคุณเอง!",
         previewTitle: "จอแสดงผล 3D แบบเรียลไทม์",
         cakeModelLabel: "รูปแบบและรูปทรงเค้ก 3D",
-        modelClassic: "🎂 เค้กคลาสสิก 2 ชั้น (Classic 2-Tier)",
-        modelVintageHeart: "💖 เค้กหัวใจวินเทจ (Vintage Heart)",
-        modelKoreanBento: "🍱 เค้กมินิมอลเกาหลี (Korean Bento)",
-        modelTripleLuxury: "👑 เค้กอลังการ 3 ชั้น (Triple Grand Palace)",
-        modelCyberPrism: "💎 เค้กคริสตัลทรงเรขาคณิต (Neo Prism)"
+        modelClassic: "🎂 เค้กคลาสสิก 2 ชั้น",
+        modelVintageHeart: "💖 เค้กหัวใจวินเทจ",
+        modelKoreanBento: "🍱 เค้กเบนโตะสไตล์เกาหลี",
+        modelTripleLuxury: "👑 เค้กอลังการ 3 ชั้น",
+        modelCyberPrism: "💎 เค้กคริสตัลนีโอปริซึม"
     },
     ja: {
         appTitle: "HBD 3D Craft",
@@ -158,29 +193,30 @@ export const translations = {
         wishDetails: "お祝い詳細",
         decorCake: "ケーキを飾る",
         customColors: "カスタムカラー",
-        recipientLabel: "宛名（先輩）",
+        recipientLabel: "宛名",
         recipientPlh: "例：大好きな先輩へ",
+        birthDateLabel: "誕生日",
         titleLabel: "お祝いのタイトル",
         titlePlh: "例：誕生日おめでとう！",
         messageLabel: "お祝いメッセージ",
         messagePlh: "先輩への甘く温かいお祝いメッセージを書いてください...",
-        fontLabel: "手書きフォント",
+        fontLabel: "カードのフォント",
         photoLabel: "思い出写真のURL（任意）",
         photoPlh: "例：https://i.imgur.com/XYZ.jpg",
-        photoHelp: "画像の直接リンク (CORS対応) を指定すると、ケーキの隣に思い出のポラロイド写真を浮かべることができます！",
-        btnGenerate: "カードリンクを作成してコピー",
-        plateStyle: "お皿のスタイル選択",
-        glazeStyle: "ケーキのコーティング選択",
-        topperStyle: "ケーキトッパー選択",
-        candlesCount: "キャンドルの数",
-        strawberriesCount: "イチゴデコレーション",
-        cherriesCount: "チェリーデコレーション",
-        rollsCount: "ロールクッキーデコレーション",
+        photoHelp: "画像の直接リンク（ImgurやDiscordなど）を使用してください。CORSで読み込めない場合は、美しいシルエット画像が代わりに表示されます。",
+        btnGenerate: "カードを作成して共有",
+        plateStyle: "お皿 / スタンドのスタイル",
+        glazeStyle: "グレーズ / クリームのスタイル",
+        topperStyle: "ケーキ中央のトッパー",
+        candlesCount: "吹き消すキャンドルの数（1〜10）",
+        strawberriesCount: "フレッシュいちご（0〜8）",
+        cherriesCount: "スイートチェリー（0〜8）",
+        rollsCount: "チョコウエハースロール（0〜6）",
         sprinklesEnabled: "カラフルなシュガースプレーを追加",
-        letterTheme: "手紙と封筒のテーマ選択",
+        letterTheme: "封筒 / 手紙のスタイル",
         letterEnabled: "手紙を封入する",
         gateTitle: "特別なメッセージが届いています！",
-        gateHint: "下の封筒をクリックして、カスタム3D誕生日サプライズを開きましょう...",
+        gateHint: "下のボタンをタップして、3D誕生日サプライズを開きましょう...",
         gateBtn: "サプライズを開く",
         hudBlow: "マイクに向かって息を吹きかけるか、キャンドルをクリックして火を消してください！",
         hudRelight: "キャンドルを再点火",
@@ -188,39 +224,108 @@ export const translations = {
         readyTitle: "3D誕生日カードが完成しました！",
         readyHint: "URLをコピーして先輩に送信しましょう！データは全てURLに暗号化されているため、サーバー不要で開けます！",
         readyCopyBtn: "サプライズリンクをコピーする",
+        testCardBtn: "カードを試しに開く",
+        loadingCanvas: "3Dキャンバスを読み込み中...",
         dragRotate: "ドラッグして3Dケーキを回転",
-        topperColor: "トッパーの境界とテキスト",
+        topperColor: "トッパーの縁とテキスト",
         glazeColor: "ケーキのグレイズカラー",
         creamColor: "スポンジケーキのクリーム",
         plateColor: "お皿 / セラミックベース",
         candleColor: "キャンドルのワックス柱",
         envBaseColor: "封筒ベースの背面",
         envFlapColor: "封筒の三角フラップ",
-        envSealColor: "ホットワックスシールスタンプ",
+        envSealColor: "封蝋シール",
         letterOpenHint: "封蝋または封筒をタップしてメッセージを読みます... ✉️",
-        signature: "— 愛と敬意を込めて作られました",
-        btnBackCreator: "自分自身で作る",
+        signature: "— 愛と敬意を込めて",
+        btnBackCreator: "自分でも作ってみる",
         appSubtitle: "先輩のために忘れられないインタラクティブな3Dバースデーカードをデザインしましょう",
         themeLabel: "テーマ＆ビジュアルパレット",
+        themeNeonRose: "ネオンローズ",
+        themeMidnightGold: "ミッドナイトゴールド",
+        themeOceanBreeze: "オーシャンブリーズ",
+        themeLavenderDream: "ラベンダードリーム",
+        themeSakuraBloom: "桜ブルーム",
+        themeCyberRetro: "サイバーレトロ",
+        themeForestMoss: "フォレストモス",
+        themeCosmicVoid: "コズミックボイド",
+        themeChocoGold: "チョコゴールド",
         musicLabel: "バックグラウンドミュージック",
         letterEnabledTitle: "インタラクティブ3Dレター",
         letterEnabledDesc: "WebGLに浮かぶ3D封筒を添付する",
         letterTitleLabel: "手紙の見出し",
         letterBodyLabel: "手書きの手紙の本文",
-        presetsLabel: "ワンクリック・美的なプリセット",
+        presetsLabel: "ワンクリック・デザインプリセット",
+        presetChocoRoyal: "チョコロイヤル",
+        presetPinkDream: "ピンクドリーム",
+        presetMintBreeze: "ミントブリーズ",
+        presetMidnightRoyal: "ミッドナイトロイヤル",
         customTopperTextLabel: "またはカスタムトッパーテキスト（最大16文字）",
         customTopperHelp: "入力すると、デフォルトの選択肢を上書きしてカスタム3D光るトッパーを作成します。",
         rainbowSprinklesTitle: "レインボースプレー",
         rainbowSprinklesDesc: "カラフルなシュガースプレーを散りばめる",
         glowingHeartsTitle: "光るハート",
-        glowingHeartsDesc: "ネオンマゼンタ of 光るハートを軌道上に浮かべる",
+        glowingHeartsDesc: "ネオンマゼンタの光るハートを3D軌道上に浮かべる",
         glowingStarsTitle: "光るネオンスター",
-        glowingStarsDesc: "ネオンゴールド of 光る星を軌道上に浮かべる",
+        glowingStarsDesc: "ネオンゴールドの光る星を3D軌道上に浮かべる",
         customColorsLabel: "フリースタイル・カスタムカラー",
         customColorsHelp: "各コンポーネントの色を微調整して、あなただけのリアルまたはファンタジーな誕生日カードをデザインしましょう！",
-        previewTitle: "リアルタイム3Dプレビュー"
+        previewTitle: "リアルタイム3Dプレビュー",
+        cakeModelLabel: "3Dケーキのモデルと形",
+        modelClassic: "🎂 クラシック・ロイヤル2段",
+        modelVintageHeart: "💖 ヴィンテージ・ハート",
+        modelKoreanBento: "🍱 韓国風パステル弁当ケーキ",
+        modelTripleLuxury: "👑 豪華3段グランドケーキ",
+        modelCyberPrism: "💎 ネオプリズム・クリスタル"
     }
 };
+
+// <select> option labels keyed by select id -> option value.
+// A string entry refers to a key in `translations`; an object entry holds per-language text.
+const selectOptionTranslations = {
+    "card-font": {
+        "outfit": { en: "Outfit Modern (Clean)", th: "Outfit โมเดิร์น (เรียบหรู)", ja: "Outfit モダン（すっきり）" },
+        "playfair": { en: "Playfair Serif (Elegant)", th: "Playfair เซอริฟ (สง่างาม)", ja: "Playfair セリフ（エレガント）" },
+        "great-vibes": { en: "Great Vibes (Romantic Cursive)", th: "Great Vibes (ลายมือโรแมนติก)", ja: "Great Vibes（ロマンチック筆記体）" }
+    },
+    "music-track": {
+        "happy-birthday-lofi": { en: "Lo-Fi Acoustic Birthday (Warm)", th: "Lo-Fi อะคูสติกวันเกิด (อบอุ่น)", ja: "Lo-Fiアコースティック（温かい）" },
+        "happy-birthday-piano": { en: "Chopin Style Piano HBD (Elegant)", th: "เปียโนสไตล์โชแปง (หรูหรา)", ja: "ショパン風ピアノ（エレガント）" },
+        "happy-birthday-synth": { en: "Upbeat Synth Pop HBD (Vibrant)", th: "ซินธ์ป๊อปจังหวะสนุก (สดใส)", ja: "アップビートなシンセポップ（元気）" }
+    },
+    "letter-theme": {
+        "cyber": { en: "Cyberpunk Neon (Cyan/Magenta)", th: "ไซเบอร์พังก์นีออน (ฟ้า/ชมพูม่วง)", ja: "サイバーパンクネオン（シアン/マゼンタ）" },
+        "royal": { en: "Golden Royal (Glossy Gold)", th: "โกลเดนรอยัล (ทองเงางาม)", ja: "ゴールデンロイヤル（光沢ゴールド）" },
+        "romance": { en: "Sweet Hearts (Soft Rose)", th: "สวีทฮาร์ต (ชมพูกุหลาบอ่อน)", ja: "スイートハート（ソフトローズ）" },
+        "steampunk": { en: "Steampunk Lab (Rusty Copper)", th: "ห้องแล็บสตีมพังก์ (ทองแดงสนิม)", ja: "スチームパンク・ラボ（錆びた銅）" }
+    },
+    "cake-model": {
+        "classic-tiered": "modelClassic",
+        "vintage-heart": "modelVintageHeart",
+        "korean-bento": "modelKoreanBento",
+        "triple-luxury": "modelTripleLuxury",
+        "cyber-prism": "modelCyberPrism"
+    },
+    "plate-style": {
+        "ceramic": { en: "Ceramic White (Elegant)", th: "เซรามิกขาว (สง่างาม)", ja: "白磁（エレガント）" },
+        "crystal": { en: "Rose Crystal Glass (Glossy)", th: "แก้วคริสตัลโรส (เงางาม)", ja: "ローズクリスタルガラス（光沢）" },
+        "golden": { en: "Golden Royal (Premium)", th: "ทองคำรอยัล (พรีเมียม)", ja: "ゴールデンロイヤル（プレミアム）" },
+        "cosmic": { en: "Cosmic Obsidian (Sleek)", th: "ออบซิเดียนจักรวาล (เรียบเท่)", ja: "コズミックオブシディアン（スタイリッシュ）" }
+    },
+    "glaze-style": {
+        "chocolate": { en: "Rich Dark Chocolate", th: "ดาร์กช็อกโกแลตเข้มข้น", ja: "リッチダークチョコレート" },
+        "strawberry": { en: "Fresh Sweet Strawberry", th: "สตรอว์เบอร์รี่สดหวานฉ่ำ", ja: "フレッシュストロベリー" },
+        "mint": { en: "Refreshing Ice Mint", th: "ไอซ์มินต์สดชื่น", ja: "爽やかアイスミント" },
+        "cream": { en: "Fluffy Vanilla Cream", th: "ครีมวานิลลานุ่มฟู", ja: "ふわふわバニラクリーム" }
+    },
+    "topper-style": {
+        "best-senpai": { en: "\"Best Cream 💖\"", th: "\"Best Cream 💖\"", ja: "「Best Cream 💖」" },
+        "hbd": { en: "\"Happy Birthday 🎂\"", th: "\"Happy Birthday 🎂\"", ja: "「Happy Birthday 🎂」" },
+        "star": { en: "\"Sparkling Star ⭐\"", th: "\"ดาวระยิบระยับ ⭐\"", ja: "「きらめく星 ⭐」" },
+        "none": { en: "No Topper", th: "ไม่มีป้ายปัก", ja: "トッパーなし" }
+    }
+};
+
+const SUPPORTED_LANGS = ["en", "th", "ja"];
 
 function getBrowserLanguage() {
     if (typeof navigator === "undefined") return "en";
@@ -231,7 +336,22 @@ function getBrowserLanguage() {
     return "en";
 }
 
-let currentLang = localStorage.getItem("hbd_craft_lang") || getBrowserLanguage();
+function readStoredLang() {
+    try {
+        const stored = localStorage.getItem("hbd_craft_lang");
+        return SUPPORTED_LANGS.includes(stored) ? stored : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+let currentLang = readStoredLang() || getBrowserLanguage();
+
+function updateDocumentLang() {
+    if (typeof document !== "undefined" && document.documentElement) {
+        document.documentElement.lang = currentLang;
+    }
+}
 
 export function getCurrentLang() {
     return currentLang;
@@ -240,15 +360,21 @@ export function getCurrentLang() {
 export function saveLanguageSetting(lang) {
     if (translations[lang]) {
         currentLang = lang;
-        localStorage.setItem("hbd_craft_lang", lang);
+        try {
+            localStorage.setItem("hbd_craft_lang", lang);
+        } catch (e) {
+            // Storage unavailable (private mode etc.); keep in-memory setting.
+        }
+        updateDocumentLang();
     }
 }
 
 // Automatically translates all elements having [data-i18n]
 export function applyDOMTranslations() {
     const elements = document.querySelectorAll("[data-i18n]");
-    const dict = translations[currentLang];
-    
+    const dict = translations[currentLang] || translations.en;
+    updateDocumentLang();
+
     elements.forEach(el => {
         const key = el.getAttribute("data-i18n");
         if (dict[key]) {
@@ -278,49 +404,16 @@ export function applyDOMTranslations() {
 }
 
 function translateSelectOptions(dict) {
-    // 1. Plate Style Options
-    const plate = document.getElementById("plate-style");
-    if (plate && plate.options.length >= 3) {
-        plate.options[0].text = currentLang === "th" ? "จานเซรามิกส์หรู" : currentLang === "ja" ? "高級陶器の皿" : "Elegant Ceramic Plate";
-        plate.options[1].text = currentLang === "th" ? "จานคริสตัลระยิบระยับ" : currentLang === "ja" ? "クリスタルの皿" : "Shiny Crystal Plate";
-        plate.options[2].text = currentLang === "th" ? "จานทองคำจักรพรรดิ" : currentLang === "ja" ? "エンペラーゴールドの皿" : "Emperor Gold Plate";
-    }
-
-    // 2. Glaze Style Options
-    const glaze = document.getElementById("glaze-style");
-    if (glaze && glaze.options.length >= 6) {
-        glaze.options[0].text = currentLang === "th" ? "ดาร์กช็อกโกแลตเข้มข้น" : currentLang === "ja" ? "リッチダークチョコ" : "Rich Chocolate Glaze";
-        glaze.options[1].text = currentLang === "th" ? "สตรอว์เบอร์รี่สดหวาน" : currentLang === "ja" ? "スイートストロベリー" : "Sweet Strawberry Glaze";
-        glaze.options[2].text = currentLang === "th" ? "ชาเขียวมัทฉะต้นตำรับ" : currentLang === "ja" ? "宇治抹茶ソース" : "Matcha Green Tea Glaze";
-        glaze.options[3].text = currentLang === "th" ? "คาราเมลเนยหอมหวาน" : currentLang === "ja" ? "塩バターキャラメル" : "Salted Caramel Drip";
-        glaze.options[4].text = currentLang === "th" ? "บลูเบอร์รี่เรืองแสงอวกาศ" : currentLang === "ja" ? "ギャラクシーブルーベリー" : "Cosmic Blueberry Glaze";
-        glaze.options[5].text = currentLang === "th" ? "ครีมส้มแมนดารินประกาย" : currentLang === "ja" ? "ネオンオレンジソース" : "Neon Orange Glaze";
-    }
-
-    // 3. Topper Style Options
-    const topper = document.getElementById("topper-style");
-    if (topper && topper.options.length >= 5) {
-        topper.options[0].text = currentLang === "th" ? "Happy Birthday" : "Happy Birthday";
-        topper.options[1].text = currentLang === "th" ? "แด่คนโปรดคนพิเศษ" : currentLang === "ja" ? "大好きな人へ" : "To My Favorite";
-        topper.options[2].text = currentLang === "th" ? "แด่ครูพี่เลี้ยงสุดเทพ" : currentLang === "ja" ? "最高の後輩より" : "Best Mentor Ever";
-        topper.options[3].text = currentLang === "th" ? "แด่หัวหน้าสุดเท่" : currentLang === "ja" ? "頼れるボスへ" : "To the Coolest Boss";
-        topper.options[4].text = currentLang === "th" ? "คุณคือที่หนึ่งเสมอ" : currentLang === "ja" ? "あなたがナンバーワン" : "You are Number One";
-    }
-
-    // 4. Letter Theme Options
-    const themeSelect = document.getElementById("letter-theme");
-    if (themeSelect && themeSelect.options.length >= 4) {
-        themeSelect.options[0].text = currentLang === "th" ? "นีออนไซเบอร์กริด" : currentLang === "ja" ? "サイバーグリッド" : "Cyber Neon Grid";
-        themeSelect.options[1].text = currentLang === "th" ? "ครีมงาช้างขอบทองฝรั่งเศส" : currentLang === "ja" ? "インペリアルゴールド" : "Imperial Royal Gold";
-        themeSelect.options[2].text = currentLang === "th" ? "รักนิรันดร์สีชมพูบลัช" : currentLang === "ja" ? "ロマンスローズウォーター" : "Romance Rosewater";
-        themeSelect.options[3].text = currentLang === "th" ? "คราฟต์น้ำตาลเฟืองสนิม" : currentLang === "ja" ? "スチームパンクコッパー" : "Steampunk Copper Gear";
-    }
-
-    // 5. Music Track Options
-    const music = document.getElementById("music-track");
-    if (music && music.options.length >= 3) {
-        music.options[0].text = currentLang === "th" ? "บีท Lo-Fi วันเกิดแสนอบอุ่น" : currentLang === "ja" ? "温かいアコースティックLo-Fi" : "Lo-Fi Acoustic Birthday (Warm)";
-        music.options[1].text = currentLang === "th" ? "เปียโนคลาสสิก Chopin บรรเลงหรู" : currentLang === "ja" ? "ショパン風エレガントピアノ" : "Chopin Style Piano HBD (Elegant)";
-        music.options[2].text = currentLang === "th" ? "ซินธ์ป๊อปเรืองแสงรื่นเริง" : currentLang === "ja" ? "活気のあるシンセポップ" : "Upbeat Synth Pop HBD (Vibrant)";
-    }
+    Object.entries(selectOptionTranslations).forEach(([selectId, valueMap]) => {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        Array.from(select.options).forEach(option => {
+            const entry = valueMap[option.value];
+            if (!entry) return;
+            const text = typeof entry === "string"
+                ? dict[entry]
+                : (entry[currentLang] || entry.en);
+            if (text) option.text = text;
+        });
+    });
 }
