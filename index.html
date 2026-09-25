@@ -199,6 +199,20 @@
                                 </div>
                             </fieldset>
 
+                            <!-- Backdrop: the room behind the cake. Order matches the link codec enum. -->
+                            <fieldset class="cr-field cr-fieldset" id="cr-backdrop" aria-describedby="cr-backdrop-hint">
+                                <legend class="cr-label" data-i18n="crBackdropLabel">Backdrop</legend>
+                                <div class="cr-swatches cr-backdrops">
+                                    <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="night"><span class="cr-swatch-dot" style="--sw: linear-gradient(160deg, #3a2352, #0b0714)"></span><span data-i18n="crBgNight">Night</span></label>
+                                    <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="blush" checked><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #fff8f5, #fbe7e5 58%, #f2d0d2)"></span><span data-i18n="crBgBlush">Blush</span></label>
+                                    <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="cream"><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #fffdf7, #f9efdf 58%, #eedcc0)"></span><span data-i18n="crBgCream">Cream</span></label>
+                                    <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="sky"><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #f8fbff, #e6f0fb 58%, #cfe0f3)"></span><span data-i18n="crBgSky">Sky</span></label>
+                                    <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="mint"><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #f7fdf9, #e3f4ec 58%, #cbe7da)"></span><span data-i18n="crBgMint">Mint</span></label>
+                                    <label class="cr-swatch cr-swatch-bg"><input type="radio" name="backdrop" value="lavender"><span class="cr-swatch-dot" style="--sw: linear-gradient(180deg, #fbf9ff, #eee8fb 58%, #dcd2f1)"></span><span data-i18n="crBgLavender">Lavender</span></label>
+                                </div>
+                                <p class="cr-hint" id="cr-backdrop-hint" data-i18n="crBackdropHint">The room behind the cake. Light ones look lovely in daytime chats.</p>
+                            </fieldset>
+
                             <fieldset class="cr-field cr-fieldset">
                                 <legend class="cr-label" data-i18n="crTopperLabel">Topper</legend>
                                 <div class="cr-chips">

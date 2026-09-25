@@ -12,11 +12,30 @@
     --rcv-accent-ink: #9b2f55;
     --rcv-hud-bg: rgba(14, 9, 20, 0.78);
     --rcv-hud-line: rgba(255, 255, 255, 0.16);
+    /* Chrome over the 3D stage. These are the night values; light backdrops
+       override them below (data-backdrop is set by viewer.js). */
+    --rcv-hud-ink: #fff;
+    --rcv-hud-ink-dim: rgba(255, 255, 255, 0.6);
+    --rcv-hud-hover: rgba(40, 26, 50, 0.9);
+    --rcv-title-ink: #fff;
+    --rcv-title-hl: var(--rcv-gold-1);
+    --rcv-title-shadow: 0 2px 18px rgba(0, 0, 0, 0.65);
+    --rcv-wish-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
+    --rcv-hud-accent: var(--rcv-gold-1);
+    --rcv-count-bg: rgba(251, 227, 154, 0.16);
+    --rcv-link-bg: rgba(14, 9, 20, 0.55);
+    --rcv-meter-track: rgba(255, 255, 255, 0.18);
+    --rcv-breath: rgba(251, 227, 154, 0.85);
+    --rcv-breath-glow: rgba(251, 227, 154, 0.45);
+    --rcv-focus: var(--rcv-gold-1);
+    --rcv-shadow-rgb: 0, 0, 0;
+    --rcv-surface: var(--bg-gradient);
+    --rcv-veil: rgba(8, 4, 12, 0.88);
     --rcv-safe-b: env(safe-area-inset-bottom, 0px);
     --rcv-safe-t: env(safe-area-inset-top, 0px);
     height: 100vh;
     height: 100dvh;
-    background: var(--bg-gradient);
+    background: var(--rcv-surface);
     font-family: var(--font-primary);
     color: var(--text-main);
 }
@@ -40,7 +59,7 @@
 
 .rcv button { font-family: inherit; }
 .rcv :focus-visible {
-    outline: 3px solid var(--rcv-gold-1);
+    outline: 3px solid var(--rcv-focus);
     outline-offset: 3px;
 }
 
@@ -58,7 +77,7 @@
     border-radius: 22px;
     background: var(--rcv-hud-bg);
     border: 1px solid var(--rcv-hud-line);
-    color: #fff;
+    color: var(--rcv-hud-ink);
     font-size: 0.85rem;
 }
 .rcv-lang-select {
@@ -66,7 +85,7 @@
     -webkit-appearance: none;
     background: transparent;
     border: 0;
-    color: #fff;
+    color: inherit;
     font: 600 0.9rem var(--font-primary);
     min-height: 40px;
     padding: 0 4px;
@@ -85,7 +104,7 @@
     padding: 24px 16px;
     background:
         radial-gradient(120% 80% at 50% 110%, var(--primary-glow), transparent 60%),
-        var(--bg-gradient);
+        var(--rcv-surface);
     transition: opacity 0.5s ease, transform 0.5s ease;
 }
 .rcv-gate.active-gate { display: flex; }
@@ -103,7 +122,7 @@
     background: var(--rcv-paper);
     color: var(--rcv-ink);
     text-align: center;
-    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+    box-shadow: 0 30px 70px rgba(var(--rcv-shadow-rgb), 0.55), 0 0 0 1px rgba(255, 255, 255, 0.6) inset;
     animation: rcvBreathe 3s ease-in-out infinite;
 }
 /* Envelope flap across the top of the card */
@@ -242,11 +261,11 @@
     position: absolute;
     left: 50%;
     margin: 0;
-    color: #fff;
+    color: var(--rcv-title-ink);
     text-align: center;
     font-family: var(--font-display);
     font-weight: 700;
-    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.65);
+    text-shadow: var(--rcv-title-shadow);
     opacity: 0;
     transform: translate(-50%, 10px);
     transition: opacity 0.7s ease, transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.9s cubic-bezier(0.2, 0.8, 0.2, 1), font-size 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -256,7 +275,7 @@
     line-height: 1.35;
     text-wrap: balance;
 }
-.rcv-title .rcv-hl { color: var(--rcv-gold-1); }
+.rcv-title .rcv-hl { color: var(--rcv-title-hl); }
 .rcv-title.is-hero { opacity: 1; transform: translate(-50%, 0); }
 .rcv-title.is-docked {
     opacity: 1;
@@ -291,15 +310,15 @@
     border-radius: 16px;
     border: 1px solid var(--rcv-hud-line);
     background: var(--rcv-hud-bg);
-    color: #fff;
+    color: var(--rcv-hud-ink);
     cursor: pointer;
     font-size: 1.05rem;
     transition: background 0.2s ease, transform 0.15s ease;
 }
-.rcv-hud-btn:hover { background: rgba(40, 26, 50, 0.9); }
+.rcv-hud-btn:hover { background: var(--rcv-hud-hover); }
 .rcv-hud-btn:active { transform: scale(0.96); }
 .rcv-hud-btn[hidden] { display: none; }
-.rcv-hud-btn[aria-pressed="false"] { color: rgba(255, 255, 255, 0.6); }
+.rcv-hud-btn[aria-pressed="false"] { color: var(--rcv-hud-ink-dim); }
 .rcv-hud-label { font-size: 0.66rem; font-weight: 600; line-height: 1.2; }
 
 /* Wish beat */
@@ -321,17 +340,17 @@
     width: 64px;
     height: 64px;
     border-radius: 50%;
-    border: 2px solid rgba(251, 227, 154, 0.85);
-    box-shadow: 0 0 24px rgba(251, 227, 154, 0.45);
+    border: 2px solid var(--rcv-breath);
+    box-shadow: 0 0 24px var(--rcv-breath-glow);
     animation: rcvBreath 4s ease-in-out infinite;
 }
 .rcv-wish-text {
     margin: 0;
-    color: #fff;
+    color: var(--rcv-title-ink);
     font-family: var(--font-display);
     font-size: clamp(1.2rem, 4.8vw, 1.6rem);
     line-height: 1.5;
-    text-shadow: 0 2px 14px rgba(0, 0, 0, 0.7);
+    text-shadow: var(--rcv-wish-shadow);
 }
 
 /* Blow beat */
@@ -355,17 +374,17 @@
     border-radius: 999px;
     background: var(--rcv-hud-bg);
     border: 1px solid var(--rcv-hud-line);
-    color: #fff;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    color: var(--rcv-hud-ink);
+    box-shadow: 0 10px 30px rgba(var(--rcv-shadow-rgb), 0.35);
 }
 .rcv-pill p { margin: 0; font-size: 1rem; font-weight: 600; line-height: 1.45; }
-.rcv-pill-icon { color: var(--rcv-gold-1); }
+.rcv-pill-icon { color: var(--rcv-hud-accent); }
 .rcv-count {
     flex: none;
     padding: 2px 10px;
     border-radius: 999px;
-    background: rgba(251, 227, 154, 0.16);
-    color: var(--rcv-gold-1);
+    background: var(--rcv-count-bg);
+    color: var(--rcv-hud-accent);
     font-size: 0.85rem;
     font-weight: 700;
     white-space: nowrap;
@@ -379,20 +398,20 @@
     padding: 0 16px;
     border-radius: 999px;
     border: 1px solid var(--rcv-hud-line);
-    background: rgba(14, 9, 20, 0.55);
-    color: #fff;
+    background: var(--rcv-link-bg);
+    color: var(--rcv-hud-ink);
     font-size: 0.9rem;
     font-weight: 600;
     text-decoration: none;
     cursor: pointer;
 }
 .rcv-link-btn[hidden] { display: none; }
-.rcv-link-btn[aria-pressed="true"] { border-color: var(--rcv-gold-1); color: var(--rcv-gold-1); }
+.rcv-link-btn[aria-pressed="true"] { border-color: var(--rcv-hud-accent); color: var(--rcv-hud-accent); }
 .rcv-meter {
     width: min(70vw, 260px);
     height: 6px;
     border-radius: 3px;
-    background: rgba(255, 255, 255, 0.18);
+    background: var(--rcv-meter-track);
     overflow: hidden;
 }
 .rcv-meter[hidden] { display: none; }
@@ -416,7 +435,7 @@
     border-radius: 20px;
     background: var(--rcv-paper);
     color: var(--rcv-ink);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 20px 50px rgba(var(--rcv-shadow-rgb), 0.5);
     animation: rcvRise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .rcv-mic-sheet p { margin: 0 0 16px; font-size: 1rem; line-height: 1.6; }
@@ -472,7 +491,7 @@
     background: var(--rcv-paper);
     color: var(--rcv-ink);
     border-radius: 24px 24px 0 0;
-    box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 -20px 60px rgba(var(--rcv-shadow-rgb), 0.45);
     transform: translateY(105%);
     transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s linear 0.5s;
     visibility: hidden;
@@ -626,7 +645,7 @@
         max-height: none;
         border-radius: 24px;
         transform: translateX(calc(100% + 40px));
-        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 30px 80px rgba(var(--rcv-shadow-rgb), 0.5);
     }
     .rcv-card.is-open { transform: translateX(0); }
     .rcv-card-handle { visibility: hidden; }
@@ -640,7 +659,7 @@
 }
 
 /* ---------- Letter overlay (structure from v1, readable on phones) ---------- */
-.rcv .letter-overlay-gate { background: rgba(8, 4, 12, 0.88); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.rcv .letter-overlay-gate { background: var(--rcv-veil); backdrop-filter: none; -webkit-backdrop-filter: none; }
 .rcv .letter-open-hint { opacity: 0; transform: translateX(-50%) translateY(10px); }
 .rcv .letter-open-hint.is-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 .rcv .letter-close-btn { width: 44px; height: 44px; color: #fff; }
@@ -689,8 +708,84 @@
     color: var(--rcv-ink);
     font-weight: 600;
     text-align: center;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 10px 30px rgba(var(--rcv-shadow-rgb), 0.4);
     animation: rcvBubble 2.5s ease-out forwards;
+}
+
+/* ---------- Light backdrops ----------
+   The 3D frame is transparent and the backdrop gradient is CSS (backdrops.js),
+   so page, gate and stage are one continuous surface. Chrome turns into white
+   frosted pills with the backdrop's own dark ink (all >= 4.5:1). */
+#receiver-view.rcv[data-backdrop]:not([data-backdrop="night"]) {
+    --rcv-surface: var(--rcv-backdrop);
+    --rcv-hud-bg: rgba(255, 255, 255, 0.86);
+    --rcv-hud-line: rgba(58, 30, 42, 0.14);
+    --rcv-hud-ink: var(--rcv-bd-ink);
+    --rcv-hud-ink-dim: var(--rcv-bd-soft);
+    --rcv-hud-hover: #fff;
+    --rcv-title-ink: var(--rcv-bd-ink);
+    --rcv-title-hl: var(--rcv-bd-accent);
+    --rcv-title-shadow: 0 1px 0 rgba(255, 255, 255, 0.8), 0 0 22px rgba(255, 255, 255, 0.9);
+    --rcv-wish-shadow: 0 1px 0 rgba(255, 255, 255, 0.8), 0 0 18px rgba(255, 255, 255, 0.95);
+    --rcv-hud-accent: #875600;
+    --rcv-count-bg: rgba(224, 173, 53, 0.2);
+    --rcv-link-bg: rgba(255, 255, 255, 0.8);
+    --rcv-meter-track: rgba(58, 30, 42, 0.12);
+    --rcv-breath: var(--rcv-bd-accent);
+    --rcv-breath-glow: rgba(255, 255, 255, 0.9);
+    --rcv-focus: var(--rcv-bd-accent);
+    --rcv-shadow-rgb: 70, 36, 50;
+    --rcv-veil: rgba(40, 24, 34, 0.5);
+    color: var(--rcv-bd-ink);
+}
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+    #receiver-view.rcv[data-backdrop]:not([data-backdrop="night"]) {
+        --rcv-hud-line: color-mix(in srgb, var(--rcv-bd-ink) 16%, transparent);
+        --rcv-veil: color-mix(in srgb, var(--rcv-bd-ink) 55%, transparent);
+    }
+}
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-stage { background: var(--rcv-backdrop); }
+/* The wish "dims the room": paper cannot go dark, so a soft warm vignette
+   closes in around the cake instead and the flames own the frame. */
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse 62% 58% at 50% 42%, rgba(var(--rcv-shadow-rgb), 0) 45%, rgba(var(--rcv-shadow-rgb), 0.16) 100%);
+    opacity: 0;
+    transition: opacity 0.9s ease;
+}
+.rcv.is-dim[data-backdrop]:not([data-backdrop="night"]) .rcv-stage::after { opacity: 1; }
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-gate {
+    background:
+        radial-gradient(110% 70% at 50% 115%, rgba(255, 255, 255, 0.65), transparent 60%),
+        var(--rcv-backdrop);
+}
+/* Soft paper shadows instead of black drop shadows. */
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-gate-card {
+    box-shadow: 0 24px 60px rgba(var(--rcv-shadow-rgb), 0.16), 0 2px 8px rgba(var(--rcv-shadow-rgb), 0.08),
+        0 0 0 1px rgba(var(--rcv-shadow-rgb), 0.06);
+}
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-hud-btn,
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-lang,
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-link-btn {
+    box-shadow: 0 4px 14px rgba(var(--rcv-shadow-rgb), 0.1);
+}
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-pill { box-shadow: 0 8px 24px rgba(var(--rcv-shadow-rgb), 0.14); }
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-mic-sheet,
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-bubble { box-shadow: 0 16px 40px rgba(var(--rcv-shadow-rgb), 0.18); }
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-card {
+    box-shadow: 0 -10px 40px rgba(var(--rcv-shadow-rgb), 0.16), 0 0 0 1px rgba(var(--rcv-shadow-rgb), 0.06);
+}
+@media (min-width: 900px) {
+    .rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-card {
+        box-shadow: 0 24px 64px rgba(var(--rcv-shadow-rgb), 0.18), 0 0 0 1px rgba(var(--rcv-shadow-rgb), 0.06);
+    }
+}
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-btn-gold { box-shadow: 0 8px 20px rgba(196, 140, 20, 0.28); }
+.rcv[data-backdrop]:not([data-backdrop="night"]) .rcv-open-btn {
+    box-shadow: 0 10px 24px rgba(196, 140, 20, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 /* ---------- Motion ---------- */

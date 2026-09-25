@@ -196,6 +196,9 @@ export function tintRimLight(rim, color) {
     const luminance = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     rim.color.copy(c);
     rim.intensity = RIM_INTENSITY * THREE.MathUtils.clamp(0.2 / Math.max(luminance, 0.05), 0.3, 1.2);
+    // applyBackdrop() scales from this, so re-tinting and switching backdrops
+    // in any order never compounds.
+    rim.userData.baseIntensity = rim.intensity;
 }
 
 /**
@@ -217,6 +220,8 @@ export function createBloomComposer(renderer, scene, camera, { mobile = isMobile
         1.35                  // threshold
     );
     composer.addPass(bloom);
+    bloom.userData = { baseStrength: bloom.strength, baseThreshold: bloom.threshold };
+    keepBloomAlpha(bloom);
 
     composer.addPass(new OutputPass());
 
@@ -232,6 +237,25 @@ export function createBloomComposer(renderer, scene, camera, { mobile = isMobile
             }
         }
     };
+}
+
+/**
+ * UnrealBloomPass composites with plain additive blending, which also adds
+ * its (~0.6) composite alpha to the frame. On an opaque night frame that is
+ * invisible; on a transparent canvas (light backdrops are painted by CSS
+ * behind it) it laid a grey veil over the page. Colour stays additive,
+ * destination alpha is left alone. Blend state only: no recompile.
+ */
+function keepBloomAlpha(bloom) {
+    const m = bloom.blendMaterial;
+    if (!m) return;
+    m.blending = THREE.CustomBlending;
+    m.blendEquation = THREE.AddEquation;
+    m.blendSrc = THREE.SrcAlphaFactor;
+    m.blendDst = THREE.OneFactor;
+    m.blendEquationAlpha = THREE.AddEquation;
+    m.blendSrcAlpha = THREE.ZeroFactor;
+    m.blendDstAlpha = THREE.OneFactor;
 }
 
 /**

@@ -30,6 +30,7 @@ import {
 } from './render-quality.js';
 import { buildCakeModel, getCakeLayout, disposeCakeGroup } from './cake-models.js';
 import { buildCandles } from './cake/candles.js';
+import { applyBackdrop, backdropCss, createContactShadow, fitContactShadow, paintBackdrop, resolveBackdrop } from './backdrops.js';
 import { loadCardFont } from './fonts.js';
 
 // ---------------------------------------------------------------------------
@@ -112,6 +113,8 @@ let sparkles = null;
 let emberBudget = 0;
 const pointScale = { value: 400 };
 let stars = null;
+let floorGlow = null;
+let backdrop = resolveBackdrop('night');
 let balloons = null;
 let gifts = null;
 
@@ -207,6 +210,8 @@ function setOpen(el, open) {
 
 export function initViewer(config) {
     activeConfig = config || {};
+    backdrop = resolveBackdrop(activeConfig.backdrop);
+    applyBackdropDom();
     reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     phase = 'gate';
     isReady = false;
@@ -263,6 +268,23 @@ export function destroyViewer() {
     if (hud) { hud.inert = true; hud.classList.remove('is-live'); }
 }
 
+/**
+ * Receiver chrome follows the backdrop: data-backdrop switches the light
+ * token set in receiver.css, and the gradient/ink come from backdrops.js so
+ * the page, the gate and the 3D frame are one surface.
+ */
+function applyBackdropDom() {
+    const rv = $('receiver-view');
+    if (!rv) return;
+    rv.dataset.backdrop = backdrop.name;
+    const set = (k, v) => (v ? rv.style.setProperty(k, v) : rv.style.removeProperty(k));
+    set('--rcv-backdrop', backdropCss(backdrop.name));
+    set('--rcv-bd-ink', backdrop.ink);
+    set('--rcv-bd-soft', backdrop.soft);
+    set('--rcv-bd-accent', backdrop.accent);
+    set('--rcv-bd-mid', backdrop.mid);
+}
+
 function disposeScene() {
     // Capture everything now; module state is reset immediately so a new
     // mount can start, while the GPU teardown may have to wait (below).
@@ -283,7 +305,7 @@ function disposeScene() {
     ownedRoots = [];
     candles = [];
     hitMeshes = [];
-    embers = smoke = sparkles = stars = balloons = gifts = null;
+    embers = smoke = sparkles = stars = floorGlow = balloons = gifts = null;
     appliedShift = null;
 
     const teardown = () => {
@@ -530,7 +552,8 @@ async function prepareScene(token) {
         const height = window.innerHeight;
         const mobile = isMobileViewport();
 
-        renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        // alpha: light backdrops are CSS behind a transparent frame (backdrops.js).
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
         // In production three then skips the synchronous per-program status
         // query, which is exactly the call that used to block for seconds.
         renderer.debug.checkShaderErrors = import.meta.env.DEV;
@@ -553,13 +576,7 @@ async function prepareScene(token) {
         tintRimLight(sceneLights.rim, theme.cream);
         // Softer rim: at full strength it bloomed into a hot flare on the plate.
         sceneLights.rim.intensity *= 0.7;
-        lightBase = {
-            ambient: sceneLights.ambient.intensity,
-            key: sceneLights.key.intensity,
-            fill: sceneLights.fill.intensity,
-            rim: sceneLights.rim.intensity,
-            exposure: renderer.toneMappingExposure
-        };
+        sceneLights.rim.userData.baseIntensity = sceneLights.rim.intensity;
         cakeGroup = new THREE.Group();
         buildCake(mobile);
         scene.add(cakeGroup);
@@ -567,11 +584,15 @@ async function prepareScene(token) {
 
         setupCandles();
         measureCake();
-        tuneMaterialsForEnvironment(cakeGroup, 0.6);
+        tuneMaterialsForEnvironment(cakeGroup, backdrop.light ? 0.85 : 0.6);
         await step(0.4, 'candles');
         setupParticles();
         setupStars();
         setupFloorGlow(theme);
+        const shadow = createContactShadow(cakeBounds.radius);
+        fitContactShadow(shadow, cakeBounds.radius, cakeBounds.floorY);
+        scene.add(shadow);
+        ownedRoots.push(shadow);
         await step(0.44, 'set');
         setupDecor(theme);
         await step(0.48, 'decor');
@@ -588,6 +609,23 @@ async function prepareScene(token) {
         camera.lookAt(hero.target);
         controls.update();
         bloomComposer = createBloomComposer(renderer, scene, camera, { mobile });
+        applyBackdrop(scene, renderer, bloomComposer, sceneLights, backdrop.name, {
+            contactShadow: shadow,
+            // Stars and the theme-coloured light pool only read on black; on
+            // paper the contact shadow grounds the cake instead.
+            nightOnly: [stars, floorGlow]
+        });
+        // The beat animation (applyLights) scales from the backdrop's rig.
+        lightBase = {
+            ambient: sceneLights.ambient.intensity,
+            key: sceneLights.key.intensity,
+            fill: sceneLights.fill.intensity,
+            rim: sceneLights.rim.intensity,
+            exposure: renderer.toneMappingExposure,
+            // The wish dims the room. A pale backdrop cannot dim with it (it is
+            // CSS), so the cake dims less there and a CSS vignette does the rest.
+            dimK: backdrop.light ? 0.28 : 0.55
+        };
         updatePointScale();
         await step(0.52, 'composer');
 
@@ -746,7 +784,9 @@ function numberOr(value, fallback) {
 function setupCandles() {
     const layout = getCakeLayout(activeConfig.cakeModel || 'classic-tiered');
     const count = Math.min(10, Math.max(1, numberOr(activeConfig.candles, 5)));
-    const built = buildCandles(cakeGroup, layout, { count, candleColor: activeConfig.candleColor || '' });
+    const built = buildCandles(cakeGroup, layout, {
+        count, candleColor: activeConfig.candleColor || '', look: backdrop.light ? 'light' : 'dark'
+    });
     flameMaterial = built.flameMaterial;
 
     // Invisible, generous hit spheres: flames project to ~9x17 px on phones,
@@ -886,9 +926,12 @@ class PointPool {
 
 function setupParticles() {
     // Colours above 1.0 cross the bloom threshold so embers and sparkles glow.
-    embers = new PointPool(reduceMotion ? 24 : 80, { color: [1.9, 1.0, 0.35], lift: 0.3, drag: 0.5 });
-    smoke = new PointPool(reduceMotion ? 40 : 110, { color: [0.72, 0.7, 0.76], opacity: 0.32, additive: false, grow: 2.4, lift: 0.18, drag: 0.9 });
-    sparkles = new PointPool(reduceMotion ? 30 : 160, { color: [2.2, 1.7, 0.6], lift: -0.9, drag: 0.4 });
+    // Additive glitter vanishes on pale paper, so light backdrops draw embers
+    // and sparkles as solid warm-gold specks, and smoke a shade darker.
+    const light = backdrop.light;
+    embers = new PointPool(reduceMotion ? 24 : 80, { color: light ? [1.0, 0.45, 0.08] : [1.9, 1.0, 0.35], additive: !light, lift: 0.3, drag: 0.5 });
+    smoke = new PointPool(reduceMotion ? 40 : 110, { color: light ? [0.5, 0.47, 0.5] : [0.72, 0.7, 0.76], opacity: light ? 0.26 : 0.32, additive: false, grow: 2.4, lift: 0.18, drag: 0.9 });
+    sparkles = new PointPool(reduceMotion ? 30 : 160, { color: light ? [1.05, 0.66, 0.1] : [2.2, 1.7, 0.6], additive: !light, lift: -0.9, drag: 0.4 });
     const root = new THREE.Group();
     root.add(embers.points, smoke.points, sparkles.points);
     scene.add(root);
@@ -998,6 +1041,7 @@ function setupFloorGlow(theme) {
     mesh.renderOrder = -1;
     scene.add(mesh);
     ownedRoots.push(mesh);
+    floorGlow = mesh;
 }
 
 function decorPalette(theme) {
@@ -1290,7 +1334,7 @@ function applyLights(dt) {
     if (!sceneLights || !lightBase) return;
     // dim: the wish beat (flames stay bright, the room falls away).
     // glow: the warm bloom at the climax.
-    const k = 1 - 0.55 * dim.v + 0.6 * glow.v;
+    const k = 1 - lightBase.dimK * dim.v + 0.6 * glow.v;
     sceneLights.key.intensity = lightBase.key * k;
     sceneLights.fill.intensity = lightBase.fill * k;
     sceneLights.ambient.intensity = lightBase.ambient * (1 - 0.5 * dim.v + 0.8 * glow.v);
@@ -1870,6 +1914,8 @@ function savePhoto() {
     out.width = src.width;
     out.height = src.height;
     const ctx = out.getContext('2d');
+    // Light backdrops live in CSS behind the transparent frame; paint them in.
+    paintBackdrop(ctx, out.width, out.height, backdrop.name);
     ctx.drawImage(src, 0, 0);
 
     // Caption: the name, crisp and in a Thai-capable font.
@@ -1878,9 +1924,15 @@ function savePhoto() {
     ctx.font = `700 ${size}px "Noto Sans Thai", "Outfit", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = size * 0.4;
-    ctx.fillStyle = '#fff6e8';
+    if (backdrop.light) {
+        ctx.shadowColor = 'rgba(255,255,255,0.85)';
+        ctx.shadowBlur = size * 0.35;
+        ctx.fillStyle = backdrop.ink;
+    } else {
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = size * 0.4;
+        ctx.fillStyle = '#fff6e8';
+    }
     ctx.fillText(caption, out.width / 2, out.height * 0.06, out.width * 0.92);
     ctx.shadowBlur = 0;
 

@@ -14,6 +14,7 @@
  */
 
 import { buildTemplates, RELATIONS, TEMPLATED_FIELDS } from './card-templates.js';
+import { BACKDROP_NAMES } from './backdrop-names.js';
 
 // Content fields are empty on purpose: a missing title/message must fall back
 // to the receiver's neutral, name-driven wording, never to someone else's text.
@@ -60,6 +61,9 @@ export const CARD_DEFAULTS = Object.freeze({
     letterTheme: 'royal',
     decorHearts: false,
     decorStars: false,
+    // Links made before backdrops existed carry none and must keep their dark
+    // stage. New cards get their backdrop from the creator (always written).
+    backdrop: 'night',
     ...COLOR_DEFAULTS
 });
 
@@ -87,6 +91,7 @@ export const LEGACY_DEFAULTS = Object.freeze({
     letterTheme: 'royal',
     decorHearts: false,
     decorStars: true,
+    backdrop: 'night',
     ...COLOR_DEFAULTS
 });
 
@@ -99,7 +104,7 @@ const SHORT_KEYS = {
     letterTheme: 'lt', letterTitle: 'ltt', letterBody: 'lb', topperText: 'tt',
     decorHearts: 'dh', decorStars: 'ds', glazeColor: 'gc', creamColor: 'cc',
     plateColor: 'pc', candleColor: 'kc', topperColor: 'tc', envBaseColor: 'eb',
-    envFlapColor: 'ef', envSealColor: 'es'
+    envFlapColor: 'ef', envSealColor: 'es', backdrop: 'bd'
 };
 const LONG_KEYS = Object.fromEntries(Object.entries(SHORT_KEYS).map(([k, v]) => [v, k]));
 
@@ -198,8 +203,9 @@ const PACK_LAYOUT = [
     ['plate', 2], ['glaze', 2], ['topper', 2], ['letterTheme', 2], ['relation', 2],
     ['lang', 2], ['candles', 4], ['strawberries', 4], ['cherries', 4], ['rolls', 3],
     ['sprinkles', 1], ['letterEnabled', 1], ['decorHearts', 1], ['decorStars', 1],
-    ['belated', 1], ['templated', 4]
-]; // 52 of 56 bits; append new fields into the spare bits only
+    ['belated', 1], ['templated', 4], ['backdrop', 3]
+]; // 55 of 56 bits; append new fields into the spare bits only. Old v2.1
+// links have zeros there, which is index 0 of each appended enum ('night').
 const PACK_BYTES = 7;
 
 const ENUMS = {
@@ -213,7 +219,8 @@ const ENUMS = {
     topper: ['hbd', 'star', 'best-senpai', 'none'],
     letterTheme: ['royal', 'romance', 'cyber', 'steampunk'],
     relation: RELATIONS,
-    lang: ['th', 'en', 'ja']
+    lang: ['th', 'en', 'ja'],
+    backdrop: BACKDROP_NAMES
 };
 
 const TAGS = {
@@ -222,7 +229,7 @@ const TAGS = {
     letterBody: 7, topperText: 8, photo: 9,
     // enums
     theme: 32, preset: 33, music: 34, font: 35, cakeModel: 36, plate: 37,
-    glaze: 38, topper: 39, letterTheme: 40, relation: 41, lang: 42,
+    glaze: 38, topper: 39, letterTheme: 40, relation: 41, lang: 42, backdrop: 43,
     // small ints (bdate is days since 1970 split over two bytes)
     candles: 64, strawberries: 65, cherries: 66, rolls: 67, bdateHi: 68, bdateLo: 69,
     // bit fields

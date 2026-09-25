@@ -3,6 +3,7 @@ import './styles/icons.css';
 import './styles/creator.css';
 import './styles/receiver.css';
 import { decodeCardHash } from './card-link.js';
+import { BACKDROP_NAMES } from './backdrop-names.js';
 
 // Each route loads its own module, so a recipient opening a card never
 // downloads the creator and vice versa. three.js lands in a shared chunk.
@@ -130,6 +131,13 @@ function allowedValues(name) {
     return values;
 }
 
+// The creator's backdrop radios are the source of truth; until they exist
+// (or if the creator markup changes) the fixed, append-only list is used.
+function backdropValues() {
+    const values = allowedValues('backdrop');
+    return values.size ? values : new Set(BACKDROP_NAMES);
+}
+
 // Share links are attacker-controllable input: everything decoded from one is
 // forced back into the shape the creator would have produced.
 function sanitizeCardConfig(config, defaults) {
@@ -147,7 +155,8 @@ function sanitizeCardConfig(config, defaults) {
         cakeModel: allowedValues('cakeModel'),
         plate: allowedValues('plate'),
         glaze: allowedValues('glaze'),
-        topper: topperValues
+        topper: topperValues,
+        backdrop: backdropValues()
     };
     for (const [key, allowed] of Object.entries(enums)) {
         if (allowed.has(config[key])) out[key] = config[key];

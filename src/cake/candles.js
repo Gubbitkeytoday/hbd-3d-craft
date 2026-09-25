@@ -17,7 +17,7 @@
  * "+2 textures per rebuild" leak came from.)
  */
 import * as THREE from 'three';
-import { isKitShared, sharedMaterial, sharedTexture } from './parts.js';
+import { sharedMaterial, sharedTexture } from './parts.js';
 
 export const CANDLE_HEIGHT = 0.44;
 const CANDLE_RADIUS = 0.03;
@@ -75,6 +75,10 @@ const flameVertexShader = /* glsl */ `
 
 const flameFragmentShader = /* glsl */ `
     uniform float uTime;
+    uniform float uGain;
+    uniform float uAlphaBoost;
+    uniform float uCore;
+    uniform float uSat;
     varying float vH;
     varying float vPhase;
     varying vec3 vNormalV;
@@ -91,18 +95,21 @@ const flameFragmentShader = /* glsl */ `
 
         // Orange rim, yellow body, white-hot core in the lower two thirds.
         vec3 col = mix(orange, yellow, smoothstep(0.1, 0.7, facing));
-        col = mix(col, white, core * smoothstep(0.95, 0.25, vH));
+        col = mix(col, white, core * smoothstep(0.95, 0.25, vH) * uCore);
 
         // Thin blue combustion root just above the wick.
         float root = 1.0 - smoothstep(0.02, 0.24, vH);
         col = mix(col, blue, root * (1.0 - core * 0.5) * 0.85);
+        // Pre-saturate: ACES rolls bright colours toward white, which is
+        // the right read on black but turned the flame beige on paper.
+        col = max(mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, uSat), 0.0);
 
-        float intensity = mix(1.3, 5.0, core) * (1.0 - root * 0.65);
+        float intensity = mix(1.3, 5.0, core) * (1.0 - root * 0.65) * uGain;
         intensity *= 0.94 + 0.06 * sin(uTime * 31.0 + vPhase);
 
         // Soft silhouette, fading tip, faint root.
         float alpha = smoothstep(0.0, 0.45, facing) * (1.0 - smoothstep(0.72, 1.0, vH));
-        alpha *= mix(1.0, 0.4, root);
+        alpha = min(1.0, alpha * mix(1.0, 0.4, root) * uAlphaBoost);
 
         gl_FragColor = vec4(col * intensity, alpha);
         #include <tonemapping_fragment>
@@ -110,23 +117,42 @@ const flameFragmentShader = /* glsl */ `
     }
 `;
 
-let sharedFlameMaterial = null;
+/**
+ * Two looks share one program (blending and uniform values are GL state, not
+ * part of the program key), so switching backdrops never recompiles:
+ *  - dark: additive and HDR-hot; bloom carries the glow (night backdrop).
+ *  - light: on a pale backdrop additive light has nothing to add to and the
+ *    flame vanished into the paper. It is alpha-blended instead, with less
+ *    gain and a smaller white core so ACES keeps the body a saturated
+ *    yellow-orange (a candle in daylight), a denser silhouette, and the halo
+ *    becomes a warm amber haze.
+ */
+export const CANDLE_LOOKS = Object.freeze({
+    dark: {
+        flame: { gain: 1, alphaBoost: 1, core: 1, sat: 1, blending: THREE.AdditiveBlending },
+        halo: { color: 0xffc27a, opacity: 0.55, blending: THREE.AdditiveBlending, scale: 0.3 }
+    },
+    light: {
+        flame: { gain: 0.85, alphaBoost: 1.5, core: 0.5, sat: 2.1, blending: THREE.NormalBlending },
+        halo: { color: 0xffa21f, opacity: 0.6, blending: THREE.NormalBlending, scale: 0.42 }
+    }
+});
 
 /**
- * The flame material is shared by every candle of every build (one uTime
- * uniform drives them all), so a rebuild never recompiles the flame shader.
+ * The flame material is shared by every candle of every build with the same
+ * look (one uTime uniform drives them all), so a rebuild never recompiles
+ * the flame shader.
  */
-export function createFlameMaterial() {
-    if (sharedFlameMaterial && isKitShared(sharedFlameMaterial)) return sharedFlameMaterial;
-    sharedFlameMaterial = sharedMaterial(THREE.ShaderMaterial, {
+export function createFlameMaterial(look = 'dark') {
+    const { gain, alphaBoost, core, sat, blending } = (CANDLE_LOOKS[look] || CANDLE_LOOKS.dark).flame;
+    return sharedMaterial(THREE.ShaderMaterial, {
         vertexShader: flameVertexShader,
         fragmentShader: flameFragmentShader,
-        uniforms: { uTime: { value: 0 } },
+        uniforms: { uTime: { value: 0 }, uGain: { value: gain }, uAlphaBoost: { value: alphaBoost }, uCore: { value: core }, uSat: { value: sat } },
         transparent: true,
         depthWrite: false,
-        blending: THREE.AdditiveBlending
+        blending
     });
-    return sharedFlameMaterial;
 }
 
 /** Teardrop lathe: round belly low down, long tapering plume, origin at the wick. */
@@ -268,24 +294,26 @@ function paintCandleStripeTexture(color) {
  *
  * @param {THREE.Object3D} parent
  * @param {object} layout  { candlePlacerRadius, candleBaseY, isHeartShape }
- * @param {object} opts    { count, candleColor } — candleColor '' cycles the palette
+ * @param {object} opts    { count, candleColor, look } — candleColor '' cycles the
+ *                         palette; look is 'dark' or 'light' (see CANDLE_LOOKS)
  * @returns {{ candles: {group: THREE.Group, flame: THREE.Mesh}[], flameMaterial: THREE.ShaderMaterial, center: THREE.Vector3 }}
  */
-export function buildCandles(parent, layout, { count = 5, candleColor = '' } = {}) {
+export function buildCandles(parent, layout, { count = 5, candleColor = '', look = 'dark' } = {}) {
     const { candlePlacerRadius, candleBaseY, isHeartShape } = layout;
 
     const candleGeo = createCandleGeometry();
     const wickGeo = new THREE.CylinderGeometry(0.0045, 0.0055, 0.05, 6);
     wickGeo.translate(0, CANDLE_HEIGHT + 0.01, 0);
     const flameGeo = createFlameGeometry();
-    const flameMaterial = createFlameMaterial();
+    const flameMaterial = createFlameMaterial(look);
+    const halo = (CANDLE_LOOKS[look] || CANDLE_LOOKS.dark).halo;
     const haloMat = sharedMaterial(THREE.SpriteMaterial, {
         map: createHaloTexture(),
-        color: 0xffc27a,
+        color: halo.color,
         transparent: true,
-        opacity: 0.55,
+        opacity: halo.opacity,
         depthWrite: false,
-        blending: THREE.AdditiveBlending
+        blending: halo.blending
     });
 
     // Lay the candles out first, then batch the sticks by colour.
@@ -308,10 +336,10 @@ export function buildCandles(parent, layout, { count = 5, candleColor = '' } = {
         const flame = new THREE.Mesh(flameGeo, flameMaterial);
         flame.name = 'flame';
         flame.position.y = WICK_TOP - 0.012;
-        const halo = new THREE.Sprite(haloMat);
-        halo.position.y = FLAME_HEIGHT * 0.42;
-        halo.scale.setScalar(0.3);
-        flame.add(halo);
+        const haloSprite = new THREE.Sprite(haloMat);
+        haloSprite.position.y = FLAME_HEIGHT * 0.42;
+        haloSprite.scale.setScalar(halo.scale);
+        flame.add(haloSprite);
         group.add(flame);
 
         parent.add(group);

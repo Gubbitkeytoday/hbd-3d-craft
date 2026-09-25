@@ -33,6 +33,7 @@ import {
     sharedTexture
 } from './cake-models.js';
 import { buildCandles } from './cake/candles.js';
+import { applyBackdrop, createContactShadow, fitContactShadow, NEW_CARD_BACKDROP, resolveBackdrop } from './backdrops.js';
 
 const SCENE_BG = 0x0b0714;
 const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -58,6 +59,8 @@ let flameMaterial = null;
 let floatingSprinkles = [];
 let envelopeRefs = { envelope: null, pointer: null, label: null };
 let holographicRings = [];
+let contactShadow = null;
+let bounceLight = null;
 
 // Build pipeline state. `generation` invalidates in-flight work on destroy.
 let generation = 0;
@@ -142,7 +145,9 @@ export async function mountPreview(host, config, cbs = {}) {
     const height = Math.max(1, host.clientHeight || 320);
 
     try {
-        renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        // alpha: light backdrops are painted by CSS behind a transparent frame
+        // (see backdrops.js); night still clears to an opaque colour.
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     } catch (err) {
         renderer = null;
         cbs.onError?.(err);
@@ -154,8 +159,9 @@ export async function mountPreview(host, config, cbs = {}) {
     host.appendChild(renderer.domElement);
 
     scene = new THREE.Scene();
-    // The bloom composer outputs an opaque frame, so the studio backdrop is
-    // set explicitly to match the panel rather than clearing to black.
+    // Night: the composer outputs an opaque frame, so the studio backdrop is
+    // set explicitly (applyBackdrop restores it). Light backdrops clear to
+    // transparent and the canvas paints the gradient behind the frame.
     scene.background = new THREE.Color(SCENE_BG);
     camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
     camera.position.set(0, 4.0, 9.5);
@@ -170,11 +176,14 @@ export async function mountPreview(host, config, cbs = {}) {
     await attachStudioEnvironmentAsync(renderer, scene);
     if (myGeneration !== generation) return;
     lights = setupStudioLighting(scene, { rimColor: 0xff0055 });
-    const bounce = new THREE.PointLight(0xff0055, 0.9, 10);
-    bounce.position.set(0, 2, 0);
-    scene.add(bounce);
+    bounceLight = new THREE.PointLight(0xff0055, 0.9, 10);
+    bounceLight.position.set(0, 2, 0);
+    scene.add(bounceLight);
     setupHolographicRings();
+    contactShadow = createContactShadow();
+    scene.add(contactShadow);
     bloom = createBloomComposer(renderer, scene, camera);
+    applySceneBackdrop(config);
 
     await yieldToMain();
     if (myGeneration !== generation) return;
@@ -292,8 +301,28 @@ async function runBuilds() {
     }
 }
 
+function backdropOf(config) {
+    // The creator always sends one; a missing value previews a new card.
+    return config.backdrop || NEW_CARD_BACKDROP;
+}
+
+/** Backdrop state for the live scene (cheap, idempotent; see backdrops.js). */
+function applySceneBackdrop(config) {
+    if (!scene || !renderer) return null;
+    const applied = applyBackdrop(scene, renderer, bloom, lights, backdropOf(config), {
+        nightBackground: SCENE_BG,
+        contactShadow,
+        nightOnly: holographicRings,
+        paintHost: renderer.domElement
+    });
+    // The magenta bounce reads as neon spill on pale paper; keep a hint.
+    if (bounceLight) bounceLight.intensity = applied.light ? 0.35 : 0.9;
+    return applied;
+}
+
 /** Builds a complete cake + extras off-scene (nothing touches the live scene). */
 async function buildContent(config, cooperative = false) {
+    const look = resolveBackdrop(backdropOf(config));
     const cake = new THREE.Group();
     cake.name = 'cake-root';
     const extras = new THREE.Group();
@@ -321,18 +350,29 @@ async function buildContent(config, cooperative = false) {
     if (cooperative) await yieldToMain();
     const candles = buildCandles(cake, { candlePlacerRadius, candleBaseY, isHeartShape }, {
         count: config.candles,
-        candleColor: config.candleColor
+        candleColor: config.candleColor,
+        look: look.light ? 'light' : 'dark'
     });
 
     // Environment reflections are a plain uniform; set before precompile.
-    tuneMaterialsForEnvironment(cake, 0.6);
+    // Light backdrops get a little more: the room reflections read as the
+    // bright studio the cake now stands in.
+    tuneMaterialsForEnvironment(cake, look.light ? 0.85 : 0.6);
+
+    // Footprint for the contact shadow, measured before the swap adds bob.
+    cake.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(cake);
+    const footprint = {
+        radius: Math.max(Math.abs(box.min.x), box.max.x, Math.abs(box.min.z), box.max.z),
+        floorY: box.min.y
+    };
 
     if (cooperative) await yieldToMain();
 
     const envelope = config.letterEnabled ? buildEnvelopeGroup(config, extras) : { envelope: null, pointer: null, label: null };
     const sprinkles = buildFloatingSprinkles(extras, config);
 
-    return { cake, extras, flameMaterial: candles.flameMaterial, envelope, sprinkles };
+    return { cake, extras, flameMaterial: candles.flameMaterial, envelope, sprinkles, footprint };
 }
 
 /** Puts freshly built content on screen and frees what it replaces. */
@@ -362,8 +402,12 @@ function swapIn(built, config) {
         disposeCakeGroup(oldExtras);
     }
 
-    // Rim light follows the theme accent so the silhouette always reads.
+    // Rim light follows the theme accent so the silhouette always reads;
+    // the backdrop then scales it (and everything else) for its paper.
     if (lights) tintRimLight(lights.rim, getThemeRGBColors(config.theme).cream);
+    const { radius, floorY } = built.footprint;
+    if (contactShadow && Number.isFinite(radius) && Number.isFinite(floorY)) fitContactShadow(contactShadow, radius, floorY);
+    applySceneBackdrop(config);
 }
 
 function startLoop() {
@@ -486,6 +530,7 @@ export function destroyPreview() {
     if (import.meta.env.DEV && window.__hbdPreview?.renderer === renderer) delete window.__hbdPreview;
 
     renderer = scene = camera = controls = lights = bloom = null;
+    contactShadow = bounceLight = null;
     cakeRoot = extrasRoot = flameMaterial = null;
     floatingSprinkles = [];
     holographicRings = [];

@@ -24,7 +24,7 @@ const LOOKS = {
 };
 
 // Controls that change the 3D preview (anything else is text-only).
-const CAKE_FIELDS = new Set(['theme', 'cakeModel', 'plate', 'glaze', 'topperChoice', 'topperText', 'candles',
+const CAKE_FIELDS = new Set(['theme', 'backdrop', 'cakeModel', 'plate', 'glaze', 'topperChoice', 'topperText', 'candles',
     'strawberries', 'cherries', 'rolls', 'sprinkles', 'decorHearts', 'decorStars', 'letterEnabled', 'letterTheme',
     'glazeColor', 'creamColor', 'plateColor', 'candleColor', 'topperColor', 'envBaseColor', 'envFlapColor', 'envSealColor']);
 const COLOR_FIELDS = ['glazeColor', 'creamColor', 'plateColor', 'candleColor', 'topperColor', 'envBaseColor', 'envFlapColor', 'envSealColor'];
@@ -61,6 +61,7 @@ export function initCreator() {
     }
     applyLanguage();
     applyThemeClass();
+    setBrowserThemeColor(true);
     syncColorPickers();
     refreshTemplates();
     refreshToggles();
@@ -74,6 +75,7 @@ export function initCreator() {
 export function destroyCreator() {
     bootToken++;
     destroyPreview();
+    setBrowserThemeColor(false);
     clearTimeout(draftTimer);
     clearTimeout(photoTimer);
     if (els?.dialog?.open) els.dialog.close();
@@ -211,6 +213,8 @@ function readConfig() {
         title: f.title.value.trim(),
         message: f.message.value.trim(),
         theme: radioValue('theme'),
+        // New cards always carry a backdrop; only old links (none) fall back to night.
+        backdrop: radioValue('backdrop') || 'blush',
         candles: intValue('candles'),
         music: radioValue('music'),
         font: radioValue('font'),
@@ -404,7 +408,7 @@ function onFieldChange(e) {
         return;
     }
     if (COLOR_FIELDS.includes(name)) touchedColors.add(name);
-    if (name === 'theme') applyThemeClass();
+    if (name === 'theme' || name === 'backdrop') applyThemeClass();
     if (['theme', 'glaze', 'plate', 'letterTheme'].includes(name)) syncColorPickers();
     if (name === 'topperChoice' || name === 'letterEnabled') refreshToggles();
     if (name === 'photo') refreshPhotoCheck();
@@ -476,10 +480,26 @@ function refreshLookEdited() {
     els.lookEdited.hidden = !edited;
 }
 
-/** The creator's chrome follows the chosen theme (one source of truth). */
+/** The creator's chrome follows the chosen theme (one source of truth). The
+ *  backdrop also tints the preview frame, so it matches before WebGL paints. */
 function applyThemeClass() {
     const theme = radioValue('theme') || 'neon-rose';
     document.body.className = `theme-${theme}`;
+    els.root.dataset.backdrop = radioValue('backdrop') || 'blush';
+}
+
+/** The creator is a light page: match the browser chrome (restored on leave). */
+let prevThemeColor = null;
+function setBrowserThemeColor(on) {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    if (on) {
+        if (prevThemeColor === null) prevThemeColor = meta.content;
+        meta.content = '#fbf6f1';
+    } else if (prevThemeColor !== null) {
+        meta.content = prevThemeColor;
+        prevThemeColor = null;
+    }
 }
 
 const STYLE_COLORS = {
@@ -829,6 +849,7 @@ async function refreshExampleLink() {
         title: t('tplTitle', { name }),
         message: t('tplMsgFriend'),
         theme: 'neon-rose',
+        backdrop: 'blush',
         cakeModel: 'vintage-heart',
         plate: 'crystal',
         glaze: 'strawberry',
