@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { fontReadyForCanvas, fontsAvailable, splitWords, truncateGraphemes } from '../fonts.js';
 
 /* ------------------------------------------------------------------ *
  * Draw-call budget
@@ -104,15 +105,181 @@ export function hashString(str) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Shared GPU resources (textures + materials)
+ * ------------------------------------------------------------------ *
+ *
+ * The creator rebuilds the whole cake on every slider tick. Recreating every
+ * canvas texture and material each time leaked two textures per rebuild
+ * (material.dispose() never frees maps) and, worse, disposing the materials
+ * released their GL programs, so the identical new materials recompiled from
+ * scratch (13 program links per tick). Deterministic textures are now
+ * lazy singletons, per-colour/per-text ones sit in small LRU caches, and
+ * kit materials are memoised by their constructor parameters.
+ *
+ * Rules for kit code:
+ *   - never mutate a material returned by sharedMaterial() or by the
+ *     getXxxMaterial / createXxxMaterial factories; pass the variant as parameters instead
+ *   - callers free a built cake with disposeCakeGroup() (cake-models.js),
+ *     which skips everything isKitShared() reports
+ * Disposing a shared resource by mistake is safe (three re-uploads or
+ * recompiles it on next use); it only costs the time the cache saves.
+ */
+
+const SHARED = new WeakSet();
+
+/** True for textures/materials owned by the kit caches (never dispose them per rebuild). */
+export function isKitShared(resource) {
+    return !!resource && SHARED.has(resource);
+}
+
+function markShared(resource) {
+    SHARED.add(resource);
+    return resource;
+}
+
+/** Tiny LRU: Map keeps insertion order, so re-inserting on hit moves a key to the end. */
+function lruCache(limit, onEvict) {
+    const map = new Map();
+    return {
+        get(key, create) {
+            if (map.has(key)) {
+                const value = map.get(key);
+                map.delete(key);
+                map.set(key, value);
+                return value;
+            }
+            const value = create();
+            map.set(key, value);
+            while (map.size > limit) {
+                const [oldKey, oldValue] = map.entries().next().value;
+                map.delete(oldKey);
+                // A material still on screen survives this: three re-creates
+                // its GPU state on the next render.
+                SHARED.delete(oldValue);
+                onEvict(oldValue);
+            }
+            return value;
+        }
+    };
+}
+
+/** Marks every geometry under `root` as kit-owned (disposeCakeGroup skips it). */
+export function adoptSharedGeometries(root) {
+    root.traverse((obj) => { if (obj.geometry) SHARED.add(obj.geometry); });
+    return root;
+}
+
+/** Reverses adoptSharedGeometries and frees the GPU copies. */
+export function releaseSharedGeometries(root) {
+    root.traverse((obj) => {
+        if (obj.geometry && SHARED.has(obj.geometry)) {
+            SHARED.delete(obj.geometry);
+            obj.geometry.dispose();
+        }
+    });
+}
+
+const permanentTextures = new Map();
+const keyedTextures = lruCache(40, (tex) => tex.dispose());
+const materialCache = lruCache(192, (mat) => mat.dispose());
+
+/** Deterministic texture, painted once per page load. */
+export function permanentTexture(key, paint) {
+    if (!permanentTextures.has(key)) permanentTextures.set(key, markShared(paint()));
+    return permanentTextures.get(key);
+}
+
+/** Parameterised texture (colour, text...), kept in a small LRU cache. */
+export function sharedTexture(key, paint) {
+    return keyedTextures.get(key, () => markShared(paint()));
+}
+
+const ctorIds = new WeakMap();
+let nextCtorId = 1;
+function ctorId(Ctor) {
+    // Class names are mangled by the minifier, so key constructors by identity.
+    if (!ctorIds.has(Ctor)) ctorIds.set(Ctor, nextCtorId++);
+    return ctorIds.get(Ctor);
+}
+
+// Hand-rolled instead of JSON.stringify: stringify calls toJSON() on every
+// value before a replacer sees it, and Texture.toJSON() serialises the whole
+// canvas to a data URL (~250 ms per cake build).
+function paramKey(value) {
+    if (value === null || typeof value !== 'object') {
+        return typeof value === 'string' ? JSON.stringify(value) : String(value);
+    }
+    if (value.isColor) return `c(${value.r},${value.g},${value.b})`;
+    if (value.isTexture) return `t(${value.uuid})`;
+    if (value.isVector2) return `v(${value.x},${value.y})`;
+    if (Array.isArray(value)) return `[${value.map(paramKey).join(',')}]`;
+    return `{${Object.keys(value).map((k) => `${k}:${paramKey(value[k])}`).join(',')}}`;
+}
+
+const geometryCache = lruCache(700, (geo) => geo.dispose());
+
+/**
+ * Geometry memoised by a caller-chosen key. Decorations are rebuilt with the
+ * same parameters on every slider tick (and a ring repeats one shape dozens
+ * of times), so deforming spheres and merging parts once per key is what
+ * brings a rebuild from ~400 ms down to tens of ms. Never mutate the result.
+ */
+export function sharedGeometry(key, build) {
+    return geometryCache.get(key, () => markShared(build()));
+}
+
+/** Shared SphereGeometry by its constructor arguments. */
+export function sharedSphere(radius, w, h) {
+    return sharedGeometry(`sphere|${radius}|${w}|${h}`, () => new THREE.SphereGeometry(radius, w, h));
+}
+
+/** partsToMesh() whose merged geometry is built once per key. */
+export function sharedPartsMesh(key, buildParts, material) {
+    const geo = sharedGeometry(key, () => {
+        const parts = buildParts();
+        const merged = mergeGeometries(parts, false);
+        parts.forEach((g) => g.dispose());
+        merged.computeVertexNormals();
+        return merged;
+    });
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+}
+
+// Ridge phase and lean of piped cream only vary with sin/cos(seed), so 12
+// phase variants look as hand-made as one per rosette and share geometry.
+const TAU = Math.PI * 2;
+const SEED_VARIANTS = 12;
+function quantizeSeed(seed) {
+    const t = (((seed % TAU) + TAU) % TAU) / TAU;
+    return (Math.round(t * SEED_VARIANTS) % SEED_VARIANTS) * (TAU / SEED_VARIANTS);
+}
+
+/**
+ * `new Ctor(params)`, memoised by (constructor, params). Identical requests
+ * return the same instance, so a rebuild reuses both the material and its
+ * compiled program. Do not mutate the result.
+ */
+export function sharedMaterial(Ctor, params = {}) {
+    return materialCache.get(`${ctorId(Ctor)}|${paramKey(params)}`, () => markShared(new Ctor(params)));
+}
+
+/* ------------------------------------------------------------------ *
  * Procedural textures
  * ------------------------------------------------------------------ */
 
 export function createCakeCrumbBumpTexture() {
+    return permanentTexture('crumb-bump', paintCakeCrumbBumpTexture);
+}
+
+function paintCakeCrumbBumpTexture() {
     const SIZE = 512;
     const canvas = document.createElement('canvas');
     canvas.width = SIZE;
     canvas.height = SIZE;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
     ctx.fillStyle = '#808080';
     ctx.fillRect(0, 0, SIZE, SIZE);
@@ -146,19 +313,38 @@ export function createCakeCrumbBumpTexture() {
     }
 
     // Micro-pores and crumbs over the swipes. Seeded, not Math.random, so the
-    // finish is identical in the preview and the delivered card.
+    // finish is identical in the preview and the delivered card. Stamped
+    // straight into the pixel buffer: 26k canvas arc() fills with a fresh
+    // fillStyle string each took ~45 ms, this takes a few.
     const rng = makeRng(0xc4ce0001);
+    const img = ctx.getImageData(0, 0, SIZE, SIZE);
+    const px = img.data;
+    const ALPHA = 0.55;
     for (let i = 0; i < 26000; i++) {
         const x = rng() * SIZE;
         const y = rng() * SIZE;
         const radius = 0.4 + rng() * 1.6;
         const heightVal = Math.floor(rng() * 60) - 30;
         const color = Math.min(255, Math.max(0, 128 + heightVal));
-        ctx.fillStyle = `rgba(${color}, ${color}, ${color}, 0.55)`;
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fill();
+        const r2 = radius * radius;
+        const x0 = Math.max(0, Math.floor(x - radius));
+        const x1 = Math.min(SIZE - 1, Math.ceil(x + radius));
+        const y0 = Math.max(0, Math.floor(y - radius));
+        const y1 = Math.min(SIZE - 1, Math.ceil(y + radius));
+        for (let py = y0; py <= y1; py++) {
+            for (let pxl = x0; pxl <= x1; pxl++) {
+                const dx = pxl + 0.5 - x;
+                const dy = py + 0.5 - y;
+                if (dx * dx + dy * dy > r2) continue;
+                const k = (py * SIZE + pxl) * 4;
+                const v = px[k] + (color - px[k]) * ALPHA;
+                px[k] = v;
+                px[k + 1] = v;
+                px[k + 2] = v;
+            }
+        }
     }
+    ctx.putImageData(img, 0, 0);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
@@ -168,6 +354,10 @@ export function createCakeCrumbBumpTexture() {
 }
 
 export function createCarbonFiberTexture() {
+    return permanentTexture('carbon-fiber', paintCarbonFiberTexture);
+}
+
+function paintCarbonFiberTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 64;
@@ -193,6 +383,10 @@ export function createCarbonFiberTexture() {
 }
 
 export function createHolographicScannerTexture(colorStr) {
+    return sharedTexture(`scanner|${colorStr}`, () => paintHolographicScannerTexture(colorStr));
+}
+
+function paintHolographicScannerTexture(colorStr) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
@@ -239,6 +433,10 @@ export function createHolographicScannerTexture(colorStr) {
  * (u) and the length (v).
  */
 export function createWaferRollTexture() {
+    return permanentTexture('wafer-roll', paintWaferRollTexture);
+}
+
+function paintWaferRollTexture() {
     const W = 128;
     const H = 256;
     const TURNS = 3;
@@ -288,6 +486,10 @@ export function createWaferRollTexture() {
  * sells "crystal data prism".
  */
 export function createHexGridEmissiveTexture(colorStr) {
+    return sharedTexture(`hex-grid|${colorStr}`, () => paintHexGridEmissiveTexture(colorStr));
+}
+
+function paintHexGridEmissiveTexture(colorStr) {
     const SIZE = 512;
     const canvas = document.createElement('canvas');
     canvas.width = SIZE;
@@ -348,109 +550,154 @@ export function createHexGridEmissiveTexture(colorStr) {
     return texture;
 }
 
-export function createCustomTopperTexture(text, themeName, customGlowColor = '') {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d');
+/** Per-theme plaque styling for the custom-text topper. */
+const TOPPER_STYLES = {
+    'neon-rose': { bg: 'rgba(15, 10, 25, 0.85)', text: '#ff0055', border: '#00f2fe', glow: '#ff0055', font: 'sans' },
+    'midnight-gold': { bg: 'rgba(10, 8, 5, 0.9)', text: '#ffd700', border: '#ffd700', glow: '#ffd700', font: 'serif' },
+    'pastel-mint': { bg: 'rgba(5, 15, 20, 0.85)', text: '#00f2fe', border: '#4facfe', glow: '#00f2fe', font: 'sans' },
+    'lavender-dream': { bg: 'rgba(15, 5, 20, 0.88)', text: '#f355ff', border: '#8000ff', glow: '#f355ff', font: 'sans' },
+    'sakura-blossom': { bg: 'rgba(31, 12, 17, 0.9)', text: '#ff758f', border: '#ffb3c6', glow: '#ff758f', font: 'script' },
+    'cyber-retro': { bg: 'rgba(24, 0, 38, 0.9)', text: '#ff3399', border: '#ff9966', glow: '#ff3399', font: 'sans' },
+    'forest-moss': { bg: 'rgba(0, 23, 10, 0.9)', text: '#00ff88', border: '#ffd700', glow: '#00ff88', font: 'serif' },
+    'cosmic-nebula': { bg: 'rgba(7, 0, 20, 0.9)', text: '#8a2be2', border: '#00f2fe', glow: '#00ffd5', font: 'sans' },
+    'choco-monarch': { bg: 'rgba(20, 9, 4, 0.9)', text: '#cca43b', border: '#5c3d2e', glow: '#cca43b', font: 'serif' }
+};
 
-    ctx.clearRect(0, 0, 512, 256);
+// Latin face first, then its Thai partner: canvas falls back per glyph, so a
+// mixed "Happy Birthday + Thai name" uses both. Before this, Thai was drawn
+// in whatever system font the OS had, since none of the Latin faces has Thai.
+const TOPPER_FONTS = {
+    sans: { families: ['Outfit', 'Noto Sans Thai'], generic: 'sans-serif', weight: 700 },
+    serif: { families: ['Playfair Display', 'Noto Serif Thai'], generic: 'serif', weight: 700 },
+    // Great Vibes only ships 400; Mali (its Thai partner) is loaded at 500/600
+    // and the browser picks the nearest weight.
+    script: { families: ['Great Vibes', 'Mali'], generic: 'cursive', weight: 400 }
+};
 
-    let bgColor = 'rgba(15, 10, 25, 0.85)';
-    let textColor = '#ff0055';
-    let borderColor = '#00f2fe';
-    let glowColor = '#ff0055';
-    let fontName = 'Outfit';
+const TOPPER_W = 512;
+const TOPPER_H = 256;
+const TOPPER_MAX_GRAPHEMES = 28;
 
-    if (themeName === 'midnight-gold') {
-        bgColor = 'rgba(10, 8, 5, 0.9)';
-        textColor = '#ffd700';
-        borderColor = '#ffd700';
-        glowColor = '#ffd700';
-        fontName = 'Playfair Display';
-    } else if (themeName === 'pastel-mint') {
-        bgColor = 'rgba(5, 15, 20, 0.85)';
-        textColor = '#00f2fe';
-        borderColor = '#4facfe';
-        glowColor = '#00f2fe';
-        fontName = 'Outfit';
-    } else if (themeName === 'lavender-dream') {
-        bgColor = 'rgba(15, 5, 20, 0.88)';
-        textColor = '#f355ff';
-        borderColor = '#8000ff';
-        glowColor = '#f355ff';
-        fontName = 'Outfit';
-    } else if (themeName === 'sakura-blossom') {
-        bgColor = 'rgba(31, 12, 17, 0.9)';
-        textColor = '#ff758f';
-        borderColor = '#ffb3c6';
-        glowColor = '#ff758f';
-        fontName = 'Great Vibes';
-    } else if (themeName === 'cyber-retro') {
-        bgColor = 'rgba(24, 0, 38, 0.9)';
-        textColor = '#ff3399';
-        borderColor = '#ff9966';
-        glowColor = '#ff3399';
-        fontName = 'Outfit';
-    } else if (themeName === 'forest-moss') {
-        bgColor = 'rgba(0, 23, 10, 0.9)';
-        textColor = '#00ff88';
-        borderColor = '#ffd700';
-        glowColor = '#00ff88';
-        fontName = 'Playfair Display';
-    } else if (themeName === 'cosmic-nebula') {
-        bgColor = 'rgba(7, 0, 20, 0.9)';
-        textColor = '#8a2be2';
-        borderColor = '#00f2fe';
-        glowColor = '#00ffd5';
-        fontName = 'Outfit';
-    } else if (themeName === 'choco-monarch') {
-        bgColor = 'rgba(20, 9, 4, 0.9)';
-        textColor = '#cca43b';
-        borderColor = '#5c3d2e';
-        glowColor = '#cca43b';
-        fontName = 'Playfair Display';
-    }
-
+function topperSpec(text, themeName, customGlowColor) {
+    const style = { ...(TOPPER_STYLES[themeName] || TOPPER_STYLES['neon-rose']) };
     if (customGlowColor) {
-        textColor = customGlowColor;
-        borderColor = customGlowColor;
-        glowColor = customGlowColor;
+        style.text = customGlowColor;
+        style.border = customGlowColor;
+        style.glow = customGlowColor;
     }
+    const clean = truncateGraphemes(String(text ?? '').trim(), TOPPER_MAX_GRAPHEMES);
+    return { style, font: TOPPER_FONTS[style.font], text: clean };
+}
 
-    ctx.fillStyle = bgColor;
-    ctx.strokeStyle = borderColor;
+function fontString(font, size) {
+    const stack = font.families.map((f) => `"${f}"`).join(', ');
+    return `${font.weight} ${Math.round(size)}px ${stack}, ${font.generic}`;
+}
+
+/**
+ * Picks one or two lines and the largest size that fits the plaque. Thai has
+ * no spaces, so candidate breaks come from Intl.Segmenter word boundaries.
+ */
+function layoutTopperText(ctx, text, font) {
+    const MAX_W = TOPPER_W - 72;
+    const MAX_H = TOPPER_H - 60;
+    // Stacked Thai vowels and tone marks need extra leading above and below.
+    const lineH = /[฀-๿]/.test(text) ? 1.4 : 1.18;
+    const MAX_SIZE = 92;
+    const REF = 100;
+    ctx.font = fontString(font, REF);
+    const widthAt = (str) => ctx.measureText(str).width;
+
+    const single = Math.min(MAX_SIZE, MAX_H / lineH, (REF * MAX_W) / Math.max(1, widthAt(text)));
+    let best = { lines: [text], size: single };
+
+    const words = splitWords(text);
+    if (single < 64 && words.length > 1) {
+        for (let i = 1; i < words.length; i++) {
+            const a = words.slice(0, i).join('').trim();
+            const b = words.slice(i).join('').trim();
+            if (!a || !b) continue;
+            const w = Math.max(widthAt(a), widthAt(b));
+            const size = Math.min(MAX_SIZE, MAX_H / (2 * lineH), (REF * MAX_W) / Math.max(1, w));
+            // Two lines only when that buys a clearly bigger size.
+            if (size > best.size * 1.12) best = { lines: [a, b], size };
+        }
+    }
+    return { ...best, lineH };
+}
+
+function paintTopper(canvas, spec) {
+    const ctx = canvas.getContext('2d');
+    const { style, font, text } = spec;
+    ctx.clearRect(0, 0, TOPPER_W, TOPPER_H);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = style.bg;
+    ctx.strokeStyle = style.border;
     ctx.lineWidth = 12;
-
     const r = 24;
     ctx.beginPath();
     ctx.moveTo(r, 0);
-    ctx.lineTo(512 - r, 0);
-    ctx.quadraticCurveTo(512, 0, 512, r);
-    ctx.lineTo(512, 256 - r);
-    ctx.quadraticCurveTo(512, 256, 512 - r, 256);
-    ctx.lineTo(r, 256);
-    ctx.quadraticCurveTo(0, 256, 0, 256 - r);
+    ctx.lineTo(TOPPER_W - r, 0);
+    ctx.quadraticCurveTo(TOPPER_W, 0, TOPPER_W, r);
+    ctx.lineTo(TOPPER_W, TOPPER_H - r);
+    ctx.quadraticCurveTo(TOPPER_W, TOPPER_H, TOPPER_W - r, TOPPER_H);
+    ctx.lineTo(r, TOPPER_H);
+    ctx.quadraticCurveTo(0, TOPPER_H, 0, TOPPER_H - r);
     ctx.lineTo(0, r);
     ctx.quadraticCurveTo(0, 0, r, 0);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = 15;
-    ctx.fillStyle = textColor;
+    if (!text) return;
+    const { lines, size, lineH } = layoutTopperText(ctx, text, font);
+    ctx.font = fontString(font, size);
+    ctx.shadowColor = style.glow;
+    ctx.shadowBlur = Math.max(8, size * 0.22);
+    ctx.fillStyle = style.text;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    const step = size * lineH;
+    const top = TOPPER_H / 2 - (step * (lines.length - 1)) / 2;
+    lines.forEach((line, i) => ctx.fillText(line, TOPPER_W / 2, top + i * step));
+}
 
-    let fontSize = 56;
-    if (text.length > 10) fontSize = 44;
-    if (text.length > 14) fontSize = 36;
+/**
+ * Canvas texture for the custom-text plaque, cached by text + theme + colour.
+ *
+ * Text is sized to fit (one or two lines) by measuring it, not by `.length`,
+ * which over-counted Thai. If the plaque's font is not loaded yet, the
+ * texture is painted with the fallback now and repainted in place once the
+ * font arrives, so a build never bakes the wrong face in permanently. Callers
+ * that want the right face on the very first frame can
+ * `await preloadTopperFont(text, themeName)` before building.
+ */
+export function createCustomTopperTexture(text, themeName, customGlowColor = '') {
+    const spec = topperSpec(text, themeName, customGlowColor);
+    return sharedTexture(`topper|${spec.text}|${themeName}|${customGlowColor}`, () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = TOPPER_W;
+        canvas.height = TOPPER_H;
+        paintTopper(canvas, spec);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = 4;
+        if (spec.text && !fontsAvailable(spec.font.families, spec.text, spec.font.weight)) {
+            fontReadyForCanvas(spec.font.families, spec.text, { weight: spec.font.weight }).then(() => {
+                paintTopper(canvas, spec);
+                texture.needsUpdate = true;
+            });
+        }
+        return texture;
+    });
+}
 
-    ctx.font = `bold ${fontSize}px "${fontName}", "Outfit", sans-serif`;
-    ctx.fillText(text, 256, 128);
-
-    return new THREE.CanvasTexture(canvas);
+/** Resolves once the topper for this text/theme can be drawn in its real font. */
+export function preloadTopperFont(text, themeName = 'neon-rose') {
+    const spec = topperSpec(text, themeName, '');
+    if (!spec.text) return Promise.resolve(true);
+    return fontReadyForCanvas(spec.font.families, spec.text, { weight: spec.font.weight });
 }
 
 /* ------------------------------------------------------------------ *
@@ -782,10 +1029,12 @@ export function heartPerimeterPoints(scale, count, outset = 0) {
  * ------------------------------------------------------------------ */
 
 export function getPlateMaterial(plateStyle, customColor = '') {
+    // The custom colour is part of the cache key rather than a mutation.
+    const plate = (params) => sharedMaterial(THREE.MeshPhysicalMaterial, customColor ? { ...params, color: new THREE.Color(customColor) } : params);
     let mat;
     switch (plateStyle) {
         case 'crystal':
-            mat = new THREE.MeshPhysicalMaterial({
+            mat = plate({
                 color: 0xffe6f2,
                 roughness: 0.04,
                 metalness: 0.05,
@@ -801,7 +1050,7 @@ export function getPlateMaterial(plateStyle, customColor = '') {
         case 'golden':
             // Physical, not Standard: clearcoat is a MeshPhysicalMaterial
             // property and was being silently dropped here.
-            mat = new THREE.MeshPhysicalMaterial({
+            mat = plate({
                 color: 0xd4af37,
                 roughness: 0.12,
                 metalness: 0.95,
@@ -810,7 +1059,7 @@ export function getPlateMaterial(plateStyle, customColor = '') {
             });
             break;
         case 'cosmic':
-            mat = new THREE.MeshPhysicalMaterial({
+            mat = plate({
                 color: 0x090712,
                 roughness: 0.22,
                 metalness: 0.88,
@@ -825,7 +1074,7 @@ export function getPlateMaterial(plateStyle, customColor = '') {
             // Glazed stoneware, not a mirror: a near-perfect clearcoat turned
             // the theme-tinted rim light into a pinpoint on the plate edge
             // bright enough to bloom into a white blob on light themes.
-            mat = new THREE.MeshPhysicalMaterial({
+            mat = plate({
                 color: 0xfbfbf8,
                 roughness: 0.3,
                 metalness: 0.02,
@@ -833,9 +1082,6 @@ export function getPlateMaterial(plateStyle, customColor = '') {
                 clearcoatRoughness: 0.22
             });
             break;
-    }
-    if (customColor && mat) {
-        mat.color.set(customColor);
     }
     return mat;
 }
@@ -888,7 +1134,7 @@ export function getGlazeMaterial(glazeStyle, customColor = '') {
         colorHex = new THREE.Color(customColor);
     }
 
-    return new THREE.MeshPhysicalMaterial({
+    return sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: colorHex,
         roughness,
         metalness: 0.02,
@@ -902,21 +1148,22 @@ export function getGlazeMaterial(glazeStyle, customColor = '') {
 }
 
 /** The glossy piped-cream surface, shared across a whole ring of rosettes. */
-export function createButtercreamPipingMaterial(colorHex) {
-    return new THREE.MeshPhysicalMaterial({
+export function createButtercreamPipingMaterial(colorHex, overrides = {}) {
+    return sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: colorHex,
         roughness: 0.28,
         metalness: 0.02,
         clearcoat: 1.0,
         clearcoatRoughness: 0.02,
         sheen: 0.95,
-        sheenColor: new THREE.Color(0xffe6eb)
+        sheenColor: new THREE.Color(0xffe6eb),
+        ...overrides
     });
 }
 
 /** Buttercream: matte-ish body with the fabric-like sheen fat gives frosting. */
-export function createButtercreamMaterial(color, crumbBumpTex, bumpScale = 0.16) {
-    return new THREE.MeshPhysicalMaterial({
+export function createButtercreamMaterial(color, crumbBumpTex, bumpScale = 0.16, overrides = {}) {
+    return sharedMaterial(THREE.MeshPhysicalMaterial, {
         color,
         roughness: 0.62,
         metalness: 0.0,
@@ -926,12 +1173,13 @@ export function createButtercreamMaterial(color, crumbBumpTex, bumpScale = 0.16)
         sheenRoughness: 0.7,
         sheenColor: new THREE.Color(0xfff2f5),
         clearcoat: 0.18,
-        clearcoatRoughness: 0.6
+        clearcoatRoughness: 0.6,
+        ...overrides
     });
 }
 
 export function createGoldMaterial(colorHex = 0xffd76a) {
-    return new THREE.MeshPhysicalMaterial({
+    return sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: colorHex,
         roughness: 0.16,
         metalness: 1.0,
@@ -946,7 +1194,7 @@ export function createGoldMaterial(colorHex = 0xffd76a) {
  * PBR material gets tone-mapped down before the bloom pass ever sees it.
  */
 export function createNeonMaterial(colorHex, opacity = 1) {
-    return new THREE.MeshBasicMaterial({
+    return sharedMaterial(THREE.MeshBasicMaterial, {
         color: colorHex,
         toneMapped: false,
         transparent: opacity < 1,
@@ -960,6 +1208,19 @@ export function createNeonMaterial(colorHex, opacity = 1) {
 
 /** Fluffy piped cream: sphere deformed into a star-nozzle rosette. */
 export function createPipedCreamMesh(colorHex = 0xfffafb, seed = 0, detail = 1, sharedMat = null) {
+    const q = quantizeSeed(seed);
+    const geo = sharedGeometry(`piped-cream|${detail < 1 ? 0 : 1}|${q}`, () => buildPipedCreamGeometry(q, detail));
+    // A ring can hold 40+ of these. Compiling a separate PBR material for
+    // each one is pure overhead when they're all the same colour, so callers
+    // that pipe a whole ring hand in one shared material.
+    const mat = sharedMat || createButtercreamPipingMaterial(colorHex);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+}
+
+function buildPipedCreamGeometry(seed, detail) {
     const R = 0.1;
     // A rosette is ~0.15 units wide on screen; the ridges stop being
     // resolvable well before the segment count does, so phones drop to a
@@ -1009,15 +1270,7 @@ export function createPipedCreamMesh(colorHex = 0xfffafb, seed = 0, detail = 1, 
         pos.setXYZ(i, x, y, z);
     }
     geo.computeVertexNormals();
-
-    // A ring can hold 40+ of these. Compiling a separate PBR material for
-    // each one is pure overhead when they're all the same colour, so callers
-    // that pipe a whole ring hand in one shared material.
-    const mat = sharedMat || createButtercreamPipingMaterial(colorHex);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
+    return geo;
 }
 
 /**
@@ -1026,6 +1279,15 @@ export function createPipedCreamMesh(colorHex = 0xfffafb, seed = 0, detail = 1, 
  * and they read very differently from a ring of upright rosettes.
  */
 export function createPipedShellMesh(colorHex = 0xfffafb, seed = 0, detail = 1, sharedMat = null) {
+    const q = quantizeSeed(seed);
+    const geo = sharedGeometry(`piped-shell|${detail < 1 ? 0 : 1}|${q}`, () => buildPipedShellGeometry(q, detail));
+    const mesh = new THREE.Mesh(geo, sharedMat || createButtercreamPipingMaterial(colorHex));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+}
+
+function buildPipedShellGeometry(seed, detail) {
     const geo = detail < 1
         ? new THREE.SphereGeometry(0.1, 16, 10)
         : new THREE.SphereGeometry(0.1, 24, 16);
@@ -1057,11 +1319,7 @@ export function createPipedShellMesh(colorHex = 0xfffafb, seed = 0, detail = 1, 
         pos.setXYZ(i, x, y, z);
     }
     geo.computeVertexNormals();
-
-    const mesh = new THREE.Mesh(geo, sharedMat || createButtercreamPipingMaterial(colorHex));
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
+    return geo;
 }
 
 /** Cute minimalist sugar daisy (bento aesthetic). */
@@ -1069,8 +1327,8 @@ export function createDaisyFlowerMesh(petalColor = 0xffffff, centerColor = 0xffd
     const flowerGroup = new THREE.Group();
 
     if (sharedMats && !sharedMats.center) {
-        sharedMats.center = new THREE.MeshStandardMaterial({ color: centerColor, roughness: 0.35 });
-        sharedMats.petal = new THREE.MeshPhysicalMaterial({
+        sharedMats.center = sharedMaterial(THREE.MeshStandardMaterial, { color: centerColor, roughness: 0.35 });
+        sharedMats.petal = sharedMaterial(THREE.MeshPhysicalMaterial, {
             color: petalColor,
             roughness: 0.45,
             sheen: 0.8,
@@ -1080,27 +1338,30 @@ export function createDaisyFlowerMesh(petalColor = 0xffffff, centerColor = 0xffd
     }
 
     const centerMesh = new THREE.Mesh(
-        new THREE.SphereGeometry(0.042, 12, 10),
-        sharedMats ? sharedMats.center : new THREE.MeshStandardMaterial({ color: centerColor, roughness: 0.35 })
+        sharedSphere(0.042, 12, 10),
+        sharedMats ? sharedMats.center : sharedMaterial(THREE.MeshStandardMaterial, { color: centerColor, roughness: 0.35 })
     );
     centerMesh.scale.set(1, 0.5, 1);
     centerMesh.castShadow = true;
     flowerGroup.add(centerMesh);
 
-    const petalGeo = new THREE.SphereGeometry(0.035, 10, 8);
-    const petals = [];
-    for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2;
-        petals.push(part(petalGeo, {
-            pos: [Math.cos(a) * 0.058, 0.004, Math.sin(a) * 0.058],
-            // Petals tilt up slightly at the tips
-            rot: [0, -a, 0.12],
-            scale: [1.6, 0.32, 0.8]
-        }));
-    }
-    petalGeo.dispose();
+    const buildPetals = () => {
+        const petalGeo = new THREE.SphereGeometry(0.035, 10, 8);
+        const petals = [];
+        for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2;
+            petals.push(part(petalGeo, {
+                pos: [Math.cos(a) * 0.058, 0.004, Math.sin(a) * 0.058],
+                // Petals tilt up slightly at the tips
+                rot: [0, -a, 0.12],
+                scale: [1.6, 0.32, 0.8]
+            }));
+        }
+        petalGeo.dispose();
+        return petals;
+    };
 
-    flowerGroup.add(partsToMesh(petals, sharedMats ? sharedMats.petal : new THREE.MeshPhysicalMaterial({
+    flowerGroup.add(sharedPartsMesh('daisy-petals', buildPetals, sharedMats ? sharedMats.petal : sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: petalColor,
         roughness: 0.45,
         sheen: 0.8,
@@ -1112,6 +1373,18 @@ export function createDaisyFlowerMesh(petalColor = 0xffffff, centerColor = 0xffd
 
 /** Edible sugar rose rosette. */
 export function createRoseRosetteMesh(colorHex = 0xff3366, sharedMat = null) {
+    return sharedPartsMesh('rose-rosette', buildRoseParts, sharedMat || sharedMaterial(THREE.MeshPhysicalMaterial, {
+        color: colorHex,
+        roughness: 0.5,
+        metalness: 0.02,
+        sheen: 0.7,
+        sheenColor: new THREE.Color(0xffffff),
+        clearcoat: 0.35,
+        clearcoatRoughness: 0.4
+    }));
+}
+
+function buildRoseParts() {
     const budGeo = new THREE.SphereGeometry(0.06, 14, 12);
     const parts = [part(budGeo, { scale: [0.8, 1.2, 0.8] })];
     budGeo.dispose();
@@ -1129,38 +1402,32 @@ export function createRoseRosetteMesh(colorHex = 0xff3366, sharedMat = null) {
         }));
     }
     petalGeo.dispose();
-
-    return partsToMesh(parts, sharedMat || new THREE.MeshPhysicalMaterial({
-        color: colorHex,
-        roughness: 0.5,
-        metalness: 0.02,
-        sheen: 0.7,
-        sheenColor: new THREE.Color(0xffffff),
-        clearcoat: 0.35,
-        clearcoatRoughness: 0.4
-    }));
+    return parts;
 }
 
-export const MACARON_FILLING_MAT = new THREE.MeshStandardMaterial({ color: 0xfff4e6, roughness: 0.75 });
+// Module-level and shared by every macaron; never disposed per rebuild.
+export const MACARON_FILLING_MAT = markShared(new THREE.MeshStandardMaterial({ color: 0xfff4e6, roughness: 0.75 }));
 
 /** Gourmet French macaron. */
 export function createMacaronMesh(colorHex = 0xffd700, sharedMat = null) {
     const macGroup = new THREE.Group();
 
-    const shellGeo = new THREE.SphereGeometry(0.08, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2);
-    // The "foot" — the ruffled frill around each shell that defines a macaron
-    const footGeo = new THREE.TorusGeometry(0.09, 0.014, 8, 20);
+    const buildParts = () => {
+        const shellGeo = new THREE.SphereGeometry(0.08, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+        // The "foot" — the ruffled frill around each shell that defines a macaron
+        const footGeo = new THREE.TorusGeometry(0.09, 0.014, 8, 20);
+        const parts = [
+            part(shellGeo, { pos: [0, 0.024, 0], scale: [1.2, 0.6, 1.2] }),
+            part(shellGeo, { pos: [0, -0.024, 0], rot: [Math.PI, 0, 0], scale: [1.2, 0.6, 1.2] }),
+            part(footGeo, { pos: [0, 0.016, 0], rot: [Math.PI / 2, 0, 0], scale: [1.06, 1.06, 0.8] }),
+            part(footGeo, { pos: [0, -0.016, 0], rot: [Math.PI / 2, 0, 0], scale: [1.06, 1.06, 0.8] })
+        ];
+        shellGeo.dispose();
+        footGeo.dispose();
+        return parts;
+    };
 
-    const parts = [
-        part(shellGeo, { pos: [0, 0.024, 0], scale: [1.2, 0.6, 1.2] }),
-        part(shellGeo, { pos: [0, -0.024, 0], rot: [Math.PI, 0, 0], scale: [1.2, 0.6, 1.2] }),
-        part(footGeo, { pos: [0, 0.016, 0], rot: [Math.PI / 2, 0, 0], scale: [1.06, 1.06, 0.8] }),
-        part(footGeo, { pos: [0, -0.016, 0], rot: [Math.PI / 2, 0, 0], scale: [1.06, 1.06, 0.8] })
-    ];
-    shellGeo.dispose();
-    footGeo.dispose();
-
-    macGroup.add(partsToMesh(parts, sharedMat || new THREE.MeshPhysicalMaterial({
+    macGroup.add(sharedPartsMesh('macaron-shells', buildParts, sharedMat || sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: colorHex,
         roughness: 0.55,
         metalness: 0.0,
@@ -1169,8 +1436,8 @@ export function createMacaronMesh(colorHex = 0xffd700, sharedMat = null) {
     })));
 
     const cream = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.088, 0.088, 0.03, 18),
-        MACARON_FILLING_MAT.clone()
+        sharedGeometry('macaron-cream', () => new THREE.CylinderGeometry(0.088, 0.088, 0.03, 18)),
+        MACARON_FILLING_MAT
     );
     macGroup.add(cream);
 
@@ -1180,7 +1447,7 @@ export function createMacaronMesh(colorHex = 0xffd700, sharedMat = null) {
 /** Floating cyber crystal shard. */
 export function createCrystalShardMaterials(colorHex) {
     return {
-        body: new THREE.MeshPhysicalMaterial({
+        body: sharedMaterial(THREE.MeshPhysicalMaterial, {
             color: colorHex,
             emissive: colorHex,
             emissiveIntensity: 0.75,
@@ -1203,7 +1470,7 @@ export function createCrystalShardMesh(colorHex = 0x00f2fe, sharedMats = null) {
 
     const shard = new THREE.Mesh(
         new THREE.OctahedronGeometry(0.14, 0),
-        sharedMats ? sharedMats.body : new THREE.MeshPhysicalMaterial({
+        sharedMats ? sharedMats.body : sharedMaterial(THREE.MeshPhysicalMaterial, {
             color: colorHex,
             emissive: colorHex,
             emissiveIntensity: 0.75,
@@ -1241,29 +1508,32 @@ export function createCrystalShardMesh(colorHex = 0x00f2fe, sharedMats = null) {
  * rather than plastic. Faces +Z.
  */
 export function createSatinBowMesh(colorHex = 0xff9ab5, scale = 1) {
-    const loopGeo = new THREE.TorusGeometry(0.16, 0.045, 10, 26, Math.PI * 1.55);
-    const knotGeo = new THREE.SphereGeometry(0.062, 14, 12);
-    const tailGeo = new THREE.CylinderGeometry(0.05, 0.022, 0.3, 8, 3);
+    const buildParts = () => {
+        const loopGeo = new THREE.TorusGeometry(0.16, 0.045, 10, 26, Math.PI * 1.55);
+        const knotGeo = new THREE.SphereGeometry(0.062, 14, 12);
+        const tailGeo = new THREE.CylinderGeometry(0.05, 0.022, 0.3, 8, 3);
 
-    const parts = [part(knotGeo, { scale: [1.15, 0.9, 0.85] })];
-    for (const dir of [-1, 1]) {
-        parts.push(part(loopGeo, {
-            pos: [dir * 0.15, 0.02, 0],
-            rot: [0.28 * dir, 0, dir === 1 ? -0.5 : Math.PI + 0.5],
-            scale: [1, 0.85, 0.55] // flatten: ribbon, not tubing
-        }));
-        // Tails fall away and curl outward
-        parts.push(part(tailGeo, {
-            pos: [dir * 0.075, -0.17, 0.01],
-            rot: [0.22, 0, dir * 0.42],
-            scale: [1, 1, 0.4]
-        }));
-    }
-    loopGeo.dispose();
-    knotGeo.dispose();
-    tailGeo.dispose();
+        const parts = [part(knotGeo, { scale: [1.15, 0.9, 0.85] })];
+        for (const dir of [-1, 1]) {
+            parts.push(part(loopGeo, {
+                pos: [dir * 0.15, 0.02, 0],
+                rot: [0.28 * dir, 0, dir === 1 ? -0.5 : Math.PI + 0.5],
+                scale: [1, 0.85, 0.55] // flatten: ribbon, not tubing
+            }));
+            // Tails fall away and curl outward
+            parts.push(part(tailGeo, {
+                pos: [dir * 0.075, -0.17, 0.01],
+                rot: [0.22, 0, dir * 0.42],
+                scale: [1, 1, 0.4]
+            }));
+        }
+        loopGeo.dispose();
+        knotGeo.dispose();
+        tailGeo.dispose();
+        return parts;
+    };
 
-    const bow = partsToMesh(parts, new THREE.MeshPhysicalMaterial({
+    const bow = sharedPartsMesh('satin-bow', buildParts, sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: colorHex,
         roughness: 0.34,
         metalness: 0.0,
@@ -1304,7 +1574,7 @@ export function createSugarHeartMesh(colorHex = 0xff4d79, size = 0.09) {
     geo.rotateX(-Math.PI / 2);
     geo.scale(size, size, size);
 
-    const mesh = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({
+    const mesh = new THREE.Mesh(geo, sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: colorHex,
         roughness: 0.24,
         clearcoat: 1.0,
@@ -1321,53 +1591,53 @@ export function createSugarHeartMesh(colorHex = 0xff4d79, size = 0.09) {
  */
 export function createBearFaceMesh(furColor = 0xf0c9a0, accentColor = 0x5c3626) {
     const group = new THREE.Group();
-    const fur = new THREE.MeshPhysicalMaterial({
+    const fur = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: furColor,
         roughness: 0.55,
         sheen: 0.6,
         sheenColor: new THREE.Color(0xfff0e0),
         clearcoat: 0.3
     });
-    const accent = new THREE.MeshPhysicalMaterial({
+    const accent = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: accentColor,
         roughness: 0.2,
         clearcoat: 1.0
     });
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 22, 18), fur);
+    const head = new THREE.Mesh(sharedSphere(0.17, 22, 18), fur);
     head.scale.set(1, 0.62, 1);
     head.castShadow = true;
     group.add(head);
 
     for (const dir of [-1, 1]) {
-        const ear = new THREE.Mesh(new THREE.SphereGeometry(0.062, 14, 12), fur);
+        const ear = new THREE.Mesh(sharedSphere(0.062, 14, 12), fur);
         ear.scale.set(1, 0.7, 1);
         ear.position.set(dir * 0.125, 0.055, -0.1);
         ear.castShadow = true;
         group.add(ear);
 
-        const innerEar = new THREE.Mesh(new THREE.SphereGeometry(0.032, 10, 8), accent);
+        const innerEar = new THREE.Mesh(sharedSphere(0.032, 10, 8), accent);
         innerEar.scale.set(1, 0.55, 1);
         innerEar.position.set(dir * 0.125, 0.085, -0.1);
         group.add(innerEar);
 
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), accent);
+        const eye = new THREE.Mesh(sharedSphere(0.022, 10, 8), accent);
         eye.scale.set(1, 0.8, 1);
         eye.position.set(dir * 0.062, 0.1, 0.055);
         group.add(eye);
     }
 
-    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), fur);
+    const muzzle = new THREE.Mesh(sharedSphere(0.075, 16, 12), fur);
     muzzle.scale.set(1.1, 0.5, 0.9);
     muzzle.position.set(0, 0.09, 0.1);
-    muzzle.material = new THREE.MeshPhysicalMaterial({
+    muzzle.material = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: new THREE.Color(furColor).lerp(new THREE.Color(0xffffff), 0.45),
         roughness: 0.5,
         sheen: 0.5
     });
     group.add(muzzle);
 
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.026, 10, 8), accent);
+    const nose = new THREE.Mesh(sharedSphere(0.026, 10, 8), accent);
     nose.scale.set(1.25, 0.7, 0.9);
     nose.position.set(0, 0.115, 0.15);
     group.add(nose);
@@ -1386,7 +1656,7 @@ export function createGoldLeafMesh(size = 0.12, seed = 0) {
     }
     geo.computeVertexNormals();
 
-    return new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({
+    return new THREE.Mesh(geo, sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: 0xffd76a,
         roughness: 0.22,
         metalness: 1.0,
@@ -1397,7 +1667,12 @@ export function createGoldLeafMesh(size = 0.12, seed = 0) {
 
 export function createStrawberryMesh() {
     const group = new THREE.Group();
+    const bodyGeo = sharedGeometry('strawberry-body', buildStrawberryBodyGeometry);
+    addStrawberryParts(group, bodyGeo);
+    return group;
+}
 
+function buildStrawberryBodyGeometry() {
     // Enough segments to resolve the seed dimples below.
     const bodyGeo = new THREE.SphereGeometry(0.12, 34, 26);
     const pos = bodyGeo.attributes.position;
@@ -1429,9 +1704,12 @@ export function createStrawberryMesh() {
         pos.setXYZ(i, x, y, z);
     }
     bodyGeo.computeVertexNormals();
+    return bodyGeo;
+}
 
+function addStrawberryParts(group, bodyGeo) {
     // Physical, for the waxy skin highlight a real strawberry has
-    const body = new THREE.Mesh(bodyGeo, new THREE.MeshPhysicalMaterial({
+    const body = new THREE.Mesh(bodyGeo, sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: 0xcc1124,
         roughness: 0.32,
         metalness: 0.02,
@@ -1444,8 +1722,8 @@ export function createStrawberryMesh() {
     body.castShadow = true;
     group.add(body);
 
-    const leafGeo = new THREE.ConeGeometry(0.05, 0.03, 5);
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x276336, roughness: 0.7 });
+    const leafGeo = sharedGeometry('strawberry-leaf', () => new THREE.ConeGeometry(0.05, 0.03, 5));
+    const leafMat = sharedMaterial(THREE.MeshStandardMaterial, { color: 0x276336, roughness: 0.7 });
     for (let i = 0; i < 5; i++) {
         const leaf = new THREE.Mesh(leafGeo, leafMat);
         const angle = (i / 5) * Math.PI * 2;
@@ -1453,13 +1731,16 @@ export function createStrawberryMesh() {
         leaf.rotation.set(0.18, angle, 0.25);
         group.add(leaf);
     }
-
-    return group;
 }
 
 export function createCherryMesh() {
     const group = new THREE.Group();
+    const cherryGeo = sharedGeometry('cherry-body', buildCherryBodyGeometry);
+    addCherryParts(group, cherryGeo);
+    return group;
+}
 
+function buildCherryBodyGeometry() {
     const cherryGeo = new THREE.SphereGeometry(0.1, 30, 22);
     const cPos = cherryGeo.attributes.position;
     for (let i = 0; i < cPos.count; i++) {
@@ -1485,8 +1766,11 @@ export function createCherryMesh() {
         cPos.setXYZ(i, x, y, z);
     }
     cherryGeo.computeVertexNormals();
+    return cherryGeo;
+}
 
-    const body = new THREE.Mesh(cherryGeo, new THREE.MeshPhysicalMaterial({
+function addCherryParts(group, cherryGeo) {
+    const body = new THREE.Mesh(cherryGeo, sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: 0x730211,
         roughness: 0.03,
         clearcoat: 1.0,
@@ -1496,7 +1780,7 @@ export function createCherryMesh() {
     group.add(body);
 
     const stemGroup = new THREE.Group();
-    const stemMat = new THREE.MeshStandardMaterial({ color: 0x567527, roughness: 0.85 });
+    const stemMat = sharedMaterial(THREE.MeshStandardMaterial, { color: 0x567527, roughness: 0.85 });
     const stemRadius = 0.008;
     const segmentHeight = 0.045;
 
@@ -1505,7 +1789,7 @@ export function createCherryMesh() {
 
     for (let i = 0; i < 6; i++) {
         const seg = new THREE.Mesh(
-            new THREE.CylinderGeometry(stemRadius, stemRadius, segmentHeight, 6),
+            sharedGeometry('cherry-stem', () => new THREE.CylinderGeometry(stemRadius, stemRadius, segmentHeight, 6)),
             stemMat
         );
 
@@ -1521,7 +1805,6 @@ export function createCherryMesh() {
         stemGroup.add(seg);
     }
     group.add(stemGroup);
-    return group;
 }
 
 export function createTopperMesh(topperStyle, customText = '', customRimColor = '', themeName = 'neon-rose') {
@@ -1535,7 +1818,7 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
     const SIGN_Y = 0.82;
     const rod = new THREE.Mesh(
         new THREE.CylinderGeometry(0.011, 0.011, SIGN_Y + 0.05, 8),
-        new THREE.MeshStandardMaterial({ color: 0xe0e0e0, metalness: 0.9, roughness: 0.1 })
+        sharedMaterial(THREE.MeshStandardMaterial, { color: 0xe0e0e0, metalness: 0.9, roughness: 0.1 })
     );
     // Pushed ~5cm into the cake so it looks planted.
     rod.position.y = (SIGN_Y + 0.05) / 2 - 0.05;
@@ -1555,7 +1838,7 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
     if (customText) {
         const canvasTexture = createCustomTopperTexture(customText, themeName, customRimColor);
 
-        const frontBackMat = new THREE.MeshPhysicalMaterial({
+        const frontBackMat = sharedMaterial(THREE.MeshPhysicalMaterial, {
             map: canvasTexture,
             transparent: true,
             roughness: 0.1,
@@ -1573,7 +1856,7 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
             sideColor = new THREE.Color(customRimColor);
         }
 
-        const sideMat = new THREE.MeshStandardMaterial({
+        const sideMat = sharedMaterial(THREE.MeshStandardMaterial, {
             color: sideColor,
             roughness: 0.1,
             metalness: 0.9
@@ -1596,7 +1879,7 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
         heartGeo.center();
 
         const heartColor = customRimColor ? new THREE.Color(customRimColor) : 0xec1a4e;
-        signMesh = new THREE.Mesh(heartGeo, new THREE.MeshPhysicalMaterial({
+        signMesh = new THREE.Mesh(heartGeo, sharedMaterial(THREE.MeshPhysicalMaterial, {
             color: heartColor,
             roughness: 0.1,
             metalness: 0.15,
@@ -1622,7 +1905,7 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
         starGeo.center();
 
         const starColor = customRimColor ? new THREE.Color(customRimColor) : 0xffd700;
-        signMesh = new THREE.Mesh(starGeo, new THREE.MeshStandardMaterial({
+        signMesh = new THREE.Mesh(starGeo, sharedMaterial(THREE.MeshStandardMaterial, {
             color: starColor,
             roughness: 0.1,
             metalness: 0.92,
@@ -1646,7 +1929,7 @@ export function createTopperMesh(topperStyle, customText = '', customRimColor = 
         crownGeo.center();
 
         const crownColor = customRimColor ? new THREE.Color(customRimColor) : 0xffa500;
-        signMesh = new THREE.Mesh(crownGeo, new THREE.MeshStandardMaterial({
+        signMesh = new THREE.Mesh(crownGeo, sharedMaterial(THREE.MeshStandardMaterial, {
             color: crownColor,
             roughness: 0.1,
             metalness: 0.95,
@@ -1782,7 +2065,6 @@ export function addHeartPipingRing(group, scale, y, {
         m4.setPosition(p.x, y + Math.sin(i * 2.9) * 0.004, p.z);
         return variants[i % variants.length].clone().applyMatrix4(m4);
     });
-    variants.forEach((g) => g.dispose());
 
     const mesh = partsToMesh(parts, mat);
     group.add(mesh);
@@ -1792,7 +2074,7 @@ export function addHeartPipingRing(group, scale, y, {
 /** String of lustrous sugar pearls along a tier rim — one instanced draw. */
 export function addPearlBorderRing(group, count, radius, y, material, pearlRadius = 0.045) {
     group.add(instanceRing(
-        new THREE.SphereGeometry(pearlRadius, 12, 12),
+        sharedSphere(pearlRadius, 12, 12),
         material,
         count,
         (d, i) => {
@@ -1808,7 +2090,7 @@ export function addPearlBorderRing(group, count, radius, y, material, pearlRadiu
 export function addHeartPearlRing(group, scale, y, count, material, pearlRadius = 0.038, outset = 0) {
     const pts = heartPerimeterPoints(scale, count, outset);
     group.add(instanceRing(
-        new THREE.SphereGeometry(pearlRadius, 12, 12),
+        sharedSphere(pearlRadius, 12, 12),
         material,
         pts.length,
         (d, i) => {
@@ -1882,7 +2164,7 @@ export function addStandDebris(group, standY, standRadius, creamColorHex, innerR
 
     group.add(instanceRing(
         new THREE.DodecahedronGeometry(0.022, 0),
-        new THREE.MeshStandardMaterial({
+        sharedMaterial(THREE.MeshStandardMaterial, {
             color: new THREE.Color(creamColorHex).multiplyScalar(0.75),
             roughness: 0.9,
             metalness: 0.0
@@ -1904,7 +2186,7 @@ export function addStandDebris(group, standY, standRadius, creamColorHex, innerR
         if (!mine.length) return;
         group.add(instanceRing(
             strayGeo.clone(),
-            new THREE.MeshStandardMaterial({ color, roughness: 0.45 }),
+            sharedMaterial(THREE.MeshStandardMaterial, { color, roughness: 0.45 }),
             mine.length,
             (d, k) => {
                 const { seed, x, z } = at(mine[k]);
@@ -1924,7 +2206,7 @@ export function addStandDebris(group, standY, standRadius, creamColorHex, innerR
  * recognisable "wedding cake" fondant treatment and it costs 2·N tube meshes.
  */
 export function addQuiltedLattice(group, { radius, yBottom, yTop, diamonds = 12, seamColor = 0xffffff, studMat }) {
-    const seamMat = new THREE.MeshPhysicalMaterial({
+    const seamMat = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: seamColor,
         roughness: 0.45,
         metalness: 0.0,
@@ -1981,7 +2263,7 @@ export function addQuiltedLattice(group, { radius, yBottom, yTop, diamonds = 12,
  * curve so they actually sag instead of reading as flat arcs.
  */
 export function addDraperySwags(group, { radius, y, count = 8, sag = 0.26, color = 0xffffff, tasselMat }) {
-    const clothMat = new THREE.MeshPhysicalMaterial({
+    const clothMat = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color,
         roughness: 0.5,
         metalness: 0.0,

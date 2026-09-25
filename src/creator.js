@@ -1,37 +1,833 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+/**
+ * Creator UI: a 3-step flow (who, cake, message & send) around the live 3D
+ * preview in creator-scene.js.
+ *
+ * The form controls are the source of truth for values; this module adds the
+ * state the DOM cannot hold: which templated texts the sender has edited
+ * (dirty), which colors they explicitly picked (touched), the current step
+ * and the draft. Everything visible goes through i18n.
+ */
 import { applyDOMTranslations, getCurrentLang, saveLanguageSetting, translations } from './i18n.js';
-import {
-    applyCinematicRenderer,
-    attachStudioEnvironment,
-    setupStudioLighting,
-    tuneMaterialsForEnvironment,
-    createBloomComposer,
-    isMobileViewport,
-    tintRimLight
-} from './render-quality.js';
-import {
-    buildCakeModel,
-    createHolographicScannerTexture
-} from './cake-models.js';
-import { buildCandles } from './cake/candles.js';
+import { mountPreview, updatePreview, destroyPreview, hasWebGL, noteInteraction } from './creator-scene.js';
+import { buildShareUrl } from './card-link.js';
+import { loadCardFont } from './fonts.js';
 
-// Presets Configuration
-const presets = {
-    'chocolate-royal': {
-        theme: 'midnight-gold',
-        cakeModel: 'triple-luxury',
-        plate: 'golden',
-        glaze: 'chocolate',
-        topper: 'star',
-        strawberries: 0,
-        cherries: 6,
-        rolls: 5,
-        sprinkles: false,
-        font: 'playfair',
-        music: 'happy-birthday-piano'
-    },
-    'pink-dream': {
+// Looks: one tap sets the whole cake. Keys are form control names.
+const LOOKS = {
+    'pink-dream': { theme: 'neon-rose', cakeModel: 'vintage-heart', plate: 'crystal', glaze: 'strawberry', topperChoice: 'best-senpai', strawberries: 8, cherries: 2, rolls: 2, sprinkles: true, font: 'great-vibes', music: 'happy-birthday-synth' },
+    'chocolate-royal': { theme: 'midnight-gold', cakeModel: 'triple-luxury', plate: 'golden', glaze: 'chocolate', topperChoice: 'star', strawberries: 0, cherries: 6, rolls: 5, sprinkles: false, font: 'playfair', music: 'happy-birthday-piano' },
+    'mint-chocolate': { theme: 'pastel-mint', cakeModel: 'korean-bento', plate: 'cosmic', glaze: 'mint', topperChoice: 'star', strawberries: 4, cherries: 4, rolls: 4, sprinkles: true, font: 'outfit', music: 'happy-birthday-synth' },
+    'midnight-gold': { theme: 'midnight-gold', cakeModel: 'cyber-prism', plate: 'cosmic', glaze: 'cream', topperChoice: 'hbd', strawberries: 0, cherries: 4, rolls: 6, sprinkles: true, font: 'playfair', music: 'happy-birthday-piano' },
+    'sakura-sweet': { theme: 'sakura-blossom', cakeModel: 'classic-tiered', plate: 'ceramic', glaze: 'strawberry', topperChoice: 'best-senpai', strawberries: 6, cherries: 0, rolls: 0, sprinkles: true, font: 'great-vibes', music: 'happy-birthday-lofi' },
+    'cosmic-crystal': { theme: 'cosmic-nebula', cakeModel: 'cyber-prism', plate: 'cosmic', glaze: 'mint', topperChoice: 'star', strawberries: 0, cherries: 3, rolls: 4, sprinkles: true, font: 'outfit', music: 'happy-birthday-synth' }
+};
+
+// Controls that change the 3D preview (anything else is text-only).
+const CAKE_FIELDS = new Set(['theme', 'cakeModel', 'plate', 'glaze', 'topperChoice', 'topperText', 'candles',
+    'strawberries', 'cherries', 'rolls', 'sprinkles', 'decorHearts', 'decorStars', 'letterEnabled', 'letterTheme',
+    'glazeColor', 'creamColor', 'plateColor', 'candleColor', 'topperColor', 'envBaseColor', 'envFlapColor', 'envSealColor']);
+const COLOR_FIELDS = ['glazeColor', 'creamColor', 'plateColor', 'candleColor', 'topperColor', 'envBaseColor', 'envFlapColor', 'envSealColor'];
+const TEMPLATED = ['title', 'message', 'letterTitle', 'letterBody'];
+const TEXT_FIELDS_THAT_RETEMPLATE = new Set(['recipientName', 'sender', 'bdate', 'relation']);
+
+const DRAFT_KEY = 'hbd_creator_draft_v2';
+const HINT_KEY = 'hbd_creator_drag_hint_seen';
+const BELATED_WINDOW_DAYS = 45;
+
+let els = null;
+let step = 1;
+let dirty = { title: false, message: false, letterTitle: false, letterBody: false };
+let touchedColors = new Set();
+let nameErrorShown = false;
+let draftTimer = 0;
+let photoTimer = 0;
+let toastTimer = 0;
+let lastShareUrl = '';
+let bound = false;
+let bootToken = 0; // invalidates a deferred preview boot after destroy
+
+/* ------------------------------------------------------------------ *
+ * Lifecycle
+ * ------------------------------------------------------------------ */
+
+export function initCreator() {
+    els = collectElements();
+    const firstMount = !bound;
+    if (firstMount) {
+        bindUI();
+        restoreDraft();
+        bound = true;
+    }
+    applyLanguage();
+    applyThemeClass();
+    syncColorPickers();
+    refreshTemplates();
+    refreshToggles();
+    refreshLookEdited();
+    goToStep(step, { focus: false, save: false });
+    refreshPhotoCheck();
+
+    startPreview();
+}
+
+export function destroyCreator() {
+    bootToken++;
+    destroyPreview();
+    clearTimeout(draftTimer);
+    clearTimeout(photoTimer);
+    if (els?.dialog?.open) els.dialog.close();
+    els?.canvasHost.classList.remove('is-ready', 'is-busy', 'is-error');
+}
+
+function collectElements() {
+    const $ = (id) => document.getElementById(id);
+    const form = $('creator-form');
+    return {
+        root: $('creator-view'),
+        form,
+        f: form.elements,
+        canvasHost: $('preview-canvas-wrapper'),
+        stage: document.querySelector('.cr-stage'),
+        caption: $('cr-stage-caption'),
+        dragHint: $('cr-drag-hint'),
+        steps: [...document.querySelectorAll('.cr-step')],
+        stepButtons: [...document.querySelectorAll('.cr-step-btn')],
+        back: $('btn-step-back'),
+        next: $('btn-step-next'),
+        send: $('btn-generate-card'),
+        stepOf: $('cr-step-of'),
+        draftStatus: $('cr-draft-status'),
+        startOver: $('btn-start-over'),
+        nameInput: $('recipient-name'),
+        nameError: $('recipient-name-error'),
+        dateHint: $('birth-date-hint'),
+        clearDate: $('btn-clear-date'),
+        lookEdited: $('cr-look-edited'),
+        topperGroup: $('custom-topper-text-group'),
+        letterGroup: $('letter-details-group'),
+        photoThumb: $('memory-photo-thumb'),
+        photoStatus: $('memory-photo-status'),
+        preview: $('btn-preview-recipient'),
+        dialog: $('share-modal'),
+        shareInput: $('share-url-input'),
+        copyBtn: $('btn-copy-url'),
+        copyFail: $('copy-fail-hint'),
+        lineBtn: $('btn-share-line'),
+        nativeBtn: $('btn-share-native'),
+        testLink: $('btn-test-link'),
+        closeDialog: $('btn-modal-close'),
+        qrWrap: $('share-qr-wrap'),
+        qrCanvas: $('share-qr'),
+        toast: $('cr-toast'),
+        example: $('cr-example-link'),
+        langButtons: [...document.querySelectorAll('.cr-lang-btn')]
+    };
+}
+
+/* ------------------------------------------------------------------ *
+ * i18n helpers
+ * ------------------------------------------------------------------ */
+
+function dict() {
+    return translations[getCurrentLang()] || translations.en;
+}
+
+function t(key, vars = {}) {
+    const raw = dict()[key] ?? translations.en[key] ?? key;
+    return raw.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+}
+
+/** Creator-only attribute translations (placeholders, aria-labels, {name} strings). */
+function applyCreatorI18n() {
+    const root = els.root;
+    root.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
+    root.querySelectorAll('[data-i18n-aria]').forEach((el) => {
+        const key = el.dataset.i18nAria;
+        let item = '';
+        const target = el.dataset.stepFor && document.querySelector(`label[for="${el.dataset.stepFor}"]`);
+        if (target) item = target.textContent.trim();
+        el.setAttribute('aria-label', t(key, { item }));
+    });
+    refreshNameStrings();
+    els.stepOf.textContent = t('crStepOf', { n: step });
+}
+
+/** Strings that include the recipient's name. */
+function refreshNameStrings() {
+    const name = nameValue();
+    els.root.querySelectorAll('[data-i18n-tpl]').forEach((el) => {
+        const key = el.dataset.i18nTpl;
+        const anonKey = `${key}Anon`;
+        el.textContent = !name && dict()[anonKey] ? t(anonKey) : t(key, { name: name || '…' });
+    });
+}
+
+function applyLanguage() {
+    const lang = getCurrentLang();
+    applyDOMTranslations();
+    applyCreatorI18n();
+    els.langButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
+    refreshExampleLink();
+}
+
+/* ------------------------------------------------------------------ *
+ * Form access
+ * ------------------------------------------------------------------ */
+
+function radioValue(name) {
+    const checked = els.form.querySelector(`input[name="${name}"]:checked`);
+    return checked ? checked.value : '';
+}
+
+function setRadio(name, value) {
+    const input = els.form.querySelector(`input[name="${name}"][value="${CSS.escape(String(value))}"]`);
+    if (input) input.checked = true;
+}
+
+function intValue(name) {
+    const el = els.f[name];
+    const n = parseInt(el.value, 10);
+    const min = parseInt(el.min, 10);
+    const max = parseInt(el.max, 10);
+    if (!Number.isFinite(n)) return parseInt(el.defaultValue, 10);
+    return Math.min(max, Math.max(min, n));
+}
+
+function nameValue() {
+    return els.nameInput.value.trim();
+}
+
+/** The card as the viewer will receive it (full key names). */
+function readConfig() {
+    const f = els.f;
+    const topperChoice = radioValue('topperChoice');
+    const topperText = topperChoice === 'custom' ? f.topperText.value.trim() : '';
+    const letterEnabled = f.letterEnabled.checked;
+    const config = {
+        recipientName: nameValue(),
+        sender: f.sender.value.trim(),
+        bdate: f.bdate.value || '',
+        title: f.title.value.trim(),
+        message: f.message.value.trim(),
+        theme: radioValue('theme'),
+        candles: intValue('candles'),
+        music: radioValue('music'),
+        font: radioValue('font'),
+        photo: f.photo.value.trim(),
+        cakeModel: radioValue('cakeModel'),
+        plate: radioValue('plate'),
+        glaze: radioValue('glaze'),
+        // "Custom" is a UI choice: the plaque is drawn whenever topperText is set.
+        topper: topperChoice === 'custom' ? 'hbd' : topperChoice,
+        topperText,
+        strawberries: intValue('strawberries'),
+        cherries: intValue('cherries'),
+        rolls: intValue('rolls'),
+        sprinkles: f.sprinkles.checked,
+        decorHearts: f.decorHearts.checked,
+        decorStars: f.decorStars.checked,
+        letterEnabled,
+        letterTheme: radioValue('letterTheme'),
+        // A disabled letter carries no text, which also keeps the link short.
+        letterTitle: letterEnabled ? f.letterTitle.value.trim() : '',
+        letterBody: letterEnabled ? f.letterBody.value.trim() : ''
+    };
+    // Untouched pickers stay '' so the link omits them and the receiver
+    // derives the same colors from the chosen styles.
+    COLOR_FIELDS.forEach((key) => { config[key] = touchedColors.has(key) ? f[key].value : ''; });
+    return config;
+}
+
+/* ------------------------------------------------------------------ *
+ * Templates (name-driven title, message and letter)
+ * ------------------------------------------------------------------ */
+
+/** Belated only when the birthday passed recently this year. */
+function isBelated(bdate) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(bdate || '');
+    if (!m) return false;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const thisYear = new Date(now.getFullYear(), Number(m[2]) - 1, Number(m[3]));
+    const days = Math.round((today - thisYear) / 86400000);
+    return days >= 1 && days <= BELATED_WINDOW_DAYS;
+}
+
+function templates() {
+    const name = nameValue();
+    const sender = els.f.sender.value.trim();
+    const relation = radioValue('relation') || 'friend';
+    const belated = isBelated(els.f.bdate.value);
+    const work = relation === 'colleague';
+    const rel = { friend: 'Friend', partner: 'Partner', family: 'Family', colleague: 'Work' }[relation] || 'Friend';
+
+    const titleKey = work ? (belated ? 'tplTitleWorkBelated' : 'tplTitleWork') : (belated ? 'tplTitleBelated' : 'tplTitle');
+    const prefix = belated ? t(work ? 'tplMsgBelatedWork' : 'tplMsgBelated') : '';
+    let letterBody = t(`tplLetter${rel}`, { name });
+    if (sender) letterBody += `\n\n${t(work ? 'tplLetterSignWork' : 'tplLetterSign', { sender })}`;
+    return {
+        title: t(titleKey, { name }),
+        message: prefix + t(`tplMsg${rel}`),
+        letterTitle: t('tplLetterTitle', { name }),
+        letterBody,
+        belated
+    };
+}
+
+/** Re-renders every templated field the sender has not edited. */
+function refreshTemplates() {
+    const name = nameValue();
+    const tpl = templates();
+    TEMPLATED.forEach((key) => {
+        const el = els.f[key];
+        // Without a name there is nothing sensible to greet; leave untouched
+        // fields empty rather than "Happy birthday, !".
+        if (!dirty[key]) el.value = name ? tpl[key] : '';
+        const resetBtn = els.form.querySelector(`[data-reset-template="${key}"]`);
+        if (resetBtn) resetBtn.hidden = !dirty[key] || !name;
+    });
+    els.dateHint.textContent = t(tpl.belated ? 'crDateBelated' : 'crDateHint');
+    els.dateHint.classList.toggle('is-active', tpl.belated);
+    els.clearDate.hidden = !els.f.bdate.value;
+    refreshCounters();
+    refreshNameStrings();
+    refreshCaption();
+}
+
+function refreshCaption() {
+    const title = els.f.title.value.trim();
+    els.caption.textContent = nameValue() ? title : '';
+    els.caption.hidden = !els.caption.textContent;
+}
+
+function refreshCounters() {
+    els.form.querySelectorAll('[data-counter-for]').forEach((out) => {
+        const input = document.getElementById(out.dataset.counterFor);
+        const max = input.maxLength;
+        const len = input.value.length;
+        // Only speak up near the limit; a permanent counter is noise.
+        out.textContent = max > 0 && len >= max * 0.8 ? `${len}/${max}` : '';
+        out.classList.toggle('is-limit', len >= max);
+    });
+}
+
+/* ------------------------------------------------------------------ *
+ * Event wiring (bound once; #creator-view is static markup)
+ * ------------------------------------------------------------------ */
+
+function bindUI() {
+    const { form } = els;
+
+    form.addEventListener('submit', (e) => e.preventDefault());
+    form.addEventListener('input', onFieldChange);
+    form.addEventListener('change', onFieldChange);
+
+    // Enter in a single-line field moves on instead of submitting.
+    form.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.target.matches('input[type="text"], input[type="date"], input[type="url"]')) {
+            e.preventDefault();
+            if (e.target === els.nameInput || e.target.name === 'sender') goToStep(step + 1);
+        }
+    });
+
+    els.stepButtons.forEach((btn) => btn.addEventListener('click', () => goToStep(Number(btn.dataset.goto))));
+    els.back.addEventListener('click', () => goToStep(step - 1));
+    els.next.addEventListener('click', () => goToStep(step + 1));
+    els.send.addEventListener('click', openShareSheet);
+    els.preview.addEventListener('click', previewAsRecipient);
+
+    // Steppers: − / + buttons around a number input.
+    form.querySelectorAll('.cr-num-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const input = document.getElementById(btn.dataset.stepFor);
+            const next = Math.min(Number(input.max), Math.max(Number(input.min), intValue(input.name) + Number(btn.dataset.delta)));
+            if (String(next) === input.value) return;
+            input.value = String(next);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    });
+
+    form.querySelectorAll('[data-reset-template]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            dirty[btn.dataset.resetTemplate] = false;
+            refreshTemplates();
+            scheduleDraftSave();
+        });
+    });
+
+    els.clearDate.addEventListener('click', () => {
+        els.f.bdate.value = '';
+        els.f.bdate.dispatchEvent(new Event('input', { bubbles: true }));
+        els.f.bdate.focus();
+    });
+
+    document.getElementById('btn-reset-colors').addEventListener('click', () => {
+        touchedColors.clear();
+        syncColorPickers();
+        pushPreview();
+        scheduleDraftSave();
+    });
+
+    els.lookEdited.addEventListener('click', () => {
+        const look = radioValue('preset');
+        if (look) applyLook(look);
+    });
+
+    els.startOver.addEventListener('click', startOver);
+
+    els.langButtons.forEach((btn) => btn.addEventListener('click', () => {
+        saveLanguageSetting(btn.dataset.lang);
+        applyLanguage();
+        refreshTemplates();
+        pushPreview(); // the envelope label is baked into a texture
+    }));
+
+    bindShareSheet();
+}
+
+function onFieldChange(e) {
+    const el = e.target;
+    const name = el.name;
+    if (!name) return;
+    noteInteraction();
+
+    if (name === 'recipientName' && nameErrorShown && nameValue()) showNameError(false);
+
+    if (TEMPLATED.includes(name)) {
+        if (e.type === 'input') dirty[name] = el.value !== (nameValue() ? templates()[name] : '');
+        const resetBtn = els.form.querySelector(`[data-reset-template="${name}"]`);
+        if (resetBtn) resetBtn.hidden = !dirty[name];
+        refreshCounters();
+        if (name === 'title') refreshCaption();
+    } else if (TEXT_FIELDS_THAT_RETEMPLATE.has(name)) {
+        refreshTemplates();
+    }
+
+    if (name === 'preset' && e.type === 'change') {
+        applyLook(el.value);
+        return;
+    }
+    if (COLOR_FIELDS.includes(name)) touchedColors.add(name);
+    if (name === 'theme') applyThemeClass();
+    if (['theme', 'glaze', 'plate', 'letterTheme'].includes(name)) syncColorPickers();
+    if (name === 'topperChoice' || name === 'letterEnabled') refreshToggles();
+    if (name === 'photo') refreshPhotoCheck();
+    if (el.type === 'number' && e.type === 'change') el.value = String(intValue(name));
+    if (el.type === 'number') refreshSteppers();
+
+    if (CAKE_FIELDS.has(name)) {
+        // Text inputs fire per keystroke; colors fire continuously while
+        // dragging. updatePreview coalesces both into one build per frame.
+        pushPreview();
+        refreshLookEdited();
+    }
+    refreshCounters();
+    scheduleDraftSave();
+}
+
+function refreshToggles() {
+    els.topperGroup.hidden = radioValue('topperChoice') !== 'custom';
+    els.letterGroup.hidden = !els.f.letterEnabled.checked;
+    refreshSteppers();
+}
+
+function refreshSteppers() {
+    els.form.querySelectorAll('.cr-num-btn').forEach((btn) => {
+        const input = document.getElementById(btn.dataset.stepFor);
+        const v = intValue(input.name);
+        btn.disabled = Number(btn.dataset.delta) < 0 ? v <= Number(input.min) : v >= Number(input.max);
+    });
+}
+
+/* ------------------------------------------------------------------ *
+ * Looks, theme, colors
+ * ------------------------------------------------------------------ */
+
+function applyLook(lookId) {
+    const look = LOOKS[lookId];
+    if (!look) return;
+    setRadio('preset', lookId);
+    for (const [key, value] of Object.entries(look)) {
+        const el = els.f[key];
+        if (!el) continue;
+        if (typeof value === 'boolean') el.checked = value;
+        else if (typeof value === 'number') el.value = String(value);
+        else setRadio(key, value);
+    }
+    // A look is a fresh start for colors too.
+    touchedColors.clear();
+    applyThemeClass();
+    syncColorPickers();
+    refreshToggles();
+    refreshLookEdited();
+    pushPreview();
+    scheduleDraftSave();
+}
+
+function currentValue(key) {
+    const el = els.f[key];
+    if (!el) return undefined;
+    if (el instanceof RadioNodeList) return radioValue(key);
+    if (el.type === 'checkbox') return el.checked;
+    if (el.type === 'number') return intValue(key);
+    return el.value;
+}
+
+function refreshLookEdited() {
+    const lookId = radioValue('preset');
+    const look = LOOKS[lookId];
+    const edited = !!look && (touchedColors.size > 0 || Object.entries(look).some(([k, v]) => currentValue(k) !== v));
+    els.lookEdited.hidden = !edited;
+}
+
+/** The creator's chrome follows the chosen theme (one source of truth). */
+function applyThemeClass() {
+    const theme = radioValue('theme') || 'neon-rose';
+    document.body.className = `theme-${theme}`;
+}
+
+const STYLE_COLORS = {
+    glaze: { chocolate: '#311a11', strawberry: '#e92e52', mint: '#7be2a6', cream: '#fffcf7' },
+    plate: { ceramic: '#fbfbf8', crystal: '#ffe6f2', golden: '#d4af37', cosmic: '#090712' },
+    cream: { 'neon-rose': '#ed004c', 'midnight-gold': '#151310', 'pastel-mint': '#3d8df5', 'lavender-dream': '#22003c', 'sakura-blossom': '#ffb3c6', 'cyber-retro': '#ff5e62', 'forest-moss': '#004b23', 'cosmic-nebula': '#0f0c20', 'choco-monarch': '#241108' },
+    topper: { 'neon-rose': '#ff0055', 'midnight-gold': '#ffd700', 'pastel-mint': '#00f2fe', 'lavender-dream': '#8000ff', 'sakura-blossom': '#ff758f', 'cyber-retro': '#ff3399', 'forest-moss': '#00ff88', 'cosmic-nebula': '#8a2be2', 'choco-monarch': '#cca43b' },
+    candle: { 'neon-rose': '#ff0055', 'midnight-gold': '#ffd700', 'pastel-mint': '#00f2fe', 'lavender-dream': '#d155ff', 'sakura-blossom': '#ffccd5', 'cyber-retro': '#ff9966', 'forest-moss': '#ffd700', 'cosmic-nebula': '#00ffd5', 'choco-monarch': '#5c3d2e' },
+    envelope: {
+        cyber: ['#1a1b22', '#00f2fe', '#ff0055'],
+        royal: ['#111111', '#111111', '#d4af37'],
+        romance: ['#fff0f3', '#fff0f3', '#900c3f'],
+        steampunk: ['#5c3d2e', '#5c3d2e', '#b87333']
+    }
+};
+
+/** Shows the style-derived color in every picker the sender has not touched. */
+function syncColorPickers() {
+    const theme = radioValue('theme');
+    const env = STYLE_COLORS.envelope[radioValue('letterTheme')] || STYLE_COLORS.envelope.royal;
+    const derived = {
+        glazeColor: STYLE_COLORS.glaze[radioValue('glaze')],
+        creamColor: STYLE_COLORS.cream[theme],
+        plateColor: STYLE_COLORS.plate[radioValue('plate')],
+        candleColor: STYLE_COLORS.candle[theme],
+        topperColor: STYLE_COLORS.topper[theme],
+        envBaseColor: env[0],
+        envFlapColor: env[1],
+        envSealColor: env[2]
+    };
+    COLOR_FIELDS.forEach((key) => {
+        if (!touchedColors.has(key) && derived[key]) els.f[key].value = derived[key];
+    });
+}
+
+/* ------------------------------------------------------------------ *
+ * Steps
+ * ------------------------------------------------------------------ */
+
+function showNameError(show) {
+    nameErrorShown = show;
+    els.nameError.hidden = !show;
+    els.nameInput.setAttribute('aria-invalid', String(show));
+}
+
+/** Only the name is required; every later step and Send checks it. */
+function requireName() {
+    if (nameValue()) return true;
+    showNameError(true);
+    if (step !== 1) goToStep(1, { focus: false });
+    els.nameInput.focus();
+    return false;
+}
+
+function goToStep(target, { focus = true, save = true } = {}) {
+    const n = Math.min(3, Math.max(1, target));
+    if (n > 1 && !requireName()) return;
+    step = n;
+    els.root.dataset.step = String(n);
+    els.steps.forEach((s) => { s.hidden = Number(s.dataset.step) !== n; });
+    els.stepButtons.forEach((b) => {
+        const i = Number(b.dataset.goto);
+        if (i === n) b.setAttribute('aria-current', 'step');
+        else b.removeAttribute('aria-current');
+        b.classList.toggle('is-complete', i < n);
+    });
+    els.back.classList.toggle('is-hidden', n === 1);
+    els.back.disabled = n === 1;
+    els.next.hidden = n === 3;
+    els.send.hidden = n !== 3;
+    els.stepOf.textContent = t('crStepOf', { n });
+    if (n === 3) ['playfair', 'great-vibes'].forEach((id) => loadCardFont(id));
+
+    const scroller = els.form;
+    if (focus) {
+        scroller.scrollTop = 0;
+        // On phones the page itself scrolls; bring the step heading into view.
+        const title = els.steps[n - 1].querySelector('.cr-step-title');
+        title?.focus({ preventScroll: true });
+        if (window.matchMedia('(max-width: 1023px)').matches) {
+            els.stage.scrollIntoView({ block: 'start', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+        }
+    }
+    if (save) scheduleDraftSave();
+}
+
+function prefersReducedMotion() {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/* ------------------------------------------------------------------ *
+ * Preview
+ * ------------------------------------------------------------------ */
+
+function startPreview() {
+    const host = els.canvasHost;
+    host.classList.remove('is-ready', 'is-error');
+    if (!hasWebGL()) {
+        showPreviewError();
+        return;
+    }
+    // Paint the form first; boot WebGL once the browser is idle (or after
+    // 1.2 s at the latest), so typing works from the first frame.
+    const token = ++bootToken;
+    const boot = () => token === bootToken && mountPreview(host, readConfig(), {
+        labelText: () => t('tapToOpen'),
+        onReady: () => {
+            host.classList.add('is-ready');
+            maybeShowDragHint();
+        },
+        onError: showPreviewError,
+        onBusy: (busy) => els.stage.classList.toggle('is-busy', busy),
+        onDrag: hideDragHint
+    });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if ('requestIdleCallback' in window) requestIdleCallback(boot, { timeout: 1200 });
+        else setTimeout(boot, 50);
+    }));
+}
+
+function pushPreview() {
+    updatePreview(readConfig());
+}
+
+function showPreviewError() {
+    const host = els.canvasHost;
+    host.classList.add('is-error');
+    const loader = host.querySelector('.cr-loader p');
+    if (loader) loader.textContent = t('crNoWebgl');
+}
+
+function maybeShowDragHint() {
+    let seen = false;
+    try { seen = localStorage.getItem(HINT_KEY) === '1'; } catch { /* storage blocked */ }
+    els.dragHint.classList.toggle('is-visible', !seen);
+}
+
+function hideDragHint() {
+    if (!els.dragHint.classList.contains('is-visible')) return;
+    els.dragHint.classList.remove('is-visible');
+    try { localStorage.setItem(HINT_KEY, '1'); } catch { /* storage blocked */ }
+}
+
+/* ------------------------------------------------------------------ *
+ * Photo check
+ * ------------------------------------------------------------------ */
+
+function refreshPhotoCheck() {
+    clearTimeout(photoTimer);
+    const value = els.f.photo.value.trim();
+    const status = els.photoStatus;
+    const thumb = els.photoThumb;
+    status.className = 'cr-status';
+    if (!value) {
+        status.textContent = '';
+        thumb.hidden = true;
+        thumb.removeAttribute('src');
+        return;
+    }
+    let url;
+    try { url = new URL(value); } catch { url = null; }
+    if (!url || url.protocol !== 'https:') {
+        status.textContent = t('crPhotoHttps');
+        status.classList.add('is-warn');
+        thumb.hidden = true;
+        return;
+    }
+    status.textContent = t('crPhotoChecking');
+    photoTimer = setTimeout(() => {
+        // Same requirement as the viewer: the image must allow CORS.
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            if (els.f.photo.value.trim() !== value) return;
+            thumb.src = value;
+            thumb.hidden = false;
+            status.textContent = t('crPhotoOk');
+            status.className = 'cr-status is-ok';
+        };
+        img.onerror = () => {
+            if (els.f.photo.value.trim() !== value) return;
+            thumb.hidden = true;
+            status.textContent = t('crPhotoFail');
+            status.className = 'cr-status is-warn';
+        };
+        img.src = value;
+    }, 450);
+}
+
+/* ------------------------------------------------------------------ *
+ * Share sheet
+ * ------------------------------------------------------------------ */
+
+function isMobileDevice() {
+    const ua = navigator.userAgent;
+    return /Android|iPhone|iPad|iPod/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
+}
+
+function shareText() {
+    const name = nameValue();
+    const sender = els.f.sender.value.trim();
+    let text = t('crShareText', { name });
+    if (sender) text += `\n${t('crShareTextFrom', { sender })}`;
+    return text;
+}
+
+async function makeLink() {
+    return buildShareUrl(readConfig());
+}
+
+async function openShareSheet() {
+    if (!requireName()) return;
+    let url;
+    try {
+        url = await makeLink();
+    } catch (err) {
+        console.error('Could not build the share link:', err);
+        showToast(t('crLinkError'));
+        return;
+    }
+    lastShareUrl = url;
+    const text = shareText();
+
+    els.shareInput.value = url;
+    els.testLink.href = url;
+    els.copyFail.hidden = true;
+    resetCopyButton();
+    els.lineBtn.href = isMobileDevice()
+        ? `https://line.me/R/share?text=${encodeURIComponent(`${text}\n${url}`)}`
+        : `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(url)}`;
+    els.nativeBtn.hidden = typeof navigator.share !== 'function';
+    refreshNameStrings();
+
+    // Desktop: a QR code moves the link to a phone. Phones don't need it.
+    const wantQr = !isMobileDevice() && window.matchMedia('(min-width: 768px)').matches;
+    els.qrWrap.hidden = true;
+    if (wantQr) {
+        import('./vendor/qr.js').then(({ drawQr }) => {
+            if (lastShareUrl !== url) return;
+            try {
+                drawQr(els.qrCanvas, url, { cssSize: 208 });
+                els.qrWrap.hidden = false;
+            } catch (err) {
+                // Longer than a QR can hold: the sheet simply goes without one.
+                console.warn('QR code skipped:', err);
+            }
+        });
+    }
+
+    if (!els.dialog.open) els.dialog.showModal();
+    els.lineBtn.focus();
+}
+
+function bindShareSheet() {
+    const { dialog } = els;
+    els.closeDialog.addEventListener('click', () => dialog.close());
+    // Click on the backdrop closes the sheet (the dialog box itself is padded).
+    dialog.addEventListener('click', (e) => {
+        if (e.target === dialog) {
+            const r = dialog.getBoundingClientRect();
+            const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+            if (!inside) dialog.close();
+        }
+    });
+    // Return focus to the Send button (native dialog does this, but only if
+    // the trigger is still focusable; be explicit).
+    dialog.addEventListener('close', () => {
+        if (step === 3 && !els.send.hidden) els.send.focus();
+    });
+
+    els.copyBtn.addEventListener('click', copyLink);
+    els.nativeBtn.addEventListener('click', () => {
+        navigator.share({ title: t('crSheetTitle', { name: nameValue() }), text: shareText(), url: lastShareUrl })
+            .catch(() => { /* dismissed by the user */ });
+    });
+}
+
+async function copyLink() {
+    const url = els.shareInput.value;
+    let ok = false;
+    try {
+        await navigator.clipboard.writeText(url);
+        ok = true;
+    } catch {
+        // Older in-app browsers and insecure contexts: legacy path.
+        try {
+            els.shareInput.focus();
+            els.shareInput.select();
+            ok = document.execCommand('copy');
+        } catch {
+            ok = false;
+        }
+    }
+    if (ok) {
+        els.copyFail.hidden = true;
+        els.copyBtn.classList.add('is-done');
+        els.copyBtn.querySelector('use').setAttribute('href', '#cr-i-check');
+        showToast(t('crCopied'));
+        setTimeout(resetCopyButton, 2200);
+    } else {
+        els.shareInput.focus();
+        els.shareInput.select();
+        els.copyFail.hidden = false;
+    }
+}
+
+function resetCopyButton() {
+    els.copyBtn.classList.remove('is-done');
+    els.copyBtn.querySelector('use').setAttribute('href', '#cr-i-copy');
+}
+
+function showToast(message) {
+    clearTimeout(toastTimer);
+    els.toast.textContent = message;
+    els.toast.classList.add('is-visible');
+    toastTimer = setTimeout(() => els.toast.classList.remove('is-visible'), 2500);
+}
+
+async function previewAsRecipient() {
+    if (!requireName()) return;
+    // Open synchronously (popup blockers need the user gesture), then point
+    // the tab at the link once it is built.
+    const tab = window.open('', '_blank');
+    try {
+        const url = await makeLink();
+        if (tab) {
+            tab.opener = null;
+            tab.location.href = url;
+        } else {
+            window.location.href = url;
+        }
+    } catch (err) {
+        tab?.close();
+        console.error('Could not build the preview link:', err);
+        showToast(t('crLinkError'));
+    }
+}
+
+async function refreshExampleLink() {
+    const name = t('crExampleName');
+    const example = {
+        recipientName: name,
+        title: t('tplTitle', { name }),
+        message: t('tplMsgFriend'),
         theme: 'neon-rose',
         cakeModel: 'vintage-heart',
         plate: 'crystal',
@@ -40,1597 +836,87 @@ const presets = {
         strawberries: 8,
         cherries: 2,
         rolls: 2,
-        sprinkles: true,
-        font: 'great-vibes',
-        music: 'happy-birthday-synth'
-    },
-    'mint-chocolate': {
-        theme: 'pastel-mint',
-        cakeModel: 'korean-bento',
-        plate: 'cosmic',
-        glaze: 'mint',
-        topper: 'star',
-        strawberries: 4,
-        cherries: 4,
-        rolls: 4,
-        sprinkles: true,
-        font: 'outfit',
-        music: 'happy-birthday-synth'
-    },
-    'midnight-gold': {
-        theme: 'midnight-gold',
-        cakeModel: 'cyber-prism',
-        plate: 'cosmic',
-        glaze: 'cream',
-        topper: 'hbd',
-        strawberries: 0,
-        cherries: 4,
-        rolls: 6,
-        sprinkles: true,
-        font: 'playfair',
-        music: 'happy-birthday-piano'
-    }
-};
-
-// State management for Creator View
-let previewRenderer = null;
-let previewScene = null;
-let previewLights = null;
-let previewBloom = null;
-let previewCamera = null;
-let previewControls = null;
-let previewAnimationId = null;
-let cakeGroup = null;
-let candleMeshes = [];
-let flameMaterial = null; // Shared dynamic flame material
-let holographicRings = [];
-let floatingSprinkles = [];
-let emCoils = [];
-let previewEnvelope = null;
-let previewVisible = true;
-let previewVisibilityObserver = null;
-let previewEnvelopePointer = null;
-let previewEnvelopeLabel = null;
-
-// #creator-view is static markup that is only shown/hidden, so its form
-// listeners must be bound exactly once or they stack on every revisit.
-let formListenersBound = false;
-
-export function initCreator() {
-    const firstMount = !formListenersBound;
-    formListenersBound = true;
-    if (firstMount) setupFormListeners();
-    syncColorPickers();
-    init3DPreview();
-
-    // Initialize Language Switcher
-    const langSwitcher = document.getElementById('lang-switcher');
-    if (langSwitcher) {
-        langSwitcher.value = getCurrentLang();
-    }
-    if (langSwitcher && firstMount) {
-        langSwitcher.addEventListener('change', (e) => {
-            saveLanguageSetting(e.target.value);
-            applyDOMTranslations();
-            updateCake(); // Rebuild 3D label dynamically
-        });
-    }
-    applyDOMTranslations();
-}
-
-export function destroyCreator() {
-    window.removeEventListener('resize', onPreviewResize);
-    if (previewVisibilityObserver) {
-        previewVisibilityObserver.disconnect();
-        previewVisibilityObserver = null;
-    }
-
-    // Stop animation loop
-    if (previewAnimationId) {
-        cancelAnimationFrame(previewAnimationId);
-        previewAnimationId = null;
-    }
-
-    // Clean up Three.js objects
-    if (previewRenderer) {
-        const container = document.getElementById('preview-canvas-wrapper');
-        if (container && previewRenderer.domElement.parentNode === container) {
-            container.removeChild(previewRenderer.domElement);
-        }
-        
-        // Traverse and dispose
-        if (previewScene) {
-            previewScene.traverse((object) => {
-                if (object.geometry) object.geometry.dispose();
-                if (object.material) {
-                    if (Array.isArray(object.material)) {
-                        object.material.forEach(mat => mat.dispose());
-                    } else {
-                        object.material.dispose();
-                    }
-                }
-            });
-        }
-
-        if (flameMaterial) {
-            flameMaterial.dispose();
-            flameMaterial = null;
-        }
-
-        // Dispose scanner rings and sprinkles
-        holographicRings.forEach(r => {
-            if (previewScene) previewScene.remove(r);
-            if (r.geometry) r.geometry.dispose();
-            if (r.material) {
-                if (r.material.map) r.material.map.dispose();
-                r.material.dispose();
-            }
-        });
-        holographicRings = [];
-
-        floatingSprinkles.forEach(s => {
-            if (previewScene) previewScene.remove(s.mesh);
-            if (s.mesh.geometry) s.mesh.geometry.dispose();
-            if (s.mesh.material) s.mesh.material.dispose();
-        });
-        floatingSprinkles = [];
-
-        emCoils = [];
-
-        if (previewEnvelope) {
-            if (previewScene) previewScene.remove(previewEnvelope);
-            previewEnvelope.traverse(child => {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) child.material.dispose();
-            });
-            previewEnvelope = null;
-        }
-        if (previewEnvelopePointer) {
-            if (previewScene) previewScene.remove(previewEnvelopePointer);
-            if (previewEnvelopePointer.geometry) previewEnvelopePointer.geometry.dispose();
-            if (previewEnvelopePointer.material) previewEnvelopePointer.material.dispose();
-            previewEnvelopePointer = null;
-        }
-        if (previewEnvelopeLabel) {
-            if (previewScene) previewScene.remove(previewEnvelopeLabel);
-            if (previewEnvelopeLabel.material) {
-                if (previewEnvelopeLabel.material.map) previewEnvelopeLabel.material.map.dispose();
-                previewEnvelopeLabel.material.dispose();
-            }
-            previewEnvelopeLabel = null;
-        }
-
-        if (previewControls) {
-            previewControls.dispose();
-            previewControls = null;
-        }
-
-        previewRenderer.dispose();
-        previewRenderer = null;
-        previewScene = null;
-        previewCamera = null;
-        cakeGroup = null;
-        candleMeshes = [];
-    }
-}
-
-// 1. SETUP FORM LISTENERS & MODAL LOGIC
-function setupFormListeners() {
-    const slider = document.getElementById('candle-count');
-    const sliderVal = document.getElementById('candle-count-display');
-    const themeButtons = document.querySelectorAll('.theme-btn');
-    const presetButtons = document.querySelectorAll('.preset-btn');
-    const btnGenerate = document.getElementById('btn-generate-card');
-    const modal = document.getElementById('share-modal');
-    const btnCloseModal = document.getElementById('btn-modal-close');
-    const btnCopyUrl = document.getElementById('btn-copy-url');
-    const shareUrlInput = document.getElementById('share-url-input');
-    const testLink = document.getElementById('btn-test-link');
-
-    // Sidebar Tabs navigation
-    const tabButtons = document.querySelectorAll('.tab-btn');
-    tabButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            tabButtons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            const tabId = btn.dataset.tab;
-            document.querySelectorAll('.tab-panel').forEach(panel => {
-                panel.classList.remove('active');
-            });
-            document.getElementById(tabId)?.classList.add('active');
-        });
-    });
-
-    // Reset active preset when manual changes occur
-    const clearActivePresets = () => {
-        presetButtons.forEach(b => b.classList.remove('active'));
+        letterEnabled: true,
+        letterTheme: 'romance',
+        letterTitle: t('tplLetterTitle', { name }),
+        letterBody: t('tplLetterFriend', { name })
     };
-
-    // Sync candle range slider value in real-time
-    if (slider && sliderVal) {
-        slider.addEventListener('input', (e) => {
-            sliderVal.textContent = e.target.value;
-            clearActivePresets();
-            updateCake();
-        });
-    }
-
-    // Sync slider values for toppings in real-time
-    const sStrawberries = document.getElementById('decor-strawberries');
-    const sStrawberriesDisplay = document.getElementById('decor-strawberries-display');
-    if (sStrawberries && sStrawberriesDisplay) {
-        sStrawberries.addEventListener('input', (e) => {
-            sStrawberriesDisplay.textContent = e.target.value;
-            clearActivePresets();
-            updateCake();
-        });
-    }
-
-    const sCherries = document.getElementById('decor-cherries');
-    const sCherriesDisplay = document.getElementById('decor-cherries-display');
-    if (sCherries && sCherriesDisplay) {
-        sCherries.addEventListener('input', (e) => {
-            sCherriesDisplay.textContent = e.target.value;
-            clearActivePresets();
-            updateCake();
-        });
-    }
-
-    const sRolls = document.getElementById('decor-rolls');
-    const sRollsDisplay = document.getElementById('decor-rolls-display');
-    if (sRolls && sRollsDisplay) {
-        sRolls.addEventListener('input', (e) => {
-            sRollsDisplay.textContent = e.target.value;
-            clearActivePresets();
-            updateCake();
-        });
-    }
-
-    // Rebuild cake on dropdowns & switches change
-    const sCakeModel = document.getElementById('cake-model');
-    if (sCakeModel) {
-        sCakeModel.addEventListener('change', () => {
-            clearActivePresets();
-            updateCake();
-        });
-    }
-
-    const sPlate = document.getElementById('plate-style');
-    if (sPlate) {
-        sPlate.addEventListener('change', () => {
-            clearActivePresets();
-            syncColorPickers();
-            updateCake();
-        });
-    }
-    
-    const sGlaze = document.getElementById('glaze-style');
-    if (sGlaze) {
-        sGlaze.addEventListener('change', () => {
-            clearActivePresets();
-            syncColorPickers();
-            updateCake();
-        });
-    }
-    
-    const sTopper = document.getElementById('topper-style');
-    if (sTopper) {
-        sTopper.addEventListener('change', () => {
-            clearActivePresets();
-            syncColorPickers();
-            updateCake();
-        });
-    }
-    
-    const sSprinkles = document.getElementById('decor-sprinkles');
-    if (sSprinkles) {
-        sSprinkles.addEventListener('change', () => {
-            clearActivePresets();
-            updateCake();
-        });
-    }
-
-    const sLetterEnabled = document.getElementById('letter-enabled');
-    const sLetterDetailsGroup = document.getElementById('letter-details-group');
-    if (sLetterEnabled && sLetterDetailsGroup) {
-        sLetterEnabled.addEventListener('change', (e) => {
-            sLetterDetailsGroup.style.display = e.target.checked ? 'block' : 'none';
-            updateCake();
-        });
-    }
-
-    const sLetterTheme = document.getElementById('letter-theme');
-    if (sLetterTheme) {
-        sLetterTheme.addEventListener('change', () => {
-            syncColorPickers();
-            updateCake();
-        });
-    }
-
-    const sLetterTitle = document.getElementById('letter-title');
-    if (sLetterTitle) {
-        sLetterTitle.addEventListener('input', () => {
-            updateCake();
-        });
-    }
-
-    const sLetterBody = document.getElementById('letter-body');
-    if (sLetterBody) {
-        sLetterBody.addEventListener('input', () => {
-            updateCake();
-        });
-    }
-
-    const sCustomTopperText = document.getElementById('custom-topper-text');
-    if (sCustomTopperText) {
-        sCustomTopperText.addEventListener('input', () => {
-            updateCake();
-        });
-    }
-
-    const sDecorHearts = document.getElementById('decor-hearts');
-    if (sDecorHearts) {
-        sDecorHearts.addEventListener('change', () => {
-            updateCake();
-        });
-    }
-
-    const sDecorStars = document.getElementById('decor-stars');
-    if (sDecorStars) {
-        sDecorStars.addEventListener('change', () => {
-            updateCake();
-        });
-    }
-
-    // Theme selector buttons
-    themeButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            themeButtons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            clearActivePresets();
-            
-            const selectedTheme = btn.dataset.theme;
-            
-            // Swap global CSS HSL variables
-            document.body.className = '';
-            document.body.classList.add(`theme-${selectedTheme}`);
-
-            syncColorPickers();
-
-            // Re-render cake materials to reflect theme color palettes in real-time
-            updateCake();
-        });
-    });
-
-    // Preset selection logic
-    presetButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-            presetButtons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            const presetName = btn.dataset.preset;
-            const p = presets[presetName];
-            if (!p) return;
-            
-            // Set theme button active
-            themeButtons.forEach(b => {
-                if (b.dataset.theme === p.theme) {
-                    b.classList.add('active');
-                } else {
-                    b.classList.remove('active');
-                }
-            });
-            document.body.className = '';
-            document.body.classList.add(`theme-${p.theme}`);
-            
-            // Set selects
-            const setSelectValue = (id, val) => {
-                const el = document.getElementById(id);
-                if (el) el.value = val;
-            };
-            setSelectValue('cake-model', p.cakeModel || 'classic-tiered');
-            setSelectValue('plate-style', p.plate);
-            setSelectValue('glaze-style', p.glaze);
-            setSelectValue('topper-style', p.topper);
-            setSelectValue('music-track', p.music);
-            setSelectValue('card-font', p.font);
-            
-            // Set sliders
-            const setSliderValue = (id, val) => {
-                const el = document.getElementById(id);
-                if (el) {
-                    el.value = val;
-                    const valDisp = document.getElementById(`${id}-display`);
-                    if (valDisp) valDisp.textContent = val;
-                }
-            };
-            setSliderValue('decor-strawberries', p.strawberries);
-            setSliderValue('decor-cherries', p.cherries);
-            setSliderValue('decor-rolls', p.rolls);
-            
-            // Set checkbox
-            const chk = document.getElementById('decor-sprinkles');
-            if (chk) chk.checked = p.sprinkles;
-            
-            syncColorPickers();
-
-            updateCake();
-        });
-    });
-
-    // Share link generation
-    if (btnGenerate) {
-        btnGenerate.addEventListener('click', () => {
-            const recipientName = document.getElementById('recipient-name').value.trim() || 'คุณพลอย';
-            const title = document.getElementById('wish-title').value.trim() || 'สุขสันต์วันเกิดย้อนหลังนะค้าบคุณพลอย! 🎂🖤';
-            const message = document.getElementById('wish-message').value.trim() || 'Happy Belated Birthday นะค้าบคุณพลอย! 🎂✨';
-            const bdate = document.getElementById('birth-date')?.value || '2026-08-17';
-            const theme = document.querySelector('.theme-btn.active').dataset.theme || 'neon-rose';
-            const candles = parseInt(document.getElementById('candle-count').value) || 5;
-            const music = document.getElementById('music-track').value;
-            const font = document.getElementById('card-font')?.value || 'outfit';
-            const photo = document.getElementById('memory-photo-url')?.value.trim() || '';
-
-            // Gather toppings configuration
-            const cakeModel = document.getElementById('cake-model')?.value || 'classic-tiered';
-            const plate = document.getElementById('plate-style')?.value || 'ceramic';
-            const glaze = document.getElementById('glaze-style')?.value || 'chocolate';
-            const topper = document.getElementById('topper-style')?.value || 'best-senpai';
-            const strawberries = parseInt(document.getElementById('decor-strawberries')?.value) || 0;
-            const cherries = parseInt(document.getElementById('decor-cherries')?.value) || 0;
-            const rolls = parseInt(document.getElementById('decor-rolls')?.value) || 0;
-            const sprinkles = document.getElementById('decor-sprinkles')?.checked ?? true;
-
-            const letterEnabled = document.getElementById('letter-enabled')?.checked ?? true;
-            const letterTheme = document.getElementById('letter-theme')?.value || 'cyber';
-            const letterTitle = document.getElementById('letter-title')?.value.trim() || 'A Special Secret Message';
-            const letterBody = document.getElementById('letter-body')?.value.trim() || '';
-            const topperText = document.getElementById('custom-topper-text')?.value.trim() || '';
-            const decorHearts = document.getElementById('decor-hearts')?.checked ?? false;
-            const decorStars = document.getElementById('decor-stars')?.checked ?? false;
-
-            // Gather color customizations
-            const glazeColor = document.getElementById('glaze-color')?.value || '';
-            const creamColor = document.getElementById('cream-color')?.value || '';
-            const plateColor = document.getElementById('plate-color')?.value || '';
-            const candleColor = document.getElementById('candle-color')?.value || '';
-            const topperColor = document.getElementById('topper-color')?.value || '';
-            const envBaseColor = document.getElementById('env-base-color')?.value || '';
-            const envFlapColor = document.getElementById('env-flap-color')?.value || '';
-            const envSealColor = document.getElementById('env-seal-color')?.value || '';
-
-            // Form data object with toppings state
-            const dataToEncode = { 
-                title,
-                message,
-                bdate,
-                theme,
-                candles, 
-                music,
-                cakeModel,
-                plate,
-                glaze,
-                topper,
-                strawberries,
-                cherries,
-                rolls,
-                sprinkles,
-                font,
-                photo,
-                letterEnabled,
-                letterTheme,
-                letterTitle,
-                letterBody,
-                topperText,
-                decorHearts,
-                decorStars,
-                glazeColor,
-                creamColor,
-                plateColor,
-                candleColor,
-                topperColor,
-                envBaseColor,
-                envFlapColor,
-                envSealColor
-            };
-
-            const defaults = {
-                title: 'สุขสันต์วันเกิดย้อนหลังนะค้าบคุณพลอย! 🎂🖤',
-                message: 'Happy Belated Birthday นะค้าบคุณพลอย! 🎂✨ ถึงจะมาช้าไปนิด แต่ความหวังดีมีให้เสมอ ขอให้ปีนี้เป็นปีที่ดี มีรอยยิ้มเยอะๆ สุขภาพแข็งแรง และเท่/น่ารักขึ้นทุกวันเลยน้า 🎉🖤',
-                bdate: '2026-08-17',
-                theme: 'midnight-gold',
-                candles: 5,
-                music: 'happy-birthday-lofi',
-                cakeModel: 'classic-tiered',
-                plate: 'ceramic',
-                glaze: 'chocolate',
-                topper: 'best-senpai',
-                strawberries: 4,
-                cherries: 4,
-                rolls: 3,
-                sprinkles: true,
-                font: 'outfit',
-                photo: '',
-                letterEnabled: true,
-                letterTheme: 'royal',
-                letterTitle: 'ถึงคุณพลอยคนเท่ ✨',
-                letterBody: 'ถึงคุณพลอย,\n\nจดหมายลับใบนี้ลอยข้ามกาลเวลามา HBD ย้อนหลังนะค้าบ ✉️✨\n\nขอให้ปีนี้ใจดีกับคุณพลอยเยอะๆ พบเจอแต่เรื่องราวดีๆ กินของอร่อยทุกวัน และมีความสุขกับทุกสิ่งที่ทำเลยน้า\n\nสุขสันต์วันเกิดย้อนหลังนะค้าบ! 🖤🎂✨',
-                topperText: '',
-                decorHearts: false,
-                decorStars: true,
-                glazeColor: '',
-                creamColor: '',
-                plateColor: '',
-                candleColor: '',
-                topperColor: '',
-                envBaseColor: '',
-                envFlapColor: '',
-                envSealColor: ''
-            };
-
-            // Only encode keys that differ from defaults to keep URL ultra short
-            const diffData = {};
-            for (const key in dataToEncode) {
-                if (dataToEncode[key] !== defaults[key]) {
-                    diffData[key] = dataToEncode[key];
-                }
-            }
-
-            const hasDiff = Object.keys(diffData).length > 0;
-            const encodedString = hasDiff ? encodeCardData(diffData) : '';
-
-            // Construct full URL link (Clean short URL if matching defaults)
-            const shareableUrl = encodedString 
-                ? `${window.location.origin}${window.location.pathname}#/view/${encodeURIComponent(recipientName)}?d=${encodedString}`
-                : `${window.location.origin}${window.location.pathname}#/view/${encodeURIComponent(recipientName)}`;
-            
-            // Populate modal
-            if (shareUrlInput) shareUrlInput.value = shareableUrl;
-            if (testLink) testLink.href = shareableUrl;
-            if (modal) modal.classList.add('active');
-        });
-    }
-
-    // Close Modal
-    if (btnCloseModal && modal) {
-        btnCloseModal.addEventListener('click', () => {
-            modal.classList.remove('active');
-        });
-    }
-
-    // Copy to clipboard
-    if (btnCopyUrl && shareUrlInput) {
-        btnCopyUrl.addEventListener('click', () => {
-            shareUrlInput.select();
-            navigator.clipboard.writeText(shareUrlInput.value)
-                .then(() => {
-                    const originalHTML = btnCopyUrl.innerHTML;
-                    btnCopyUrl.innerHTML = `<i class="fa-solid fa-check"></i> Copied!`;
-                    btnCopyUrl.style.background = '#05ffb0';
-                    btnCopyUrl.style.color = '#000000';
-                    setTimeout(() => {
-                        btnCopyUrl.innerHTML = originalHTML;
-                        btnCopyUrl.style.background = '';
-                        btnCopyUrl.style.color = '';
-                    }, 2000);
-                })
-                .catch(err => console.error('Failed to copy link:', err));
-        });
-    }
-
-    // Custom color input listeners
-    const colorIds = [
-        'glaze-color', 'cream-color', 'plate-color', 'candle-color',
-        'topper-color', 'env-base-color', 'env-flap-color', 'env-seal-color'
-    ];
-    colorIds.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener('input', () => {
-                updateCake();
-            });
-        }
-    });
-}
-
-function syncColorPickers() {
-    const glazeStyle = document.getElementById('glaze-style')?.value || 'chocolate';
-    const plateStyle = document.getElementById('plate-style')?.value || 'ceramic';
-    const themeName = document.querySelector('.theme-btn.active')?.dataset.theme || 'neon-rose';
-    const letterTheme = document.getElementById('letter-theme')?.value || 'cyber';
-
-    const glazeColors = { chocolate: '#311a11', strawberry: '#e92e52', mint: '#7be2a6', cream: '#fffcf7' };
-    const plateColors = { ceramic: '#fbfbf8', crystal: '#ffe6f2', golden: '#d4af37', cosmic: '#090712' };
-    const creamColors = { 
-        'neon-rose': '#ed004c', 
-        'midnight-gold': '#151310', 
-        'pastel-mint': '#3d8df5', 
-        'lavender-dream': '#22003c',
-        'sakura-blossom': '#ffb3c6',
-        'cyber-retro': '#ff5e62',
-        'forest-moss': '#004b23',
-        'cosmic-nebula': '#0f0c20',
-        'choco-monarch': '#241108'
-    };
-    const topperColors = { 
-        'neon-rose': '#ff0055', 
-        'midnight-gold': '#ffd700', 
-        'pastel-mint': '#00f2fe', 
-        'lavender-dream': '#8000ff',
-        'sakura-blossom': '#ff758f',
-        'cyber-retro': '#ff3399',
-        'forest-moss': '#00ff88',
-        'cosmic-nebula': '#8a2be2',
-        'choco-monarch': '#cca43b'
-    };
-    const candleColors = { 
-        'neon-rose': '#ff0055', 
-        'midnight-gold': '#ffd700', 
-        'pastel-mint': '#00f2fe', 
-        'lavender-dream': '#d155ff',
-        'sakura-blossom': '#ffccd5',
-        'cyber-retro': '#ff9966',
-        'forest-moss': '#ffd700',
-        'cosmic-nebula': '#00ffd5',
-        'choco-monarch': '#5c3d2e'
-    };
-
-    const envColors = {
-        cyber: { base: '#1a1b22', flap: '#00f2fe', seal: '#ff0055' },
-        royal: { base: '#111111', flap: '#111111', seal: '#d4af37' },
-        romance: { base: '#fff0f3', flap: '#fff0f3', seal: '#900c3f' },
-        steampunk: { base: '#5c3d2e', flap: '#5c3d2e', seal: '#b87333' }
-    };
-
-    const setVal = (id, val) => {
-        const el = document.getElementById(id);
-        if (el) el.value = val;
-    };
-
-    setVal('glaze-color', glazeColors[glazeStyle] || '#311a11');
-    setVal('cream-color', creamColors[themeName] || '#ed004c');
-    setVal('plate-color', plateColors[plateStyle] || '#fbfbf8');
-    setVal('candle-color', candleColors[themeName] || '#ff0055');
-    setVal('topper-color', topperColors[themeName] || '#00f2fe');
-
-    const env = envColors[letterTheme] || envColors.cyber;
-    setVal('env-base-color', env.base);
-    setVal('env-flap-color', env.flap);
-    setVal('env-seal-color', env.seal);
-}
-
-// Safely encodes custom state using Base64 URI encoder
-function encodeCardData(obj) {
     try {
-        const jsonStr = JSON.stringify(obj);
-        // UTF-8 safe base64 encoding
-        const base64 = btoa(
-            encodeURIComponent(jsonStr).replace(/%([0-9A-F]{2})/g, (match, p1) => {
-                return String.fromCharCode(parseInt(p1, 16));
-            })
-        );
-        // Make it URL safe
-        return base64
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=+$/, '');
-    } catch (e) {
-        console.error('Failed to encode card state:', e);
-        return '';
+        els.example.href = await buildShareUrl(example);
+    } catch {
+        els.example.hidden = true;
     }
 }
 
-function createFloatingLabelSprite(text, colorStr) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 128;
-    const ctx = canvas.getContext('2d');
-    
-    ctx.clearRect(0, 0, 512, 128);
-    
-    // Draw neon glassmorphic plate
-    ctx.fillStyle = 'rgba(8, 4, 16, 0.9)'; // Dense premium neon glass
-    ctx.strokeStyle = colorStr;
-    ctx.lineWidth = 6;
-    
-    const r = 20;
-    ctx.beginPath();
-    ctx.moveTo(r, 0);
-    ctx.lineTo(512 - r, 0);
-    ctx.quadraticCurveTo(512, 0, 512, r);
-    ctx.lineTo(512, 128 - r);
-    ctx.quadraticCurveTo(512, 128, 512 - r, 128);
-    ctx.lineTo(r, 128);
-    ctx.quadraticCurveTo(0, 128, 0, 128 - r);
-    ctx.lineTo(0, r);
-    ctx.quadraticCurveTo(0, 0, r, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    
-    // Strip raw emoji characters to guarantee zero font rendering blocks
-    const cleanText = text.replace(/✉️?/gu, '').trim();
-    
-    // Set text alignment to left to draw icon beside it
-    ctx.shadowColor = colorStr;
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.font = 'bold 28px "Outfit", sans-serif';
-    
-    // Calculate total centered width of text + vector envelope icon
-    const textWidth = ctx.measureText(cleanText).width;
-    const iconWidth = 36;
-    const spacing = 12;
-    const totalWidth = textWidth + spacing + iconWidth;
-    const startX = (512 - totalWidth) / 2;
-    
-    ctx.fillText(cleanText, startX, 64);
-    
-    // Draw crisp, glowing procedural vector envelope icon next to the text
-    ctx.strokeStyle = colorStr;
-    ctx.lineWidth = 3.5;
-    ctx.shadowColor = colorStr;
-    ctx.shadowBlur = 8;
-    
-    const ex = startX + textWidth + spacing;
-    const ey = 52;
-    const ew = iconWidth;
-    const eh = 24;
-    
-    ctx.strokeRect(ex, ey, ew, eh);
-    
-    ctx.beginPath();
-    ctx.moveTo(ex, ey);
-    ctx.lineTo(ex + ew / 2, ey + eh / 2 + 2);
-    ctx.lineTo(ex + ew, ey);
-    ctx.stroke();
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({
-        map: texture,
-        transparent: true,
-        depthTest: false
-    });
-    
-    const sprite = new THREE.Sprite(mat);
-    sprite.scale.set(1.8, 0.45, 1.0);
-    return sprite;
-}
+/* ------------------------------------------------------------------ *
+ * Draft autosave
+ * ------------------------------------------------------------------ */
 
-function setupHolographicRings() {
-    holographicRings = [];
-    const tex1 = createHolographicScannerTexture('#00f2fe');
-    const tex2 = createHolographicScannerTexture('#ff0055');
-
-    const ringGeo = new THREE.PlaneGeometry(6, 6);
-    const ringMat1 = new THREE.MeshBasicMaterial({
-        map: tex1,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        opacity: 0.8
-    });
-    const ringMat2 = new THREE.MeshBasicMaterial({
-        map: tex2,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        opacity: 0.6
-    });
-
-    const ring1 = new THREE.Mesh(ringGeo, ringMat1);
-    ring1.rotation.x = -Math.PI / 2;
-    ring1.position.y = -1.14;
-    if (previewScene) previewScene.add(ring1);
-    holographicRings.push(ring1);
-
-    const ring2 = new THREE.Mesh(ringGeo, ringMat2);
-    ring2.rotation.x = -Math.PI / 2;
-    ring2.position.y = -1.13;
-    if (previewScene) previewScene.add(ring2);
-    holographicRings.push(ring2);
-}
-
-function createPaperTexture() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    
-    // Fill with middle gray base for bump mapping
-    ctx.fillStyle = '#808080';
-    ctx.fillRect(0, 0, 512, 512);
-    
-    // Add fine-grained noise
-    const imgData = ctx.getImageData(0, 0, 512, 512);
-    const data = imgData.data;
-    for (let i = 0; i < data.length; i += 4) {
-        const noise = (Math.random() - 0.5) * 12;
-        data[i] = Math.min(255, Math.max(0, 128 + noise));
-        data[i+1] = Math.min(255, Math.max(0, 128 + noise));
-        data[i+2] = Math.min(255, Math.max(0, 128 + noise));
-    }
-    ctx.putImageData(imgData, 0, 0);
-    
-    // Draw some micro-fibers
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.lineWidth = 1.0;
-    for (let i = 0; i < 100; i++) {
-        ctx.beginPath();
-        const sx = Math.random() * 512;
-        const sy = Math.random() * 512;
-        ctx.moveTo(sx, sy);
-        ctx.bezierCurveTo(
-            sx + (Math.random() - 0.5) * 20, sy + (Math.random() - 0.5) * 20,
-            sx + (Math.random() - 0.5) * 20, sy + (Math.random() - 0.5) * 20,
-            sx + (Math.random() - 0.5) * 30, sy + (Math.random() - 0.5) * 30
-        );
-        ctx.stroke();
-    }
-    
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
-    for (let i = 0; i < 100; i++) {
-        ctx.beginPath();
-        const sx = Math.random() * 512;
-        const sy = Math.random() * 512;
-        ctx.moveTo(sx, sy);
-        ctx.bezierCurveTo(
-            sx + (Math.random() - 0.5) * 20, sy + (Math.random() - 0.5) * 20,
-            sx + (Math.random() - 0.5) * 20, sy + (Math.random() - 0.5) * 20,
-            sx + (Math.random() - 0.5) * 30, sy + (Math.random() - 0.5) * 30
-        );
-        ctx.stroke();
-    }
-    
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(3, 3);
-    return texture;
-}
-
-function create3DEnvelopeMesh(letterTheme, customBaseColor = '', customFlapColor = '', customSealColor = '') {
-    const group = new THREE.Group();
-    group.name = 'envelope-group';
-
-    let baseColor = 0x1a1b22; // default cyber dark charcoal
-    let flapColor = 0x00f2fe; // default cyber cyan accent
-    let sealColor = 0xff0055; // default cyber pink
-
-    switch (letterTheme) {
-        case 'cyber':
-            baseColor = 0x1a1b22; // Charcoal
-            flapColor = 0x00f2fe; // Glowing cyan accent
-            sealColor = 0xff0055; // Neon pink
-            break;
-        case 'royal':
-            baseColor = 0x111111; // Obsidian black
-            flapColor = 0x111111; // Obsidian black
-            sealColor = 0xd4af37; // Royal gold
-            break;
-        case 'romance':
-            baseColor = 0xfff0f3; // Blush cotton paper
-            flapColor = 0xfff0f3;
-            sealColor = 0x900c3f; // Deep burgundy
-            break;
-        case 'steampunk':
-            baseColor = 0x5c3d2e; // Woven craft brown
-            flapColor = 0x5c3d2e;
-            sealColor = 0xb87333; // Copper
-            break;
-    }
-
-    if (customBaseColor) baseColor = new THREE.Color(customBaseColor);
-    if (customFlapColor) flapColor = new THREE.Color(customFlapColor);
-    if (customSealColor) sealColor = new THREE.Color(customSealColor);
-
-    // Create the procedural paper texture
-    const paperBumpMap = createPaperTexture();
-
-    // Matte premium paper material
-    const baseMat = new THREE.MeshPhysicalMaterial({
-        color: baseColor,
-        roughness: 0.90,
-        metalness: 0.0,
-        clearcoat: 0.0,
-        bumpMap: paperBumpMap,
-        bumpScale: 0.008
-    });
-
-    const flapMat = new THREE.MeshPhysicalMaterial({
-        color: flapColor,
-        roughness: 0.90,
-        metalness: 0.0,
-        clearcoat: 0.0,
-        bumpMap: paperBumpMap,
-        bumpScale: 0.008
-    });
-
-    // Premium Glossy Resinous Wax Material
-    const sealMat = new THREE.MeshPhysicalMaterial({
-        color: sealColor,
-        roughness: 0.15,
-        metalness: 0.1,
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.08
-    });
-
-    // 1. Envelope body (thin box)
-    const bodyGeo = new THREE.BoxGeometry(0.9, 0.6, 0.04);
-    const bodyMesh = new THREE.Mesh(bodyGeo, baseMat);
-    bodyMesh.castShadow = true;
-    bodyMesh.receiveShadow = true;
-    group.add(bodyMesh);
-
-    // 2. Back folds
-    const foldGeo = new THREE.BoxGeometry(0.86, 0.56, 0.045);
-    const foldMesh = new THREE.Mesh(foldGeo, baseMat);
-    foldMesh.position.z = 0.005;
-    group.add(foldMesh);
-
-    // 3. Triangular top flap (closed/partially open look)
-    const flapShape = new THREE.Shape();
-    flapShape.moveTo(-0.45, 0.3);
-    flapShape.lineTo(0.45, 0.3);
-    flapShape.lineTo(0, -0.05);
-    flapShape.closePath();
-
-    const extrudeSettings = {
-        depth: 0.02,
-        bevelEnabled: true,
-        bevelSegments: 2,
-        steps: 1,
-        bevelSize: 0.01,
-        bevelThickness: 0.01
-    };
-
-    const flapGeo = new THREE.ExtrudeGeometry(flapShape, extrudeSettings);
-    flapGeo.center();
-    const flapMesh = new THREE.Mesh(flapGeo, flapMat);
-    flapMesh.position.set(0, 0.12, 0.025);
-    flapMesh.rotation.x = 0.05;
-    flapMesh.castShadow = true;
-    group.add(flapMesh);
-
-    // 4. Melted Hot Wax Seal shape (Sinusoidal Wave Perturbed organic puddle)
-    const sealShape = new THREE.Shape();
-    const segments = 64;
-    const baseRadius = 0.075;
-    for (let i = 0; i <= segments; i++) {
-        const theta = (i / segments) * Math.PI * 2;
-        const r = baseRadius + 0.007 * Math.sin(theta * 5.0) + 0.003 * Math.cos(theta * 8.0);
-        const x = Math.cos(theta) * r;
-        const y = Math.sin(theta) * r;
-        if (i === 0) {
-            sealShape.moveTo(x, y);
+function collectDraft() {
+    const values = {};
+    [...els.form.elements].forEach((el) => {
+        if (!el.name) return;
+        if (el.type === 'radio') {
+            if (el.checked) values[el.name] = el.value;
+        } else if (el.type === 'checkbox') {
+            values[el.name] = el.checked;
         } else {
-            sealShape.lineTo(x, y);
+            values[el.name] = el.value;
         }
-    }
-    sealShape.closePath();
-
-    const sealExtSettings = {
-        depth: 0.015,
-        bevelEnabled: true,
-        bevelSegments: 3,
-        steps: 1,
-        bevelSize: 0.004,
-        bevelThickness: 0.004
-    };
-
-    const sealGeo = new THREE.ExtrudeGeometry(sealShape, sealExtSettings);
-    sealGeo.center();
-
-    const sealMesh = new THREE.Mesh(sealGeo, sealMat);
-    sealMesh.position.set(0, -0.02, 0.04);
-    sealMesh.castShadow = true;
-    group.add(sealMesh);
-
-    // 5. Pressed Stamp Central Emblem (raised heart/star badge)
-    const heartShape = new THREE.Shape();
-    heartShape.moveTo(0, 0);
-    heartShape.bezierCurveTo(0, 0.02, 0.02, 0.04, 0.04, 0.04);
-    heartShape.bezierCurveTo(0.06, 0.04, 0.07, 0.025, 0.07, 0.01);
-    heartShape.bezierCurveTo(0.07, -0.01, 0.04, -0.04, 0, -0.065);
-    heartShape.bezierCurveTo(-0.04, -0.04, -0.07, -0.01, -0.07, 0.01);
-    heartShape.bezierCurveTo(-0.07, 0.025, -0.06, 0.04, -0.04, 0.04);
-    heartShape.bezierCurveTo(-0.02, 0.04, 0, 0.02, 0, 0);
-
-    const starShape = new THREE.Shape();
-    const spikes = 5;
-    const outer = 0.04;
-    const inner = 0.018;
-    for (let i = 0; i < spikes * 2; i++) {
-        const angle = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
-        const r = i % 2 === 0 ? outer : inner;
-        if (i === 0) starShape.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
-        else starShape.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
-    }
-    starShape.closePath();
-
-    const emblemExtSettings = {
-        depth: 0.005,
-        bevelEnabled: true,
-        bevelSegments: 2,
-        steps: 1,
-        bevelSize: 0.001,
-        bevelThickness: 0.001
-    };
-
-    const useHeart = (letterTheme === 'romance' || letterTheme === 'cyber');
-    const emblemGeo = new THREE.ExtrudeGeometry(useHeart ? heartShape : starShape, emblemExtSettings);
-    emblemGeo.center();
-
-    const emblemMat = new THREE.MeshPhysicalMaterial({
-        color: sealColor,
-        roughness: 0.25,
-        metalness: 0.15,
-        clearcoat: 0.8,
-        clearcoatRoughness: 0.1
     });
-
-    const emblemMesh = new THREE.Mesh(emblemGeo, emblemMat);
-    emblemMesh.position.set(0, -0.02, 0.0475);
-    emblemMesh.castShadow = true;
-    group.add(emblemMesh);
-
-    return group;
+    return { v: 1, values, dirty, touched: [...touchedColors], step, savedAt: Date.now() };
 }
 
-function rebuildFloatingSprinkles() {
-    // Clean up previous floating sprinkles
-    floatingSprinkles.forEach(s => {
-        if (previewScene) previewScene.remove(s.mesh);
-        if (s.mesh.geometry) s.mesh.geometry.dispose();
-        if (s.mesh.material) s.mesh.material.dispose();
-    });
-    floatingSprinkles = [];
-
-    const colors = [0x00f2fe, 0xff0055, 0x05ffb0];
-    const decorHearts = document.getElementById('decor-hearts')?.checked ?? false;
-    const decorStars = document.getElementById('decor-stars')?.checked ?? false;
-
-    // Create heart geometry helper
-    const createHeartGeo = () => {
-        const heartShape = new THREE.Shape();
-        heartShape.moveTo(0, 0);
-        heartShape.bezierCurveTo(0, 0.08, 0.08, 0.15, 0.15, 0.15);
-        heartShape.bezierCurveTo(0.22, 0.15, 0.28, 0.10, 0.28, 0.04);
-        heartShape.bezierCurveTo(0.28, -0.04, 0.18, -0.12, 0, -0.22);
-        heartShape.bezierCurveTo(-0.18, -0.12, -0.28, -0.04, -0.28, 0.04);
-        heartShape.bezierCurveTo(-0.28, 0.10, -0.22, 0.15, -0.15, 0.15);
-        heartShape.bezierCurveTo(-0.08, 0.15, 0, 0.08, 0, 0);
-        
-        const extrudeSettings = { depth: 0.03, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 0.008, bevelThickness: 0.008 };
-        const geo = new THREE.ExtrudeGeometry(heartShape, extrudeSettings);
-        geo.center();
-        return geo;
-    };
-
-    // Create star geometry helper
-    const createStarGeo = () => {
-        const starShape = new THREE.Shape();
-        const spikes = 5;
-        const outer = 0.18;
-        const inner = 0.08;
-        for (let i = 0; i < spikes * 2; i++) {
-            const angle = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
-            const r = i % 2 === 0 ? outer : inner;
-            if (i === 0) starShape.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
-            else starShape.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+function scheduleDraftSave() {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+        try {
+            localStorage.setItem(DRAFT_KEY, JSON.stringify(collectDraft()));
+            els.draftStatus.textContent = t('crDraftSaved');
+            els.startOver.hidden = false;
+        } catch {
+            // Private mode or storage full: the card still works, just no draft.
         }
-        starShape.closePath();
-        const extrudeSettings = { depth: 0.03, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 0.008, bevelThickness: 0.008 };
-        const geo = new THREE.ExtrudeGeometry(starShape, extrudeSettings);
-        geo.center();
-        return geo;
-    };
-
-    // Standard cylinder sprinkle geometry
-    const sprinkleGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.12, 8);
-    const heartGeo = decorHearts ? createHeartGeo() : null;
-    const starGeo = decorStars ? createStarGeo() : null;
-
-    const totalCount = (decorHearts || decorStars) ? 24 : 12;
-
-    for (let i = 0; i < totalCount; i++) {
-        let geom = sprinkleGeo;
-        let color = colors[i % colors.length];
-        let type = 'sprinkle';
-
-        if (decorHearts && decorStars) {
-            if (i % 3 === 1) {
-                geom = heartGeo;
-                color = 0xff3377; // neon pink
-                type = 'heart';
-            } else if (i % 3 === 2) {
-                geom = starGeo;
-                color = 0xffd700; // gold
-                type = 'star';
-            }
-        } else if (decorHearts) {
-            if (i % 2 === 1) {
-                geom = heartGeo;
-                color = 0xff3377;
-                type = 'heart';
-            }
-        } else if (decorStars) {
-            if (i % 2 === 1) {
-                geom = starGeo;
-                color = 0xffd700;
-                type = 'star';
-            }
-        }
-
-        const sprinkleMat = new THREE.MeshStandardMaterial({
-            color: color,
-            emissive: color,
-            emissiveIntensity: type !== 'sprinkle' ? 1.2 : 0.9,
-            roughness: 0.1,
-            metalness: 0.8
-        });
-
-        const mesh = new THREE.Mesh(geom, sprinkleMat);
-        
-        const angle = (i / totalCount) * Math.PI * 2 + Math.random() * 0.4;
-        const radius = 2.4 + Math.random() * 1.2;
-        const y = -0.5 + Math.random() * 2.5;
-
-        mesh.position.set(
-            Math.cos(angle) * radius,
-            y,
-            Math.sin(angle) * radius
-        );
-
-        mesh.rotation.set(
-            Math.random() * Math.PI,
-            Math.random() * Math.PI,
-            Math.random() * Math.PI
-        );
-
-        if (previewScene) previewScene.add(mesh);
-
-        floatingSprinkles.push({
-            mesh: mesh,
-            baseY: y,
-            angle: angle,
-            radius: radius,
-            orbitSpeed: 0.06 + Math.random() * 0.1,
-            bobSpeed: 1.0 + Math.random() * 1.2,
-            bobOffset: Math.random() * Math.PI,
-            rotSpeed: {
-                x: 0.2 + Math.random() * 0.4,
-                y: 0.2 + Math.random() * 0.4,
-                z: 0.2 + Math.random() * 0.4
-            }
-        });
-    }
-
-    if (heartGeo) heartGeo.dispose();
-    if (starGeo) starGeo.dispose();
+    }, 400);
 }
 
-// 2. 3D PREVIEW REAL-TIME RENDERING (Three.js)
-function init3DPreview() {
-    const container = document.getElementById('preview-canvas-wrapper');
-    if (!container) return;
-
-    // Reset container loaders
-    container.innerHTML = '';
-
-    const width = container.clientWidth;
-    const height = container.clientHeight || 480;
-
-    // Create Scene, Camera & WebGLRenderer
-    previewScene = new THREE.Scene();
-    // The bloom composer outputs an opaque frame, so set the studio backdrop
-    // explicitly to match the surrounding panel rather than clearing to black.
-    previewScene.background = new THREE.Color(0x0b0714);
-    previewCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    previewCamera.position.set(0, 4.0, 9.5);
-
-    previewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    previewRenderer.setSize(width, height);
-    applyCinematicRenderer(previewRenderer, {
-        exposure: 0.98,
-        maxPixelRatio: isMobileViewport() ? 1.5 : 2.0
-    });
-
-    container.appendChild(previewRenderer.domElement);
-
-    // Interactive OrbitControls for 3D Creator Preview
-    previewControls = new OrbitControls(previewCamera, previewRenderer.domElement);
-    previewControls.enableDamping = true;
-    previewControls.dampingFactor = 0.05;
-    previewControls.target.set(0, 0.4, 0);
-    previewControls.minDistance = 4.0;
-    previewControls.maxDistance = 20.0;
-    previewControls.maxPolarAngle = Math.PI / 2 + 0.1;
-    // The preview sits inside a scrolling page: a mouse wheel over it must
-    // scroll the form, not silently zoom the cake out of frame.
-    previewControls.enableZoom = false;
-
-    // Studio IBL — gives the glaze, cherries and cake stand real reflections
-    attachStudioEnvironment(previewRenderer, previewScene);
-
-    // Three-point studio rig (key / fill / themed rim)
-    previewLights = setupStudioLighting(previewScene, { rimColor: 0xff0055 });
-
-    // Soft colored bounce from inside the cake area
-    const pointLight = new THREE.PointLight(0xff0055, 0.9, 10);
-    pointLight.position.set(0, 2, 0);
-    previewScene.add(pointLight);
-
-    // Build the Cake
-    cakeGroup = new THREE.Group();
-    previewScene.add(cakeGroup);
-    
-    // Initial render based on default form values
-    rebuildCake();
-
-    // Initialize scanner rings and floating space sprinkles
-    setupHolographicRings();
-    rebuildFloatingSprinkles();
-
-    // Initial Camera Focus
-    previewCamera.lookAt(new THREE.Vector3(0, 0.4, 0));
-
-    // Bloom post-processing so flames, rings and the neon topper actually glow
-    previewBloom = createBloomComposer(previewRenderer, previewScene, previewCamera);
-
-    // Dev-only handle for headless render/debug scripts; stripped from builds.
-    if (import.meta.env.DEV) {
-        window.__hbdPreview = { scene: previewScene, camera: previewCamera, renderer: previewRenderer, bloom: previewBloom };
+function restoreDraft() {
+    let draft = null;
+    try {
+        draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+    } catch {
+        draft = null;
     }
-
-    // Animation Render Loop
-    const clock = new THREE.Clock();
-    
-    function animatePreview() {
-        previewAnimationId = requestAnimationFrame(animatePreview);
-
-        // Nothing to draw while the preview is scrolled away or the tab is
-        // hidden; skip the whole frame instead of burning the GPU.
-        if (!previewVisible || document.hidden) {
-            clock.getDelta();
-            return;
-        }
-
-        // getDelta() must come first: getElapsedTime() advances the clock
-        // itself, which left delta at ~0 and froze the rings and sprinkles.
-        const delta = clock.getDelta();
-        const elapsed = clock.elapsedTime;
-
-        if (previewControls) {
-            previewControls.update();
-        }
-
-        // Rotate Cake Group slowly
-        if (cakeGroup) {
-            cakeGroup.rotation.y = elapsed * 0.18;
-            
-            // Subtle hover effect
-            cakeGroup.position.y = Math.sin(elapsed * 1.5) * 0.08;
-        }
-
-        // Flame flicker and sway run in the flame shader off uTime.
-        if (flameMaterial) {
-            flameMaterial.uniforms.uTime.value = elapsed;
-        }
-
-        // Animate Holographic scanner rings counter-rotating
-        if (holographicRings.length >= 2) {
-            holographicRings[0].rotation.z += delta * 0.25;
-            holographicRings[1].rotation.z -= delta * 0.38;
-        }
-
-        // Animate Floating Space Sprinkles
-        floatingSprinkles.forEach(sprinkle => {
-            sprinkle.angle += sprinkle.orbitSpeed * delta;
-            sprinkle.mesh.position.x = Math.cos(sprinkle.angle) * sprinkle.radius;
-            sprinkle.mesh.position.z = Math.sin(sprinkle.angle) * sprinkle.radius;
-            sprinkle.mesh.position.y = sprinkle.baseY + Math.sin(elapsed * sprinkle.bobSpeed + sprinkle.bobOffset) * 0.15;
-            sprinkle.mesh.rotation.x += sprinkle.rotSpeed.x * delta;
-            sprinkle.mesh.rotation.y += sprinkle.rotSpeed.y * delta;
-            sprinkle.mesh.rotation.z += sprinkle.rotSpeed.z * delta;
-        });
-
-        // Animate neo-candle electromagnetic coils
-        emCoils.forEach(coil => {
-            const bob = Math.sin(elapsed * coil.speedY + coil.offsetY) * 0.03;
-            coil.mesh.position.y = coil.baseY + bob;
-            coil.mesh.rotation.z += delta * coil.rotSpeed;
-        });
-
-        // Animate floating envelope and pointer in live editor preview
-        if (previewEnvelope) {
-            previewEnvelope.position.y = 1.6 + Math.sin(elapsed * 1.2) * 0.05;
-            previewEnvelope.rotation.y = Math.PI / 4 + Math.cos(elapsed * 0.8) * 0.05;
-        }
-        if (previewEnvelopePointer) {
-            previewEnvelopePointer.position.y = 2.2 + Math.sin(elapsed * 3.0) * 0.1;
-            previewEnvelopePointer.rotation.y = elapsed * 2.0;
-        }
-        if (previewEnvelopeLabel) {
-            const pulse = 1.0 + Math.sin(elapsed * 2.5) * 0.05;
-            previewEnvelopeLabel.scale.set(1.8 * pulse, 0.45 * pulse, 1.0);
-        }
-
-        if (previewBloom) {
-            previewBloom.composer.render(delta);
-        } else if (previewRenderer && previewScene && previewCamera) {
-            previewRenderer.render(previewScene, previewCamera);
-        }
+    if (!draft || draft.v !== 1 || !draft.values) return;
+    for (const [name, value] of Object.entries(draft.values)) {
+        const el = els.f[name];
+        if (!el) continue;
+        if (el instanceof RadioNodeList) setRadio(name, value);
+        else if (el.type === 'checkbox') el.checked = !!value;
+        else if (typeof value === 'string') el.value = value;
     }
-
-    previewVisible = true;
-    if ('IntersectionObserver' in window) {
-        previewVisibilityObserver = new IntersectionObserver(([entry]) => {
-            previewVisible = entry.isIntersecting;
-        });
-        previewVisibilityObserver.observe(container);
-    }
-
-    animatePreview();
-
-    // Resize Handler
-    window.addEventListener('resize', onPreviewResize);
-    setTimeout(onPreviewResize, 100);
+    TEMPLATED.forEach((key) => { dirty[key] = !!draft.dirty?.[key]; });
+    touchedColors = new Set((draft.touched || []).filter((k) => COLOR_FIELDS.includes(k)));
+    step = nameValue() ? Math.min(3, Math.max(1, Number(draft.step) || 1)) : 1;
+    els.startOver.hidden = false;
 }
 
-function onPreviewResize() {
-    const container = document.getElementById('preview-canvas-wrapper');
-    if (!container || !previewCamera || !previewRenderer) return;
-
-    const width = container.clientWidth;
-    const height = container.clientHeight || 480;
-
-    previewCamera.aspect = width / height;
-    previewCamera.updateProjectionMatrix();
-    previewRenderer.setSize(width, height);
-    if (previewBloom) previewBloom.setSize(width, height);
-}
-
-// 4. GENERAL REALTIME CAKE RENDER REBUILDER
-// Sliders fire dozens of input events a second and each full rebuild creates
-// fresh geometry and textures, so coalesce them into one rebuild per frame.
-let cakeRebuildQueued = false;
-function updateCake() {
-    if (cakeRebuildQueued) return;
-    cakeRebuildQueued = true;
-    requestAnimationFrame(() => {
-        cakeRebuildQueued = false;
-        if (cakeGroup) rebuildCake();
-    });
-}
-
-function rebuildCake() {
-    if (!cakeGroup || !previewScene) return;
-
-    // Gather latest configurations from UI controls
-    const cakeModel = document.getElementById('cake-model')?.value || 'classic-tiered';
-    const plateStyle = document.getElementById('plate-style')?.value || 'ceramic';
-    const glazeStyle = document.getElementById('glaze-style')?.value || 'chocolate';
-    const topperStyle = document.getElementById('topper-style')?.value || 'best-senpai';
-    
-    const strawberriesCount = parseInt(document.getElementById('decor-strawberries')?.value) || 0;
-    const cherriesCount = parseInt(document.getElementById('decor-cherries')?.value) || 0;
-    const rollsCount = parseInt(document.getElementById('decor-rolls')?.value) || 0;
-    const sprinklesEnabled = document.getElementById('decor-sprinkles')?.checked ?? true;
-    const candleCount = parseInt(document.getElementById('candle-count')?.value) || 5;
-
-    // Gather custom color overrides
-    const glazeColor = document.getElementById('glaze-color')?.value || '';
-    const creamColor = document.getElementById('cream-color')?.value || '';
-    const plateColor = document.getElementById('plate-color')?.value || '';
-    const candleColor = document.getElementById('candle-color')?.value || '';
-    const topperColor = document.getElementById('topper-color')?.value || '';
-    const envBaseColor = document.getElementById('env-base-color')?.value || '';
-    const envFlapColor = document.getElementById('env-flap-color')?.value || '';
-    const envSealColor = document.getElementById('env-seal-color')?.value || '';
-
-    // 1. Deep clean previous meshes to free GPU buffers and prevent leaks
-    while (cakeGroup.children.length > 0) {
-        const obj = cakeGroup.children[0];
-        cakeGroup.remove(obj);
-        obj.traverse((child) => {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) {
-                if (Array.isArray(child.material)) {
-                    child.material.forEach(m => m.dispose());
-                } else {
-                    child.material.dispose();
-                }
-            }
-        });
-    }
-
-    candleMeshes = [];
-    emCoils = [];
-
-    // 2. Build the cake from the shared model kit. This is literally the same
-    //    code path the viewer runs, so what the sender previews and what the
-    //    recipient opens can no longer drift apart.
-    const customText = document.getElementById('custom-topper-text')?.value.trim() || '';
-    const { candlePlacerRadius, candleBaseY, isHeartShape } = buildCakeModel(cakeGroup, {
-        cakeModel,
-        plateStyle,
-        glazeStyle,
-        topperStyle,
-        topperText: customText,
-        themeName: getActiveThemeName(),
-        themeColors: getThemeRGBColors(),
-        strawberries: strawberriesCount,
-        cherries: cherriesCount,
-        rolls: rollsCount,
-        sprinkles: sprinklesEnabled,
-        glazeColor,
-        creamColor,
-        plateColor,
-        topperColor,
-        detail: isMobileViewport() ? 0.6 : 1
-    });
-
-    // Candles come from the same shared builder as the viewer's.
-    if (flameMaterial) flameMaterial.dispose();
-    const builtCandles = buildCandles(cakeGroup, { candlePlacerRadius, candleBaseY, isHeartShape }, {
-        count: candleCount,
-        candleColor
-    });
-    flameMaterial = builtCandles.flameMaterial;
-    candleMeshes = builtCandles.candles.map((c) => c.group);
-
-    // 3. Rebuild Floating 3D Envelope and Pointer if enabled
-    const letterEnabled = document.getElementById('letter-enabled')?.checked ?? true;
-    const letterTheme = document.getElementById('letter-theme')?.value || 'cyber';
-
-    // Clean up old envelope and pointer
-    if (previewEnvelope) {
-        previewScene.remove(previewEnvelope);
-        previewEnvelope.traverse(child => {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) {
-                if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-                else child.material.dispose();
-            }
-        });
-        previewEnvelope = null;
-    }
-    if (previewEnvelopePointer) {
-        previewScene.remove(previewEnvelopePointer);
-        if (previewEnvelopePointer.geometry) previewEnvelopePointer.geometry.dispose();
-        if (previewEnvelopePointer.material) previewEnvelopePointer.material.dispose();
-        previewEnvelopePointer = null;
-    }
-    if (previewEnvelopeLabel) {
-        previewScene.remove(previewEnvelopeLabel);
-        if (previewEnvelopeLabel.material) {
-            if (previewEnvelopeLabel.material.map) previewEnvelopeLabel.material.map.dispose();
-            previewEnvelopeLabel.material.dispose();
-        }
-        previewEnvelopeLabel = null;
-    }
-
-    if (letterEnabled) {
-        previewEnvelope = create3DEnvelopeMesh(letterTheme, envBaseColor, envFlapColor, envSealColor);
-        previewEnvelope.scale.set(1.6, 1.6, 1.6);
-        previewEnvelope.position.set(-2.8, 1.6, -1.8);
-        previewEnvelope.rotation.y = Math.PI / 4;
-        previewScene.add(previewEnvelope);
-
-        // Pointer Cone Geometry pointing down (scaled up to match)
-        const pointerGeo = new THREE.ConeGeometry(0.18, 0.45, 4);
-        pointerGeo.rotateX(Math.PI);
-        
-        let pointerColor = envFlapColor ? new THREE.Color(envFlapColor) : 0x00f2fe;
-        if (!envFlapColor) {
-            if (letterTheme === 'royal') pointerColor = 0xffd700;
-            else if (letterTheme === 'romance') pointerColor = 0xff3377;
-            else if (letterTheme === 'steampunk') pointerColor = 0xb87333;
-        }
-
-        const pointerMat = new THREE.MeshBasicMaterial({
-            color: pointerColor,
-            wireframe: true
-        });
-
-        previewEnvelopePointer = new THREE.Mesh(pointerGeo, pointerMat);
-        previewEnvelopePointer.position.set(-2.8, 2.4, -1.8);
-        previewScene.add(previewEnvelopePointer);
-
-        // Pulsating 3D billboard sprite label above envelope
-        const labelColor = envFlapColor || '#00f2fe';
-        const dict = translations[getCurrentLang()];
-        previewEnvelopeLabel = createFloatingLabelSprite(dict.tapToOpen, labelColor);
-        previewEnvelopeLabel.position.set(-2.8, 2.8, -1.8);
-        previewScene.add(previewEnvelopeLabel);
-    }
-
-    // 4. Rebuild Floating Space Sprinkles/Ornaments in real-time
-    rebuildFloatingSprinkles();
-
-    // 5. Re-apply environment reflections and re-tint the rim light, since the
-    //    cake (and every material on it) was rebuilt from scratch above.
-    tuneMaterialsForEnvironment(cakeGroup, 0.6);
-    if (previewLights) {
-        // Rim light follows the theme's accent so the silhouette always reads
-        // against the dark background, whatever palette is picked.
-        tintRimLight(previewLights.rim, getThemeRGBColors().cream);
-    }
-}
-
-// Helper: Retrieves color tokens matching current selected active theme button
-/** Theme currently selected in the creator's theme picker. */
-function getActiveThemeName() {
-    const activeThemeBtn = document.querySelector('.theme-btn.active');
-    return activeThemeBtn ? activeThemeBtn.dataset.theme : 'neon-rose';
-}
-
-function getThemeRGBColors(themeName = null) {
-    if (!themeName) {
-        themeName = getActiveThemeName();
-    }
-
-    switch (themeName) {
-        case 'midnight-gold':
-            return {
-                tier1: 0x151310, // Dark elegant obsidian
-                tier2: 0x2b2214, // Midnight gold brown
-                cream: 0xffd700  // Gold glaze
-            };
-        case 'pastel-mint':
-            return {
-                tier1: 0x3d8df5, // Sky ocean blue
-                tier2: 0x00d2ec, // Bright mint teal
-                cream: 0xffffff  // Vanilla snow cream
-            };
-        case 'lavender-dream':
-            return {
-                tier1: 0x22003c, // Dark plum velvet
-                tier2: 0x7000df, // Lavender violet
-                cream: 0xca4cff  // Bright magenta cream
-            };
-        case 'sakura-blossom':
-            return {
-                tier1: 0xffb3c6, // Cherry blossom pink
-                tier2: 0xffe3ec, // Soft petal cream
-                cream: 0xff758f  // Cherry glaze
-            };
-        case 'cyber-retro':
-            return {
-                tier1: 0xff5e62, // Sunset peach
-                tier2: 0xff9966, // Warm orange
-                cream: 0xff3399  // Hot neon pink
-            };
-        case 'forest-moss':
-            return {
-                tier1: 0x004b23, // Royal emerald
-                tier2: 0x38b000, // Glowing lime
-                cream: 0xd4af37  // Antique bronze gold
-            };
-        case 'cosmic-nebula':
-            return {
-                tier1: 0x0f0c20, // Void violet
-                tier2: 0x00f2fe, // Supernova cyan
-                cream: 0x00ffd5  // Interstellar turquoise
-            };
-        case 'choco-monarch':
-            return {
-                tier1: 0x241108, // Dark chocolate
-                tier2: 0x4a2c11, // Velvety caramel
-                cream: 0xcca43b  // Honey gold glaze
-            };
-        case 'neon-rose':
-        default:
-            return {
-                tier1: 0xed004c, // Vivid neon magenta
-                tier2: 0x3f0085, // Glossy deep violet
-                cream: 0xffffff  // Fresh white cream
-            };
-    }
+function startOver() {
+    if (!window.confirm(t('crStartOverConfirm'))) return;
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* storage blocked */ }
+    els.form.reset();
+    dirty = { title: false, message: false, letterTitle: false, letterBody: false };
+    touchedColors.clear();
+    showNameError(false);
+    els.draftStatus.textContent = '';
+    els.startOver.hidden = true;
+    applyThemeClass();
+    syncColorPickers();
+    refreshTemplates();
+    refreshToggles();
+    refreshLookEdited();
+    refreshPhotoCheck();
+    goToStep(1, { save: false });
+    pushPreview();
+    els.nameInput.focus();
 }

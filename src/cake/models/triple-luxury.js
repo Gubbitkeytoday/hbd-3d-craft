@@ -11,7 +11,8 @@ import {
     instanceRing,
     part,
     partsToMesh,
-    scaleCount
+    scaleCount,
+    sharedMaterial
 } from '../parts.js';
 
 /**
@@ -43,7 +44,7 @@ export function buildTripleLuxury(group, ctx) {
 
     // Ivory pearls: gold is kept for thin lines and a few accents, otherwise
     // the cake turns into brass. A touch of iridescence gives nacre, not plastic.
-    const pearlMat = new THREE.MeshPhysicalMaterial({
+    const pearlMat = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: new THREE.Color(0xfff8ee).lerp(accent, 0.06),
         roughness: 0.22,
         metalness: 0.0,
@@ -57,7 +58,7 @@ export function buildTripleLuxury(group, ctx) {
 
     // Satin ribbon follows the theme accent (gold satin on midnight, pink on
     // sakura). Low metalness: satin, not foil.
-    const ribbonMat = new THREE.MeshPhysicalMaterial({
+    const ribbonMat = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: accent.clone().lerp(new THREE.Color(0xffffff), 0.12),
         roughness: 0.3,
         metalness: 0.15,
@@ -198,7 +199,7 @@ export function buildTripleLuxury(group, ctx) {
  * gathered into soft pleats. Anchors carry a pearl-and-gold jewel.
  */
 function addFullSwags(group, { radius, y, count, color, goldMat, pearlMat, detail }) {
-    const clothMat = new THREE.MeshPhysicalMaterial({
+    const clothMat = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color,
         roughness: 0.48,
         metalness: 0.0,
@@ -276,7 +277,7 @@ function addFullSwags(group, { radius, y, count, color, goldMat, pearlMat, detai
  * tier; seams and studs are each a single draw.
  */
 function addPillowQuilting(group, { radius, yBottom, yTop, diamonds, rows, seamColor, pearlMat }) {
-    const seamMat = new THREE.MeshPhysicalMaterial({ color: seamColor, roughness: 0.55, sheen: 0.4 });
+    const seamMat = sharedMaterial(THREE.MeshPhysicalMaterial, { color: seamColor, roughness: 0.55, sheen: 0.4 });
     const height = yTop - yBottom;
     const turn = (Math.PI * 2) / diamonds;
     const seamR = radius + 0.004;
@@ -337,8 +338,8 @@ function addCascade(group, { tiers, STAND_R, CASCADE_A, accent, creamTint, detai
         const key = kind + color;
         if (!matCache.has(key)) {
             matCache.set(key, kind === 'mac'
-                ? new THREE.MeshPhysicalMaterial({ color, roughness: 0.6, sheen: 0.5, sheenColor: white, clearcoat: 0.15 })
-                : new THREE.MeshPhysicalMaterial({
+                ? sharedMaterial(THREE.MeshPhysicalMaterial, { color, roughness: 0.6, sheen: 0.5, sheenColor: white, clearcoat: 0.15 })
+                : sharedMaterial(THREE.MeshPhysicalMaterial, {
                     color, roughness: 0.5, metalness: 0.02, sheen: 0.8,
                     sheenColor: white, clearcoat: 0.3, clearcoatRoughness: 0.4
                 }));
@@ -506,7 +507,7 @@ function addCascade(group, { tiers, STAND_R, CASCADE_A, accent, creamTint, detai
     const leafParts = flakes.map((fl, i) => {
         const leaf = createGoldLeafMesh(fl.size, i * 3.7 + 1);
         if (!leafMat) leafMat = leaf.material;
-        else leaf.material.dispose();
+        else if (leaf.material !== leafMat) leaf.material.dispose();
         const a = patchA + fl.da / top.r;
         // Later flakes sit a hair further out so the overlaps never z-fight
         const r = top.r + 0.008 + i * 0.002;

@@ -9,7 +9,8 @@ import {
     createSugarHeartMesh,
     instanceRing,
     roundedRectShape,
-    scaleCount
+    scaleCount,
+    sharedMaterial
 } from '../parts.js';
 
 /**
@@ -210,7 +211,7 @@ function addStringWork(group, pipingMat, beadColor, detail) {
  * tucked into one of the free corners.
  */
 function buildKraftBox(group, bumpTex, stickerColor, bowColor, detail) {
-    const kraft = new THREE.MeshStandardMaterial({
+    const kraft = sharedMaterial(THREE.MeshStandardMaterial, {
         color: 0xc49a6c,
         roughness: 0.88,
         metalness: 0.0,
@@ -286,7 +287,7 @@ function buildKraftBox(group, bumpTex, stickerColor, bowColor, detail) {
     // Round sticker seal on the front wall
     const sticker = new THREE.Mesh(
         new THREE.CylinderGeometry(0.17, 0.17, 0.008, 32),
-        new THREE.MeshStandardMaterial({ color: stickerColor, roughness: 0.45 })
+        sharedMaterial(THREE.MeshStandardMaterial, { color: stickerColor, roughness: 0.45 })
     );
     sticker.rotation.x = Math.PI / 2 - WALL_FLARE * 0.9;
     sticker.position.set(0.95, BOX_FLOOR_Y + WALL_H * 0.5, (BOX / 2) * (1 + WALL_FLARE * 0.5) + 0.012);
@@ -332,7 +333,7 @@ function createWoodenForkMesh() {
     });
     geo.center();
     geo.rotateX(-Math.PI / 2);
-    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xe8cf9f, roughness: 0.7 }));
+    const mesh = new THREE.Mesh(geo, sharedMaterial(THREE.MeshStandardMaterial, { color: 0xe8cf9f, roughness: 0.7 }));
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     return mesh;

@@ -8,7 +8,8 @@ import {
     createPipedCreamMesh,
     heartPerimeterPoints,
     partsToMesh,
-    scaleCount
+    scaleCount,
+    sharedMaterial
 } from '../parts.js';
 
 /**
@@ -35,7 +36,7 @@ export function buildVintageHeart(group, ctx) {
 
     const accent = new THREE.Color(accentColor);
     const ruffleColor = new THREE.Color(creamTint).lerp(accent, 0.28).getHex();
-    const pearlMat = new THREE.MeshPhysicalMaterial({
+    const pearlMat = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: 0xfff6ee,
         roughness: 0.14,
         metalness: 0.1,
@@ -53,18 +54,17 @@ export function buildVintageHeart(group, ctx) {
 
     // Body. A smooth-iced heart wants a much finer bump than a crumb-coated
     // tier; the palette-knife swipes only need to catch the light.
-    const bodyMat = createButtercreamMaterial(colorTier1, crumbBumpTex, 0.05);
     const hsl = colorTier1.getHSL({});
-    if (hsl.l < 0.22) {
-        // Near-black icing under a white sheen reads as grey plastic. Dark
-        // themes get a glossier ganache finish with the sheen tinted by the
-        // accent, so the body stays deep and the piping does the sparkling.
-        bodyMat.roughness = 0.4;
-        bodyMat.clearcoat = 0.55;
-        bodyMat.clearcoatRoughness = 0.28;
-        bodyMat.sheen = 0.45;
-        bodyMat.sheenColor = accent.clone().multiplyScalar(0.35);
-    }
+    // Near-black icing under a white sheen reads as grey plastic. Dark
+    // themes get a glossier ganache finish with the sheen tinted by the
+    // accent, so the body stays deep and the piping does the sparkling.
+    const bodyMat = createButtercreamMaterial(colorTier1, crumbBumpTex, 0.05, hsl.l < 0.22 ? {
+        roughness: 0.4,
+        clearcoat: 0.55,
+        clearcoatRoughness: 0.28,
+        sheen: 0.45,
+        sheenColor: accent.clone().multiplyScalar(0.35)
+    } : {});
     const body = new THREE.Mesh(createHeartCakeGeometry(SCALE, BODY_H, EDGE_R), bodyMat);
     body.position.y = BODY_BOTTOM + BODY_H / 2;
     body.castShadow = true;
@@ -244,7 +244,7 @@ function createRibbonBow(colorHex, detail) {
     parts.push(knot);
 
     parts.forEach((g) => g.deleteAttribute('normal'));
-    const mesh = partsToMesh(parts, new THREE.MeshPhysicalMaterial({
+    const mesh = partsToMesh(parts, sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: colorHex,
         roughness: 0.32,
         metalness: 0.0,
@@ -326,8 +326,7 @@ function addRuffle(group, scale, { yTop, height, outset, flare, amp, waves, colo
     geo.setIndex(idx);
     geo.computeVertexNormals();
 
-    const mat = createButtercreamPipingMaterial(color);
-    mat.side = THREE.DoubleSide;
+    const mat = createButtercreamPipingMaterial(color, { side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
     mesh.receiveShadow = true;

@@ -3,7 +3,9 @@ import {
     createHexPrismGeometry,
     part,
     partsToMesh,
-    scaleCount
+    permanentTexture,
+    scaleCount,
+    sharedMaterial
 } from '../parts.js';
 
 /**
@@ -30,6 +32,11 @@ const GRID_TILE_ASPECT = Math.sqrt(3) / 3;
  * halo read as a luminous print inside the glaze rather than a printed mesh.
  */
 function createHoneycombTexture() {
+    // Deterministic: painted once, shared by every build (see parts.js caches).
+    return permanentTexture('cyber-honeycomb', paintHoneycombTexture);
+}
+
+function paintHoneycombTexture() {
     const W = 512;
     const H = Math.round(W * GRID_TILE_ASPECT);
     const R = W / 3;
@@ -243,8 +250,8 @@ export function buildCyberPrism(group, ctx) {
 
     // The bloom pass thresholds at luminance 1.35 on an HDR target, so an
     // in-gamut colour never glows. Push the piping well above 1.
-    const pipingMat = new THREE.MeshBasicMaterial({ color: neon.clone().multiplyScalar(3.2), toneMapped: false });
-    const plateLineMat = new THREE.MeshBasicMaterial({ color: neon.clone().multiplyScalar(1.1), toneMapped: false });
+    const pipingMat = sharedMaterial(THREE.MeshBasicMaterial, { color: neon.clone().multiplyScalar(3.2), toneMapped: false });
+    const plateLineMat = sharedMaterial(THREE.MeshBasicMaterial, { color: neon.clone().multiplyScalar(1.1), toneMapped: false });
 
     // Faceted pedestal
     const standPlate = new THREE.Mesh(createHexPrismGeometry(2.65, 0.12, 0.02), plateMat);
@@ -264,7 +271,7 @@ export function buildCyberPrism(group, ctx) {
     // Mirror-glaze tiers. Opaque on purpose: transmission on a dark body just
     // shows the backdrop through it (murky), and costs an extra scene pass.
     const honeycomb = createHoneycombTexture();
-    const glazeTier = (gridStrength) => new THREE.MeshPhysicalMaterial({
+    const glazeTier = (gridStrength) => sharedMaterial(THREE.MeshPhysicalMaterial, {
         vertexColors: true,
         roughness: 0.1,
         metalness: 0.0,
@@ -370,7 +377,7 @@ export function buildCyberPrism(group, ctx) {
     // Quartz clusters: three geode-like clusters at alternating pedestal
     // corners, and single small points on the lower tier's ledge at the other
     // three, so the crystals repeat the hexagon's rhythm instead of floating.
-    const crystalMat = new THREE.MeshPhysicalMaterial({
+    const crystalMat = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: new THREE.Color(0xffffff).lerp(neon, 0.7),
         emissive: neon,
         emissiveIntensity: 0.45,

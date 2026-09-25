@@ -9,8 +9,22 @@
  *
  * This module is the single source of truth: per-model layout metrics and the
  * model registry live here, the parts kit in ./cake/parts.js and one builder
- * per model in ./cake/models/. Nothing is cached at module scope
- * because the creator disposes every geometry and material on each rebuild.
+ * per model in ./cake/models/.
+ *
+ * Disposal contract (read this before freeing a cake):
+ *   Textures and materials are cached and shared across rebuilds (see
+ *   "Shared GPU resources" in ./cake/parts.js). Free a built cake - or any
+ *   subtree the kit populated, candles included - with
+ *
+ *       disposeCakeGroup(group);
+ *
+ *   after removing it from the scene (or emptying the group). It disposes
+ *   geometries and InstancedMesh buffers immediately, skips the shared kit
+ *   geometries/materials/textures, and releases any non-shared ones two frames later,
+ *   once the replacement cake has rendered and taken over their compiled
+ *   programs. Hand-rolled `material.dispose()` traversals still work but
+ *   throw away the cache (every rebuild recompiles and re-uploads again);
+ *   also do not dispose buildCandles()'s flameMaterial yourself.
  */
 import * as THREE from 'three';
 import {
@@ -23,7 +37,11 @@ import {
     getPlateMaterial,
     hashString,
     instanceRing,
-    makeRng
+    adoptSharedGeometries,
+    isKitShared,
+    makeRng,
+    releaseSharedGeometries,
+    sharedMaterial
 } from './cake/parts.js';
 import { buildVintageHeart } from './cake/models/vintage-heart.js';
 import { buildKoreanBento } from './cake/models/korean-bento.js';
@@ -84,6 +102,81 @@ export const CAKE_LAYOUTS = {
         isHeartShape: false
     }
 };
+
+/**
+ * Frees what the kit built under `root` without touching shared resources.
+ * See the disposal contract at the top of this file.
+ *
+ * @param {THREE.Object3D} root
+ * @param {object} [opts]
+ * @param {boolean} [opts.defer=true]  release non-shared materials/textures
+ *        after two animation frames (keeps their programs alive for the next
+ *        cake); pass false when tearing the whole renderer down.
+ */
+export function disposeCakeGroup(root, { defer = true } = {}) {
+    if (!root) return;
+    const geometries = new Set();
+    const materials = new Set();
+    const textures = new Set();
+    const collectTextures = (mat) => {
+        Object.values(mat).forEach((v) => {
+            if (v?.isTexture && !isKitShared(v)) textures.add(v);
+        });
+        if (mat.uniforms) {
+            Object.values(mat.uniforms).forEach((u) => {
+                if (u?.value?.isTexture && !isKitShared(u.value)) textures.add(u.value);
+            });
+        }
+    };
+    root.traverse((obj) => {
+        // Sprites share one module-level quad inside three; never free it.
+        if (obj.geometry && !obj.isSprite && !isKitShared(obj.geometry)) geometries.add(obj.geometry);
+        // Frees the per-instance matrix/colour buffers (geometry.dispose does not).
+        if (obj.isInstancedMesh) obj.dispose();
+        const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+        list.forEach((mat) => {
+            if (!mat || isKitShared(mat)) return;
+            materials.add(mat);
+            collectTextures(mat);
+        });
+    });
+    geometries.forEach((g) => g.dispose());
+
+    const release = () => {
+        materials.forEach((m) => m.dispose());
+        textures.forEach((t) => t.dispose());
+    };
+    if (!defer || typeof requestAnimationFrame !== 'function' || (!materials.size && !textures.size)) {
+        release();
+        return;
+    }
+    // A hidden tab never fires rAF; the timeout makes sure memory is still freed.
+    let done = false;
+    const once = () => { if (!done) { done = true; release(); } };
+    requestAnimationFrame(() => requestAnimationFrame(once));
+    setTimeout(once, 1000);
+}
+
+// A handful of bodies covers flipping between models/themes in the creator.
+const MODEL_TEMPLATE_LIMIT = 6;
+const modelTemplates = new Map();
+function getModelTemplate(key, build) {
+    if (modelTemplates.has(key)) {
+        const t = modelTemplates.get(key);
+        modelTemplates.delete(key);
+        modelTemplates.set(key, t);
+        return t;
+    }
+    const t = build();
+    modelTemplates.set(key, t);
+    while (modelTemplates.size > MODEL_TEMPLATE_LIMIT) {
+        const [oldKey, old] = modelTemplates.entries().next().value;
+        modelTemplates.delete(oldKey);
+        // A clone still on screen just re-uploads the geometry next frame.
+        releaseSharedGeometries(old);
+    }
+    return t;
+}
 
 export function getCakeLayout(cakeModel) {
     return { ...(CAKE_LAYOUTS[cakeModel] || CAKE_LAYOUTS['classic-tiered']) };
@@ -168,10 +261,8 @@ function addToppings(group, layout, opts, tagged) {
         const ROLL_R = 0.026;
         const rollGeo = new THREE.CylinderGeometry(ROLL_R, ROLL_R, ROLL_LEN, 20, 1);
         rollGeo.translate(0, ROLL_LEN / 2, 0);
-        const rollTexture = createWaferRollTexture();
-        const sideMat = new THREE.MeshStandardMaterial({ map: rollTexture, roughness: 0.62, metalness: 0 });
-        sideMat.addEventListener('dispose', () => rollTexture.dispose());
-        const capMat = new THREE.MeshStandardMaterial({ color: 0x3a1d0c, roughness: 0.45 });
+        const sideMat = sharedMaterial(THREE.MeshStandardMaterial, { map: createWaferRollTexture(), roughness: 0.62, metalness: 0 });
+        const capMat = sharedMaterial(THREE.MeshStandardMaterial, { color: 0x3a1d0c, roughness: 0.45 });
 
         const rollsMesh = new THREE.InstancedMesh(rollGeo, [sideMat, capMat, capMat], waferSlots.length * 2);
         const dummy = new THREE.Object3D();
@@ -225,7 +316,7 @@ function addToppings(group, layout, opts, tagged) {
             if (!mine.length) return;
             group.add(instanceRing(
                 sprinkleGeo.clone(),
-                new THREE.MeshStandardMaterial({ color, roughness: 0.45 }),
+                sharedMaterial(THREE.MeshStandardMaterial, { color, roughness: 0.45 }),
                 mine.length,
                 (d, k) => {
                     const p = mine[k];
@@ -295,7 +386,20 @@ export function buildCakeModel(group, opts = {}) {
         detail: THREE.MathUtils.clamp(detail, 0.35, 1)
     };
 
-    (MODEL_BUILDERS[cakeModel] || MODEL_BUILDERS['classic-tiered'])(group, ctx);
+    // The model body depends only on these inputs; toppings, candles and the
+    // topper are added per build. Slider ticks (candles, fruit counts, text)
+    // therefore reuse a cached body: a clone shares its geometries and
+    // materials, which costs ~1 ms instead of ~100 ms of geometry work.
+    const templateKey = [
+        cakeModel, plateStyle, plateColor, glazeStyle, glazeColor, creamColor,
+        themeColors.tier1, themeColors.tier2, themeColors.cream, ctx.detail
+    ].join('|');
+    const template = getModelTemplate(templateKey, () => {
+        const t = new THREE.Group();
+        (MODEL_BUILDERS[cakeModel] || MODEL_BUILDERS['classic-tiered'])(t, ctx);
+        return adoptSharedGeometries(t);
+    });
+    template.children.forEach((child) => group.add(child.clone()));
 
     addToppings(group, layout, {
         strawberries,

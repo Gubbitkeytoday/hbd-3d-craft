@@ -8,10 +8,16 @@
  * 40. Flames stay individual meshes because the viewer raycasts them by name
  * ('flame') and scales each one to zero when it is blown out.
  *
- * Nothing is cached at module scope: the creator disposes every geometry and
- * material on each rebuild. Textures are released with their material.
+ * Materials and textures come from the kit caches (sharedMaterial /
+ * sharedTexture in ./parts.js): one stripe texture + material per wax colour,
+ * one halo, one flame material. They survive rebuilds so the programs never
+ * recompile; free candles with disposeCakeGroup() from cake-models.js, which
+ * disposes only the geometries. (The old note here claimed textures were
+ * released with their material; three never does that, which is where the
+ * "+2 textures per rebuild" leak came from.)
  */
 import * as THREE from 'three';
+import { isKitShared, sharedMaterial, sharedTexture } from './parts.js';
 
 export const CANDLE_HEIGHT = 0.44;
 const CANDLE_RADIUS = 0.03;
@@ -104,8 +110,15 @@ const flameFragmentShader = /* glsl */ `
     }
 `;
 
+let sharedFlameMaterial = null;
+
+/**
+ * The flame material is shared by every candle of every build (one uTime
+ * uniform drives them all), so a rebuild never recompiles the flame shader.
+ */
 export function createFlameMaterial() {
-    return new THREE.ShaderMaterial({
+    if (sharedFlameMaterial && isKitShared(sharedFlameMaterial)) return sharedFlameMaterial;
+    sharedFlameMaterial = sharedMaterial(THREE.ShaderMaterial, {
         vertexShader: flameVertexShader,
         fragmentShader: flameFragmentShader,
         uniforms: { uTime: { value: 0 } },
@@ -113,6 +126,7 @@ export function createFlameMaterial() {
         depthWrite: false,
         blending: THREE.AdditiveBlending
     });
+    return sharedFlameMaterial;
 }
 
 /** Teardrop lathe: round belly low down, long tapering plume, origin at the wick. */
@@ -130,6 +144,10 @@ function createFlameGeometry() {
 
 /** Radial glow for the halo sprite: the soft light a flame throws on the air. */
 function createHaloTexture() {
+    return sharedTexture('candle-halo', paintHaloTexture);
+}
+
+function paintHaloTexture() {
     const SIZE = 64;
     const canvas = document.createElement('canvas');
     canvas.width = SIZE;
@@ -205,6 +223,11 @@ function createCandleGeometry() {
 
 /** Wax colour with a cream spiral stripe — the classic birthday-candle twist. */
 function createCandleStripeTexture(color) {
+    const hex = new THREE.Color(color).getHexString();
+    return sharedTexture(`candle-stripe|${hex}`, () => paintCandleStripeTexture(color));
+}
+
+function paintCandleStripeTexture(color) {
     const W = 64;
     const H = 128;
     const canvas = document.createElement('canvas');
@@ -236,12 +259,6 @@ function createCandleStripeTexture(color) {
     return tex;
 }
 
-/** Disposes a material's map together with it (the creator only disposes materials). */
-function ownMap(material) {
-    material.addEventListener('dispose', () => material.map?.dispose());
-    return material;
-}
-
 /* ------------------------------------------------------------------ *
  * Builder
  * ------------------------------------------------------------------ */
@@ -262,14 +279,14 @@ export function buildCandles(parent, layout, { count = 5, candleColor = '' } = {
     wickGeo.translate(0, CANDLE_HEIGHT + 0.01, 0);
     const flameGeo = createFlameGeometry();
     const flameMaterial = createFlameMaterial();
-    const haloMat = ownMap(new THREE.SpriteMaterial({
+    const haloMat = sharedMaterial(THREE.SpriteMaterial, {
         map: createHaloTexture(),
         color: 0xffc27a,
         transparent: true,
         opacity: 0.55,
         depthWrite: false,
         blending: THREE.AdditiveBlending
-    }));
+    });
 
     // Lay the candles out first, then batch the sticks by colour.
     const candles = [];
@@ -311,11 +328,11 @@ export function buildCandles(parent, layout, { count = 5, candleColor = '' } = {
     // The parent's traverse-dispose frees shared geometry once per mesh;
     // dispose() is idempotent, so that is safe.
     byColor.forEach(({ color, matrices }) => {
-        const mat = ownMap(new THREE.MeshStandardMaterial({
+        const mat = sharedMaterial(THREE.MeshStandardMaterial, {
             map: createCandleStripeTexture(color),
             roughness: 0.5,
             metalness: 0
-        }));
+        });
         const sticks = new THREE.InstancedMesh(candleGeo, mat, matrices.length);
         matrices.forEach((m, k) => sticks.setMatrixAt(k, m));
         sticks.castShadow = true;
@@ -325,7 +342,7 @@ export function buildCandles(parent, layout, { count = 5, candleColor = '' } = {
 
     const wicks = new THREE.InstancedMesh(
         wickGeo,
-        new THREE.MeshStandardMaterial({ color: 0x1a1410, roughness: 0.9 }),
+        sharedMaterial(THREE.MeshStandardMaterial, { color: 0x1a1410, roughness: 0.9 }),
         candles.length
     );
     candles.forEach((c, k) => wicks.setMatrixAt(k, c.group.matrix));

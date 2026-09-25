@@ -1,0 +1,165 @@
+/**
+ * Generates src/styles/icons.css: every Font Awesome icon the app uses, as an
+ * inline SVG mask, so the markup keeps `<i class="fa-solid fa-heart">` while
+ * the 166 KB CDN stylesheet + block-display webfont (the receiver's LCP
+ * element) goes away.
+ *
+ *   node scripts/gen-icons.mjs        (also runs from the Vite plugin in
+ *                                      vite.config.js on dev start, on every
+ *                                      edit that mentions `fa-`, and on build)
+ *
+ * Icons are found by scanning index.html and src/ for `fa-<name>` classes,
+ * plus SAFELIST (names built dynamically at runtime). Path data comes from
+ * @fortawesome/free-{solid,regular,brands}-svg-icons (devDependencies).
+ */
+/* global process */
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const OUT = path.join(ROOT, 'src/styles/icons.css');
+
+// Icons whose names are assembled at runtime (so the scan cannot see them).
+// Everything written literally as `fa-xxx` in index.html or src/ is found
+// automatically; keep this list short, every entry ships in the CSS.
+const SAFELIST = ['check', 'xmark', 'volume-high', 'volume-xmark', 'circle-notch'];
+
+// Non-icon classes that share the fa- prefix.
+const NON_ICONS = new Set([
+    'fa-solid', 'fa-regular', 'fa-brands', 'fa-spin', 'fa-pulse', 'fa-fw', 'fa-beat', 'fa-bounce',
+    'fa-fade', 'fa-shake', 'fa-flip', 'fa-lg', 'fa-xs', 'fa-sm', 'fa-1x', 'fa-2x', 'fa-3x', 'fa-4x', 'fa-5x'
+]);
+
+const PACKS = {
+    solid: require('@fortawesome/free-solid-svg-icons'),
+    regular: require('@fortawesome/free-regular-svg-icons'),
+    brands: require('@fortawesome/free-brands-svg-icons')
+};
+const VERSION = require('@fortawesome/free-solid-svg-icons/package.json').version;
+
+function walk(dir, out = []) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(p, out);
+        else if (/\.(js|mjs|html)$/.test(entry.name)) out.push(p);
+    }
+    return out;
+}
+
+/** Scans sources: returns Map name -> Set of styles seen ('solid' | 'regular' | 'brands'). */
+export function scanIcons() {
+    const files = [path.join(ROOT, 'index.html'), ...walk(path.join(ROOT, 'src'))];
+    const found = new Map();
+    const add = (name, style) => {
+        if (!found.has(name)) found.set(name, new Set());
+        found.get(name).add(style);
+    };
+    for (const file of files) {
+        const text = fs.readFileSync(file, 'utf8');
+        for (const m of text.matchAll(/\bfa-([a-z0-9]+(?:-[a-z0-9]+)*)\b/g)) {
+            const cls = `fa-${m[1]}`;
+            if (NON_ICONS.has(cls)) continue;
+            // Style from a sibling class on the same line, solid by default.
+            const line = text.slice(text.lastIndexOf('\n', m.index) + 1, text.indexOf('\n', m.index) >>> 0 || undefined);
+            const style = /fa-brands|\bfab\b/.test(line) ? 'brands' : /fa-regular|\bfar\b/.test(line) ? 'regular' : 'solid';
+            add(m[1], style);
+        }
+    }
+    SAFELIST.forEach((name) => add(name, 'solid'));
+    return found;
+}
+
+const pascal = (name) => 'fa' + name.split('-').map((p) => p[0].toUpperCase() + p.slice(1)).join('');
+
+function lookup(name, style) {
+    const order = style === 'brands' ? ['brands'] : style === 'regular' ? ['regular', 'solid'] : ['solid', 'regular', 'brands'];
+    for (const pack of order) {
+        const def = PACKS[pack][pascal(name)];
+        if (def) return { pack, def };
+    }
+    return null;
+}
+
+function svgDataUri([w, h, , , pathData]) {
+    const d = Array.isArray(pathData) ? pathData.join(' ') : pathData;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${w} ${h}'><path d='${d}'/></svg>`;
+    return `url("data:image/svg+xml,${svg.replace(/[<>#%"{}|\\^`]/g, (c) => encodeURIComponent(c))}")`;
+}
+
+export function generateIconsCss() {
+    const icons = scanIcons();
+    const rules = [];
+    const missing = [];
+    for (const name of [...icons.keys()].sort()) {
+        for (const style of icons.get(name)) {
+            const hit = lookup(name, style);
+            if (!hit) {
+                missing.push(name);
+                continue;
+            }
+            const [w, h] = hit.def.icon;
+            const selector = style === 'brands'
+                ? `.fa-brands.fa-${name}, .fab.fa-${name}`
+                : style === 'regular'
+                    ? `.fa-regular.fa-${name}, .far.fa-${name}`
+                    : `.fa-solid.fa-${name}, .fas.fa-${name}`;
+            rules.push(`${selector} { --fa-icon: ${svgDataUri(hit.def.icon)}; --fa-w: ${+(w / h).toFixed(4)}em; }`);
+        }
+    }
+    const css = `/*
+ * GENERATED by scripts/gen-icons.mjs - do not edit by hand.
+ *
+ * Font Awesome Free ${VERSION} icons (https://fontawesome.com) as inline SVG
+ * masks. Icons: CC BY 4.0 License (https://fontawesome.com/license/free).
+ * Copyright Fonticons, Inc.
+ *
+ * Replaces the CDN stylesheet + webfont: same <i class="fa-solid fa-xxx">
+ * markup, no network request, no font-display:block invisibility window.
+ * The icon is painted with background-color: currentColor through the mask,
+ * so \`color\` still tints it and gradient backgrounds show through.
+ */
+.fa-solid, .fa-regular, .fa-brands, .fas, .far, .fab {
+    display: inline-block;
+    width: var(--fa-w, 1em);
+    height: 1em;
+    vertical-align: -0.125em;
+    flex-shrink: 0;
+    background-color: currentColor;
+    /* Legacy rules gave some icons gradient text (background-clip: text);
+       with a mask the background itself is the glyph, so clip to the box. */
+    -webkit-background-clip: border-box !important;
+    background-clip: border-box !important;
+    -webkit-mask: var(--fa-icon) center / contain no-repeat;
+    mask: var(--fa-icon) center / contain no-repeat;
+    font-style: normal;
+    line-height: 1;
+}
+.fa-fw { width: 1.25em; }
+.fa-spin { animation: fa-spin 2s linear infinite; }
+@keyframes fa-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    .fa-spin { animation-duration: 6s; }
+}
+
+${rules.join('\n')}
+`;
+    return { css, count: rules.length, missing };
+}
+
+/** Writes icons.css only when it changed (avoids HMR loops). */
+export function writeIconsCss({ quiet = false } = {}) {
+    const { css, count, missing } = generateIconsCss();
+    const prev = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf8') : '';
+    if (prev !== css) fs.writeFileSync(OUT, css);
+    if (!quiet || missing.length) {
+        console.log(`[gen-icons] ${count} icon rules${prev !== css ? ' written' : ' unchanged'}${missing.length ? `; NOT FOUND: ${missing.join(', ')}` : ''}`);
+    }
+    return { changed: prev !== css, count, missing };
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    writeIconsCss();
+}

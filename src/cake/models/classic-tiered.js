@@ -9,7 +9,8 @@ import {
     makeRng,
     part,
     partsToMesh,
-    scaleCount
+    scaleCount,
+    sharedMaterial
 } from '../parts.js';
 
 /**
@@ -225,7 +226,7 @@ function createFrostingMaterial(color, bumpTex) {
     const hsl = { h: 0, s: 0, l: 0 };
     c.getHSL(hsl);
     const dark = hsl.l < 0.25;
-    return new THREE.MeshPhysicalMaterial({
+    return sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: c,
         roughness: dark ? 0.42 : 0.56,
         metalness: 0.0,
@@ -324,12 +325,15 @@ export function buildClassicTiered(group, ctx) {
     group.add(partsToMesh(dripParts, glazeMat));
 
     // --- Piping -----------------------------------------------------------
-    const pipingMat = createButtercreamPipingMaterial(creamTint);
-    // The kit's piping sheen is pink-white; match it to the cream instead
-    pipingMat.sheenColor = new THREE.Color(creamTint);
-    pipingMat.roughness = 0.4;
-    pipingMat.clearcoat = 0.35;
-    pipingMat.clearcoatRoughness = 0.25;
+    // The kit's piping sheen is pink-white; match it to the cream instead.
+    // (Kit materials are shared, so variants go in as overrides, never by
+    // mutating the returned material.)
+    const pipingMat = createButtercreamPipingMaterial(creamTint, {
+        sheenColor: new THREE.Color(creamTint),
+        roughness: 0.4,
+        clearcoat: 0.35,
+        clearcoatRoughness: 0.25
+    });
 
     const swirlGeo = createStarSwirlGeometry(detail);
 
@@ -387,7 +391,7 @@ export function buildClassicTiered(group, ctx) {
 
     // Accent dragées tucked between the ledge swirls — the one small metallic
     // note that ties the cake to the theme accent (gold / cherry / ...).
-    const drageeMat = new THREE.MeshPhysicalMaterial({
+    const drageeMat = sharedMaterial(THREE.MeshPhysicalMaterial, {
         color: accentColor,
         roughness: 0.18,
         metalness: 0.75,
@@ -407,7 +411,7 @@ export function buildClassicTiered(group, ctx) {
     const ribbonY = -0.24;
     const ribbon = new THREE.Mesh(
         createRibbonGeometry(TIER1.radius + 0.012, 0.2, 0.012),
-        new THREE.MeshPhysicalMaterial({
+        sharedMaterial(THREE.MeshPhysicalMaterial, {
             color: accentColor,
             roughness: 0.32,
             metalness: 0.0,
