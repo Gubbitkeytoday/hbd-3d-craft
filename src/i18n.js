@@ -965,7 +965,7 @@ function readStoredLang() {
     try {
         const stored = localStorage.getItem("hbd_craft_lang");
         return SUPPORTED_LANGS.includes(stored) ? stored : null;
-    } catch (e) {
+    } catch {
         return null;
     }
 }
@@ -987,7 +987,7 @@ export function saveLanguageSetting(lang) {
         currentLang = lang;
         try {
             localStorage.setItem("hbd_craft_lang", lang);
-        } catch (e) {
+        } catch {
             // Storage unavailable (private mode etc.); keep in-memory setting.
         }
         updateDocumentLang();
