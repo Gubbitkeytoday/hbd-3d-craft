@@ -239,7 +239,7 @@ screenshots/               ภาพในเอกสารนี้
 | อัปโหลดรูป | ยังไม่มี ใส่ได้เฉพาะลิงก์รูป https | ต้องมีที่เก็บไฟล์ ซึ่งขัดกับหลัก "ไม่มีเซิร์ฟเวอร์" ต้องตัดสินใจก่อน | PM, RD/Tech Lead |
 | มือถือ Android ระดับกลาง | ทดสอบแบบจำลอง (CPU ช้าลง 6 เท่า) ได้ราว 26 ถึง 30 fps หลังเปิดไฟ ต่ำกว่าเป้า 30 fps เล็กน้อย | วัดบนเครื่องจริง แล้วปรับงบ draw call หรือเข้าโหมด 2 มิติเร็วขึ้น | RD/Tech Lead, QA |
 | ทดสอบบนเครื่องจริง | ทุกตัวเลขมาจาก Chromium จำลองบน Windows ยังไม่ได้ทดสอบ iPhone และ Android จริง | ชุดทดสอบ iPhone SE, iPhone รุ่นใหม่, Android กลางและล่าง, ในแอป LINE | QA |
-| เว็บจริง | ยังไม่ได้ deploy โดเมน `hbd-3d-craft.pages.dev` ในเมตาแท็กยังเป็นค่าที่ตั้งไว้ | deploy ตาม [DEPLOYMENT.md](DEPLOYMENT.md) แล้วทดสอบลิงก์ใน LINE | IT |
+| เว็บจริง | ขึ้นแล้วที่ https://gubbitkeytoday.github.io/hbd-3d-craft/ (GitHub Pages, deploy อัตโนมัติเมื่อ push ขึ้น `main`) | ทดสอบลิงก์ใน LINE บนมือถือจริง | IT |
 | เสียงคนจริง | ยังไม่มี ใช้เสียงเชียร์แบบไม่มีคำ | อัดเสียง "เซอร์ไพรส์!" และเสียงเชียร์ตาม [public/audio/README.md](public/audio/README.md) | PD, MKT/BD |
 | ชุดทดสอบอัตโนมัติ | มี lint และ build ใน CI เท่านั้น | เพิ่มทดสอบ codec ลิงก์และทดสอบผ่านเบราว์เซอร์ | RD/Tech Lead, QA |
 
@@ -428,7 +428,7 @@ These versions follow from features the code relies on (CSS `:has()`, `Decompres
 | Photo upload | Not available; only an https image link | Needs file storage, which breaks the no-backend model: decide first | PM, RD/Tech Lead |
 | Mid-range Android | Emulated (6x CPU throttle): about 26 to 30 fps after the reveal, just under the 30 fps goal | Measure on real devices, then trim draw calls or enter poster mode sooner | RD/Tech Lead, QA |
 | Real-device checks | Every number comes from emulated Chromium on Windows; no real iPhone or Android run yet | Device pass: iPhone SE, a current iPhone, mid and low Android, inside LINE | QA |
-| Live site | Not deployed yet; `hbd-3d-craft.pages.dev` in the meta tags is a placeholder | Deploy per [DEPLOYMENT.md](DEPLOYMENT.md), then test links inside LINE | IT |
+| Live site | Live at https://gubbitkeytoday.github.io/hbd-3d-craft/ (GitHub Pages, auto-deployed on every push to `main`) | Test links inside LINE on real phones | IT |
 | Real voices | None yet; the crowd is wordless | Record "เซอร์ไพรส์!" and the cheer per [public/audio/README.md](public/audio/README.md) | PD, MKT/BD |
 | Automated tests | Lint and build in CI only | Link-codec unit tests and a browser smoke test | RD/Tech Lead, QA |
 

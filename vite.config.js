@@ -90,6 +90,9 @@ function routePreloadPlugin() {
 }
 
 export default defineConfig({
+    // GitHub Pages serves the site under /<repo>/; the deploy workflow sets
+    // BASE_PATH. Local dev and other hosts stay at the root.
+    base: process.env.BASE_PATH || '/',
     plugins: [iconsPlugin(), routePreloadPlugin()],
     build: {
         rollupOptions: {

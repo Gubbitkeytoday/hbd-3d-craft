@@ -47,6 +47,19 @@ npm run preview    # serves dist/ on http://localhost:4173 for a last check
 
 <a id="pages-git"></a>
 
+## 1a. GitHub Pages (live now) / GitHub Pages (ใช้งานจริงตอนนี้)
+
+**ไทย:** เว็บจริงอยู่ที่ https://gubbitkeytoday.github.io/hbd-3d-craft/ ทุกครั้งที่ push ขึ้น `main` workflow `.github/workflows/deploy-pages.yml` จะ build ด้วย `BASE_PATH=/hbd-3d-craft/` (เว็บอยู่ใต้ชื่อ repo) คัดลอก `index.html` เป็น `404.html` แล้ว deploy ให้เอง ไม่ต้องตั้งค่าอะไรเพิ่ม ดูสถานะได้ที่แท็บ Actions ของ repo
+
+**English:** The live site is https://gubbitkeytoday.github.io/hbd-3d-craft/. Every push to `main` runs `.github/workflows/deploy-pages.yml`, which builds with `BASE_PATH=/hbd-3d-craft/` (the site lives under the repo name), copies `index.html` to `404.html` and deploys. Nothing else to configure; watch progress in the repo's Actions tab.
+
+| Setting | Value |
+|---|---|
+| Pages source | GitHub Actions |
+| Build command | `npm run build` with `BASE_PATH=/<repo>/` |
+| Output | `dist/` |
+| Local sub-path build | `BASE_PATH=/hbd-3d-craft/ npm run build` (in Git Bash prefix `MSYS_NO_PATHCONV=1`) |
+
 ## 2. Cloudflare Pages with Git integration (recommended)
 
 **ไทย:** เชื่อม GitHub กับ Cloudflare Pages ครั้งเดียว หลังจากนั้นทุกครั้งที่ push ขึ้น `main` จะ deploy อัตโนมัติ และทุก branch หรือ pull request จะได้ลิงก์ preview แยก ชื่อเมนูใน Cloudflare อาจเปลี่ยนไปตามเวลา
@@ -141,9 +154,9 @@ Caching notes: files under `/assets/` have content hashes and can be cached fore
 
 ## 6. Values to change for your domain
 
-**ไทย:** ลิงก์พรีวิวใน LINE และ Facebook อ่านค่าจากเมตาแท็ก ซึ่งตอนนี้ตั้งเป็น `https://hbd-3d-craft.pages.dev/` ถ้าใช้โดเมนอื่นต้องแก้ทุกจุดข้างล่าง ข้อมูลการ์ดอยู่ในแฮชซึ่งโปรแกรมพรีวิวลิงก์มองไม่เห็น ทุกการ์ดจึงแสดงภาพปกเดียวกัน
+**ไทย:** ลิงก์พรีวิวใน LINE และ Facebook อ่านค่าจากเมตาแท็ก ซึ่งตอนนี้ตั้งเป็น `https://gubbitkeytoday.github.io/hbd-3d-craft/` ถ้าใช้โดเมนอื่นต้องแก้ทุกจุดข้างล่าง ข้อมูลการ์ดอยู่ในแฮชซึ่งโปรแกรมพรีวิวลิงก์มองไม่เห็น ทุกการ์ดจึงแสดงภาพปกเดียวกัน
 
-**English:** Link previews (LINE, Facebook, X) read the meta tags, which currently point at `https://hbd-3d-craft.pages.dev/`. Change every item below if you deploy elsewhere. Card data lives in the fragment, which crawlers never see, so every card shares the same preview image.
+**English:** Link previews (LINE, Facebook, X) read the meta tags, which currently point at `https://gubbitkeytoday.github.io/hbd-3d-craft/`. Change every item below if you deploy elsewhere. Card data lives in the fragment, which crawlers never see, so every card shares the same preview image.
 
 | File | What to update |
 |---|---|
