@@ -50,6 +50,18 @@ A 3D birthday card sent as one link: the recipient walks into a dark room, flips
   </tr>
 </table>
 
+**ของที่ระลึกจากผู้ส่ง / Keepsake touches**
+
+<table>
+  <tr>
+    <td width="20%" valign="top"><img src="screenshots/creator-lock-mobile.jpg" alt="สวิตช์ล็อกไว้ เปิดได้ตอนเที่ยงคืนวันเกิด / The midnight lock switch in the creator"><br><sub>ล็อกไว้ให้เปิดตอนเที่ยงคืนวันเกิด<br>Lock it until midnight</sub></td>
+    <td width="20%" valign="top"><img src="screenshots/creator-signature-mobile.jpg" alt="แผ่นเซ็นชื่อด้วยนิ้ว / The signature pad with a hand-drawn signature"><br><sub>เซ็นชื่อด้วยนิ้ว<br>Sign it by hand</sub></td>
+    <td width="20%" valign="top"><img src="screenshots/gate-locked-mobile.jpg" alt="ซองปิดผนึกพร้อมนับถอยหลัง / The sealed envelope with the countdown"><br><sub>ซองปิดผนึกนับถอยหลัง<br>Sealed, counting down</sub></td>
+    <td width="20%" valign="top"><img src="screenshots/gate-final-mobile.jpg" alt="10 วินาทีสุดท้ายเป็นตัวเลขทอง / The last ten seconds as one gold number"><br><sub>10 วินาทีสุดท้าย<br>The last ten seconds</sub></td>
+    <td width="20%" valign="top"><img src="screenshots/card-signature-mobile.jpg" alt="ลายมือผู้ส่งบนการ์ดข้อความ / The sender's handwriting on the message card"><br><sub>ลายมือผู้ส่งเขียนขึ้นเอง<br>The handwriting writes itself</sub></td>
+  </tr>
+</table>
+
 ---
 
 <a id="th"></a>
