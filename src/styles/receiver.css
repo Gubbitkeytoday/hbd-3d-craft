@@ -232,6 +232,113 @@
     color: var(--rcv-ink-soft);
 }
 
+/* ---------- Midnight lock: sealed until 00:00 on the day ---------- */
+.rcv-seal-lock {
+    position: absolute;
+    right: -7px;
+    bottom: -7px;
+    display: none;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--rcv-paper);
+    color: #8f1d3d;
+    font-size: 12px;
+    box-shadow: 0 3px 8px rgba(120, 20, 50, 0.35);
+}
+.rcv-gate-card:is(.is-locked, .is-unlocking) .rcv-seal-lock { display: grid; }
+.rcv-lock-when {
+    margin: -10px 0 16px;
+    font-size: 0.98rem;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--rcv-accent-ink);
+}
+.rcv-countdown {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin: 0 0 18px;
+}
+.rcv-cd-unit {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+    max-width: 78px;
+    padding: 11px 4px 9px;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #fff, var(--rcv-paper-edge));
+    box-shadow: inset 0 0 0 1px var(--rcv-hair), 0 6px 14px rgba(var(--rcv-shadow-rgb), 0.08);
+}
+.rcv-cd-num {
+    font: 700 1.85rem/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    color: var(--rcv-ink);
+}
+.rcv-cd-label {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--rcv-ink-soft);
+    white-space: nowrap;
+}
+.rcv-countdown[data-days="no"] .rcv-cd-unit[data-unit="d"] { display: none; }
+/* The last ten seconds: one gold number that beats every second. */
+.rcv-countdown.is-final .rcv-cd-unit:not([data-unit="s"]) { display: none; }
+.rcv-countdown.is-final .rcv-cd-unit[data-unit="s"] {
+    max-width: 140px;
+    padding: 16px 12px 12px;
+    background: linear-gradient(135deg, var(--rcv-gold-1), var(--rcv-gold-2));
+    box-shadow: 0 10px 28px rgba(224, 173, 53, 0.5);
+}
+.rcv-countdown.is-final .rcv-cd-num { font-size: 3.4rem; color: var(--rcv-gold-ink); }
+.rcv-countdown.is-final .rcv-cd-label { color: var(--rcv-gold-ink); }
+.rcv-cd-num.is-beat { animation: rcvBeat 0.9s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.rcv-lock-note {
+    margin: 0;
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--rcv-ink-soft);
+}
+#btn-lock-peek { margin-top: 10px; }
+#btn-lock-peek[hidden] { display: none; }
+/* Midnight: the padlock shakes loose, the seal flares, the buttons rise. */
+.rcv-gate-card.is-unlocking .rcv-seal-lock { animation: rcvLockOff 0.7s ease-in forwards; }
+.rcv-gate-card.is-unlocking .rcv-seal { animation: rcvSealFlare 0.7s ease; }
+.rcv-gate-card.is-unlocking .rcv-lock { animation: rcvLockAway 0.6s ease forwards; }
+.rcv-gate-card.is-unlocked .rcv-gate-open { animation: rcvRiseIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes rcvBeat { 0% { transform: scale(1.35); opacity: 0.35; } 30% { opacity: 1; } 100% { transform: scale(1); } }
+@keyframes rcvLockOff {
+    0% { transform: rotate(0); }
+    20% { transform: rotate(-16deg); }
+    40% { transform: rotate(14deg); }
+    60% { transform: translateY(-6px) rotate(0) scale(1.12); opacity: 1; }
+    100% { transform: translateY(-48px) scale(0.6); opacity: 0; }
+}
+@keyframes rcvSealFlare { 50% { box-shadow: 0 0 0 10px rgba(251, 227, 154, 0.45), 0 0 44px rgba(251, 227, 154, 0.95); } }
+@keyframes rcvLockAway { to { opacity: 0; transform: translateY(8px) scale(0.97); } }
+@keyframes rcvRiseIn { from { opacity: 0; transform: translateY(12px); } }
+
+/* ---------- The sender's handwriting (signature.js) ---------- */
+.rcv-sig {
+    display: block;
+    width: min(240px, 72%);
+    aspect-ratio: 12 / 5;
+    margin: -8px auto 18px;
+    color: var(--rcv-accent-ink);
+}
+.rcv-sig[hidden], .letter-sig[hidden] { display: none; }
+.letter-sig {
+    display: block;
+    width: min(210px, 62%);
+    aspect-ratio: 12 / 5;
+    margin: 6px 0 4px auto;
+}
+
 /* ---------- Stage ---------- */
 .rcv-stage {
     position: absolute;
@@ -665,17 +772,25 @@
 .rcv .letter-close-btn { width: 44px; height: 44px; color: #fff; }
 .rcv .interactive-envelope { cursor: pointer; }
 .rcv .envelope-paper { background-color: var(--rcv-paper); }
+/* Open, the envelope is just the letter: flat (the entrance tilt from
+   style.css out-ranked .open and kept it leaning) and as tall as the paper,
+   so the wrapper centres the whole letter and its ending (the sign-off and
+   the handwritten signature) stays on screen. */
+.rcv .letter-overlay-gate.active .interactive-envelope.open { transform: none; height: auto; }
 @media (max-width: 600px) {
     .rcv .letter-popup-wrapper { width: calc(100% - 32px); }
     .rcv .interactive-envelope { height: 300px; margin-top: 70px; }
     .rcv .envelope-paper { height: 270px; padding: 1.4rem; }
-    .rcv .interactive-envelope.open .envelope-paper { min-height: 0; max-height: 78dvh; }
+    .rcv .interactive-envelope.open .envelope-paper { min-height: 0; max-height: calc(100dvh - 128px); }
     .rcv .letter-inner-content h2 { font-size: 1.5rem; }
     .rcv #letter-popup-body { font-size: 1.05rem; line-height: 1.9; }
     .rcv .letter-body-scroll { max-height: 55dvh; }
     /* Hint below the envelope so it never collides with the close button. */
     .rcv .letter-open-hint { white-space: normal; width: max-content; max-width: calc(100vw - 48px); font-size: 0.95rem; top: auto; bottom: -72px; animation: none; }
     .rcv .letter-close-btn { top: -56px; right: 0; }
+    /* Open, the letter fills the height: the close button moves into the
+       space above the paper instead of off the top of the screen. */
+    .rcv .letter-popup-wrapper:has(.interactive-envelope.open) .letter-close-btn { top: 12px; }
 }
 
 /* ---------- Photo preview, gift bubbles ---------- */
@@ -802,6 +917,7 @@
 
 @media (prefers-reduced-motion: reduce) {
     .rcv-gate-card, .rcv-breath, .rcv-open-spinner { animation: none; }
+    .rcv-gate-card .rcv-gate-open, .rcv-cd-num.is-beat { animation: none; }
     .rcv-gate, .rcv-stage, .rcv-hud, .rcv-title, .rcv-card { transition-duration: 0.15s !important; }
     .rcv-wish, .rcv-blow, .rcv-mic-sheet { animation: none; }
     .rcv-bubble { animation-duration: 2.5s; animation-name: rcvFade; }

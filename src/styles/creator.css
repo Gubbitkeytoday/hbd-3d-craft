@@ -905,6 +905,124 @@ html:has(#creator-view.active-view) body {
 .cr-letter { padding-top: var(--s3); border-top: 1px solid var(--border-subtle); margin-top: var(--s2); }
 .cr-letter[hidden] { display: none; }
 
+/* ---------- Midnight lock (step 1) ---------- */
+
+.cr-lock {
+    margin-top: var(--s3);
+    padding: 2px var(--s4);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--r-md);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, #fff), var(--surface-1) 70%);
+    box-shadow: var(--shadow-1);
+    transition: border-color var(--dur-2);
+}
+.cr-lock[hidden] { display: none; }
+.cr-lock .cr-switch { gap: var(--s3); padding: 10px 0; }
+.cr-lock .cr-switch-text { flex: 1; min-width: 0; }
+.cr-lock .cr-hint { margin-top: 2px; }
+.cr-lock-ico {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    margin-top: 1px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    transition: background var(--dur-2), color var(--dur-2);
+}
+.cr-lock-ico .cr-ico { width: 18px; height: 18px; }
+.cr-lock:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 45%, #fff); }
+.cr-lock:has(input:checked) .cr-lock-ico { background: var(--accent); color: var(--on-accent); }
+
+/* ---------- Handwritten signature (step 3) ---------- */
+
+.cr-sig-tools { display: flex; gap: var(--s1); }
+.cr-sig-tool { display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
+.cr-sig-tool .cr-ico { width: 15px; height: 15px; }
+.cr-sig-pad {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2 / 1;      /* the stroke grid is 2:1 (signature.js) */
+    border: 1.5px dashed color-mix(in srgb, var(--accent) 35%, var(--border));
+    border-radius: var(--r-md);
+    background:
+        radial-gradient(120% 90% at 50% 0%, #fff, transparent 70%),
+        #fffaf4;
+    box-shadow: inset 0 1px 4px rgba(74, 38, 48, 0.07);
+    overflow: hidden;
+    transition: border-color var(--dur-1), box-shadow var(--dur-1);
+}
+.cr-sig-pad:hover { border-color: var(--accent); }
+.cr-sig-pad.is-drawing { border-style: solid; border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent); }
+.cr-sig-canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;       /* drawing, not scrolling, inside the pad */
+    cursor: crosshair;
+}
+.cr-sig-line {
+    position: absolute;
+    left: 9%;
+    right: 9%;
+    bottom: 27%;
+    border-bottom: 1.5px solid color-mix(in srgb, var(--accent) 25%, var(--border-soft));
+    pointer-events: none;
+}
+.cr-sig-line::before {
+    content: '\00d7';
+    position: absolute;
+    left: -2px;
+    bottom: 3px;
+    color: var(--text-subtle);
+    font: 500 20px/1 var(--font-ui);
+}
+.cr-sig-placeholder {
+    position: absolute;
+    inset: 0 0 18% 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-subtle);
+    font-size: 15px;
+    pointer-events: none;
+    transition: opacity var(--dur-2);
+}
+.cr-sig-placeholder .cr-ico { width: 18px; height: 18px; }
+.cr-sig-pad.has-ink .cr-sig-placeholder,
+.cr-sig-pad.is-drawing .cr-sig-placeholder { opacity: 0; }
+
+/* ---------- Memory prompts (letter) ---------- */
+
+.cr-prompts { margin-top: var(--s3); }
+.cr-prompts-label { margin: 0 0 var(--s2); color: var(--text-muted); font-size: var(--fs-caption); font-weight: 600; line-height: 1.45; }
+#creator-view:lang(th) .cr-prompts-label { font-size: 14px; }
+.cr-prompt-chips { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.cr-prompt {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: var(--tap);
+    padding: 0 14px 0 12px;
+    border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border-soft));
+    border-radius: var(--r-pill);
+    background: var(--surface-1);
+    color: var(--accent-hover);
+    font: 500 14px/1.25 var(--font-ui);
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--dur-1), border-color var(--dur-1);
+}
+.cr-prompt::before { content: '+'; font-weight: 700; font-size: 16px; line-height: 1; }
+.cr-prompt:hover { background: var(--accent-soft); border-style: solid; }
+.cr-prompt:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
 .cr-details {
     margin: 0 0 var(--s5);
     border: 1px solid var(--border-soft);
@@ -1023,6 +1141,22 @@ html:has(#creator-view.active-view) body {
 .cr-sheet-head { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 0 0 var(--s5); text-align: center; }
 .cr-sheet-head h2 { margin: 6px 0 0; font-size: 22px; font-weight: 700; line-height: 1.3; padding: 0 var(--s6); color: var(--text); letter-spacing: -0.01em; }
 .cr-sheet-head .cr-hint { margin: 0; font-size: 15px; color: var(--text-muted); }
+.cr-sheet-lock {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: var(--s2) var(--s4) 0;
+    padding: 8px 14px;
+    border-radius: var(--r-md);
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.45;
+    text-align: left;
+}
+.cr-sheet-lock[hidden] { display: none; }
+.cr-sheet-lock .cr-ico { width: 18px; height: 18px; margin-top: 1px; }
 .cr-sheet-badge {
     display: grid;
     place-items: center;

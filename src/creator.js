@@ -13,6 +13,7 @@ import { buildShareUrl } from './card-link.js';
 import { buildTemplates } from './card-templates.js';
 import { NEW_CARD_BACKDROP } from './backdrop-names.js';
 import { loadCardFont } from './fonts.js';
+import { createSignaturePad, strokesFromString, strokesToString } from './signature.js';
 
 // Looks: one tap sets the whole cake. Keys are form control names.
 const LOOKS = {
@@ -49,6 +50,8 @@ let toastTimer = 0;
 let lastShareUrl = '';
 let bound = false;
 let bootToken = 0; // invalidates a deferred preview boot after destroy
+let sigPad = null;
+let letterCaret = null; // where the sender last left the cursor in the letter
 
 /* ------------------------------------------------------------------ *
  * Lifecycle
@@ -71,6 +74,8 @@ export function initCreator() {
     refreshLookEdited();
     goToStep(step, { focus: false, save: false });
     refreshPhotoCheck();
+    sigPad?.setStrokes(strokesFromString(els.f.signature.value));
+    refreshSignatureUi();
 
     startPreview();
 }
@@ -109,6 +114,16 @@ function collectElements() {
         nameError: $('recipient-name-error'),
         dateHint: $('birth-date-hint'),
         clearDate: $('btn-clear-date'),
+        lock: $('cr-lock'),
+        lockHint: $('cr-lock-hint'),
+        sheetLock: $('cr-sheet-lock'),
+        sheetLockText: $('cr-sheet-lock-text'),
+        sigCanvas: $('sig-pad'),
+        sigPadBox: $('cr-sig-pad'),
+        sigUndo: $('btn-sig-undo'),
+        sigClear: $('btn-sig-clear'),
+        sigStatus: $('sig-status'),
+        prompts: [...document.querySelectorAll('.cr-prompt')],
         lookEdited: $('cr-look-edited'),
         topperGroup: $('custom-topper-text-group'),
         letterGroup: $('letter-details-group'),
@@ -157,6 +172,8 @@ function applyCreatorI18n() {
         el.setAttribute('aria-label', t(key, { item }));
     });
     refreshNameStrings();
+    refreshPrompts();
+    refreshLock();
     els.stepOf.textContent = t('crStepOf', { n: step });
 }
 
@@ -377,7 +394,9 @@ function readConfig() {
         letterTheme: radioValue('letterTheme'),
         // A disabled letter carries no text, which also keeps the link short.
         letterTitle: letterEnabled ? f.letterTitle.value.trim() : '',
-        letterBody: letterEnabled ? f.letterBody.value.trim() : ''
+        letterBody: letterEnabled ? f.letterBody.value.trim() : '',
+        signature: f.signature.value,
+        lockDate: lockDateValue()
     };
     // Untouched pickers stay '' so the link omits them and the receiver
     // derives the same colors from the chosen styles.
@@ -398,6 +417,165 @@ function isBelated(bdate) {
     const thisYear = new Date(now.getFullYear(), Number(m[2]) - 1, Number(m[3]));
     const days = Math.round((today - thisYear) / 86400000);
     return days >= 1 && days <= BELATED_WINDOW_DAYS;
+}
+
+/* ------------------------------------------------------------------ *
+ * Midnight lock
+ *
+ * The card can wait for the birthday: the link opens on a sealed envelope
+ * with a countdown and unlocks at 00:00 on the day, in the recipient's own
+ * time zone. Only offered for a birthday that is still ahead (not today,
+ * not belated), and the date is worked out when the link is made.
+ * ------------------------------------------------------------------ */
+
+function startOfToday() {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+/** That month/day in `year`; 29 Feb falls back to the 28th in common years. */
+function birthdayIn(year, month, day) {
+    const d = new Date(year, month, day);
+    return d.getMonth() === month ? d : new Date(year, month + 1, 0);
+}
+
+/** The coming birthday as a local date, or null when there is nothing to wait for. */
+function upcomingBirthday(bdate) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(bdate || '');
+    if (!m || isBelated(bdate)) return null;
+    const today = startOfToday();
+    const month = Number(m[2]) - 1;
+    const day = Number(m[3]);
+    const thisYear = birthdayIn(today.getFullYear(), month, day);
+    if (thisYear.getTime() === today.getTime()) return null; // it's today: open now
+    return thisYear > today ? thisYear : birthdayIn(today.getFullYear() + 1, month, day);
+}
+
+function isoDate(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** 'YYYY-MM-DD' the link unlocks on, or '' (switch off or not offered). */
+function lockDateValue() {
+    const target = els.f.lockMidnight.checked ? upcomingBirthday(els.f.bdate.value) : null;
+    return target ? isoDate(target) : '';
+}
+
+function formatLockDate(date, { short = false } = {}) {
+    const lang = getCurrentLang();
+    const locale = lang === 'th' ? 'th-TH' : lang === 'ja' ? 'ja-JP' : 'en-GB';
+    const opts = short ? { weekday: 'short', day: 'numeric', month: 'short' } : { weekday: 'long', day: 'numeric', month: 'long' };
+    try {
+        return new Intl.DateTimeFormat(locale, opts).format(date);
+    } catch {
+        return isoDate(date);
+    }
+}
+
+function refreshLock() {
+    if (!els) return;
+    const target = upcomingBirthday(els.f.bdate.value);
+    els.lock.hidden = !target;
+    if (!target) return;
+    const days = Math.round((target - startOfToday()) / 86400000);
+    const left = days === 1 ? t('crLockTomorrow') : t('crLockInDays', { n: days });
+    els.lockHint.textContent = t('crLockHint', { date: formatLockDate(target), left });
+    wrapThaiPhrases();
+}
+
+/* ------------------------------------------------------------------ *
+ * Memory prompts: sentence starters for the letter
+ * ------------------------------------------------------------------ */
+
+function promptVariant() {
+    return radioValue('relation') === 'colleague' ? 'Work' : '';
+}
+
+function refreshPrompts() {
+    if (!els) return;
+    const v = promptVariant();
+    els.prompts.forEach((btn) => {
+        const n = Number(btn.dataset.prompt);
+        btn.textContent = t(`crPromptChip${n}${v}`);
+    });
+}
+
+/**
+ * Puts a starter on its own line where the sender left the cursor, or else
+ * just above the sign-off ("With love, Ton") so the letter still ends with
+ * the name, then hands the cursor back right after it.
+ */
+function insertPrompt(n) {
+    const ta = els.f.letterBody;
+    const starter = t(`crPromptText${n}${promptVariant()}`);
+    const value = ta.value;
+    let at = letterCaret;
+    if (at === null || at > value.length) {
+        const sender = els.f.sender.value.trim();
+        const sign = sender ? t(promptVariant() ? 'tplLetterSignWork' : 'tplLetterSign', { sender }) : '';
+        const idx = sign ? value.lastIndexOf(sign) : -1;
+        at = idx > 0 ? idx : value.length;
+    }
+    const before = value.slice(0, at).replace(/\s+$/, '');
+    const after = value.slice(at).replace(/^\s+/, '');
+    const head = (before ? `${before}\n\n` : '') + starter;
+    const next = head + (after ? `\n\n${after}` : '');
+    if (next.length > ta.maxLength) {
+        showToast(t('crPromptFull'));
+        return;
+    }
+    ta.value = next;
+    letterCaret = head.length;
+    ta.focus({ preventScroll: true });
+    try { ta.setSelectionRange(head.length, head.length); } catch { /* not focusable */ }
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    if (isPhoneLayout()) revealField(ta);
+}
+
+/* ------------------------------------------------------------------ *
+ * Handwritten signature
+ * ------------------------------------------------------------------ */
+
+let sigPreviewTimer = 0;
+
+function inkColor() {
+    return getComputedStyle(els.root).getPropertyValue('--text').trim() || '#2a1f2d';
+}
+
+function setupSignature() {
+    sigPad = createSignaturePad(els.sigCanvas, {
+        color: inkColor,
+        onStart: () => {
+            noteInteraction();
+            els.sigStatus.textContent = '';
+            els.sigPadBox.classList.add('is-drawing');
+        },
+        onChange: (strokes) => {
+            els.f.signature.value = strokesToString(strokes);
+            refreshSignatureUi();
+            // The frame print in the party room shows it too; repaint once the pen rests.
+            clearTimeout(sigPreviewTimer);
+            sigPreviewTimer = setTimeout(pushPreview, 350);
+            scheduleDraftSave();
+        },
+        onFull: () => {
+            els.sigStatus.textContent = t('crSigFull');
+        }
+    });
+    els.sigCanvas.addEventListener('pointerup', () => els.sigPadBox.classList.remove('is-drawing'));
+    els.sigCanvas.addEventListener('pointercancel', () => els.sigPadBox.classList.remove('is-drawing'));
+    els.sigUndo.addEventListener('click', () => sigPad.undo());
+    els.sigClear.addEventListener('click', () => {
+        sigPad.clear();
+        els.sigStatus.textContent = '';
+    });
+}
+
+function refreshSignatureUi() {
+    const has = !!els.f.signature.value;
+    els.sigPadBox.classList.toggle('has-ink', has);
+    els.sigUndo.hidden = !has;
+    els.sigClear.hidden = !has;
 }
 
 /** Inputs the shared template builder needs; also what a link carries instead of the text. */
@@ -424,7 +602,10 @@ function refreshTemplates() {
         const el = els.f[key];
         // Without a name there is nothing sensible to greet; leave untouched
         // fields empty rather than "Happy birthday, !".
-        if (!dirty[key]) el.value = name ? tpl[key] : '';
+        if (!dirty[key]) {
+            el.value = name ? tpl[key] : '';
+            if (key === 'letterBody') letterCaret = null;
+        }
         const resetBtn = els.form.querySelector(`[data-reset-template="${key}"]`);
         if (resetBtn) resetBtn.hidden = !dirty[key] || !name;
     });
@@ -434,6 +615,8 @@ function refreshTemplates() {
     refreshCounters();
     refreshNameStrings();
     refreshCaption();
+    refreshLock();
+    refreshPrompts();
 }
 
 function refreshCaption() {
@@ -516,6 +699,12 @@ function bindUI() {
     });
 
     els.startOver.addEventListener('click', startOver);
+
+    setupSignature();
+    els.prompts.forEach((btn) => btn.addEventListener('click', () => insertPrompt(Number(btn.dataset.prompt))));
+    // Where the cursor was when the sender left the letter (a prompt chip
+    // takes focus, so blur is the last moment it is known).
+    els.f.letterBody.addEventListener('blur', () => { letterCaret = els.f.letterBody.selectionStart; });
 
     els.langButtons.forEach((btn) => btn.addEventListener('click', () => {
         saveLanguageSetting(btn.dataset.lang);
@@ -656,6 +845,7 @@ function onFieldChange(e) {
     if (['theme', 'glaze', 'plate', 'letterTheme'].includes(name)) syncColorPickers();
     if (name === 'topperChoice' || name === 'letterEnabled') refreshToggles();
     if (name === 'photo') refreshPhotoCheck();
+    if (name === 'lockMidnight') refreshLock();
     if (el.type === 'number' && e.type === 'change') el.value = String(intValue(name));
     if (el.type === 'number') refreshSteppers();
 
@@ -948,11 +1138,21 @@ function isMobileDevice() {
     return /Android|iPhone|iPad|iPod/i.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua));
 }
 
+/** The unlock day as a Date, when the card is locked. */
+function lockTarget() {
+    const iso = lockDateValue();
+    if (!iso) return null;
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d);
+}
+
 function shareText() {
     const name = nameValue();
     const sender = els.f.sender.value.trim();
     let text = t('crShareText', { name });
     if (sender) text += `\n${t('crShareTextFrom', { sender })}`;
+    const lock = lockTarget();
+    if (lock) text += `\n${t('crShareTextLocked', { date: formatLockDate(lock, { short: true }) })}`;
     return text;
 }
 
@@ -978,13 +1178,16 @@ async function openShareSheet() {
     const text = shareText();
 
     els.shareInput.value = url;
-    els.testLink.href = url;
+    els.testLink.href = previewUrl(url);
     els.copyFail.hidden = true;
     resetCopyButton();
     els.lineBtn.href = isMobileDevice()
         ? `https://line.me/R/share?text=${encodeURIComponent(`${text}\n${url}`)}`
         : `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(url)}`;
     els.nativeBtn.hidden = typeof navigator.share !== 'function';
+    const lock = lockTarget();
+    els.sheetLock.hidden = !lock;
+    if (lock) els.sheetLockText.textContent = t('crSheetLocked', { name: nameValue(), date: formatLockDate(lock) });
     refreshNameStrings();
 
     // Desktop: a QR code moves the link to a phone. Phones don't need it.
@@ -1072,13 +1275,18 @@ function showToast(message) {
     toastTimer = setTimeout(() => els.toast.classList.remove('is-visible'), 2500);
 }
 
+/** The sender's own look at the card: a locked one offers to skip its countdown. */
+function previewUrl(link) {
+    return `${link}${link.indexOf('?', link.indexOf('#')) >= 0 ? '&' : '?'}preview=1`;
+}
+
 async function previewAsRecipient() {
     if (!requireName()) return;
     // Open synchronously (popup blockers need the user gesture), then point
     // the tab at the link once it is built.
     const tab = window.open('', '_blank');
     try {
-        const url = await makeLink();
+        const url = previewUrl(await makeLink());
         if (tab) {
             tab.opener = null;
             tab.location.href = url;
@@ -1176,6 +1384,11 @@ function startOver() {
     if (!window.confirm(t('crStartOverConfirm'))) return;
     try { localStorage.removeItem(DRAFT_KEY); } catch { /* storage blocked */ }
     els.form.reset();
+    els.f.signature.value = '';
+    sigPad?.setStrokes([]);
+    refreshSignatureUi();
+    els.sigStatus.textContent = '';
+    letterCaret = null;
     dirty = { title: false, message: false, letterTitle: false, letterBody: false };
     touchedColors.clear();
     showNameError(false);

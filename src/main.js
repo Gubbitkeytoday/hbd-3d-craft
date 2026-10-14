@@ -115,6 +115,13 @@ function isShown(el) {
     return el.offsetParent !== null;
 }
 
+function isCalendarDate(value) {
+    const m = typeof value === 'string' && /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!m) return false;
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+}
+
 function clampText(value, max) {
     return typeof value === 'string' ? value.trim().slice(0, max) : '';
 }
@@ -170,6 +177,12 @@ function sanitizeCardConfig(config, defaults) {
         out[key] = typeof config[key] === 'string' ? clampText(config[key], max) : (defaults[key] || '');
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(out.bdate)) out.bdate = '';
+    out.lockDate = isCalendarDate(config.lockDate) ? config.lockDate : '';
+
+    // Stroke bytes (base64url) are decoded and clamped by signature.js; here
+    // only the shape and a size cap (900 bytes of strokes plus slack).
+    out.signature = typeof config.signature === 'string' && /^[A-Za-z0-9_-]{4,1400}$/.test(config.signature)
+        ? config.signature : '';
 
     const ints = { candles: [1, 10], strawberries: [0, 8], cherries: [0, 8], rolls: [0, 6] };
     for (const [key, [min, max]] of Object.entries(ints)) {
