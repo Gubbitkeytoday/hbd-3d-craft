@@ -82,9 +82,10 @@ flowchart LR
 | `src/card-link.js` | Encode and decode every link format; payload caps |
 | `src/card-templates.js` | Name-driven starter wording (title, message, letter) in th / en / ja; used by the creator and by the decoder to rebuild untouched text |
 | `src/backdrop-names.js` | Append-only backdrop list (no three.js import, safe for the entry chunk); `NEW_CARD_BACKDROP = 'party'` |
-| `src/creator.js` | 3-step form, looks, templates and "dirty" tracking, colour pickers, draft autosave (`localStorage`), share sheet (LINE, native share, copy, QR, test link) |
+| `src/creator.js` | 3-step form, looks, templates and "dirty" tracking, colour pickers, midnight lock switch, signature pad, memory prompts for the letter, draft autosave (`localStorage`), share sheet (LINE, native share, copy, QR, test link) |
+| `src/signature.js` | The sender's handwriting: pad capture, stroke simplification, the compact stroke format, and the stroke-by-stroke replay (no dependencies; shared by creator, viewer and room) |
 | `src/creator-scene.js` | Creator preview: build off-scene, precompile, swap, then dispose; coalesces bursts of edits; builds the lit party room when that backdrop is chosen |
-| `src/viewer.js` | Receiver: gate, scene preparation behind the gate, all beats, taps and keyboard, mic, poster mode, message card, letter, photo, thank-you, replay, resume after LINE |
+| `src/viewer.js` | Receiver: gate (with the midnight countdown), scene preparation behind the gate, all beats, taps and keyboard, mic, poster mode, message card and letter (with the handwriting replay), photo, thank-you, replay, resume after LINE |
 | `src/cake-models.js`, `src/cake/parts.js`, `src/cake/models/*.js` | Cake layouts and registry, the construction kit (geometry, procedural textures, materials, caches), one builder per model |
 | `src/cake/candles.js` | Candles and additive flame materials (`CANDLE_LOOKS` for dark and pale backdrops) |
 | `src/backdrops.js` | Backdrop definitions, CSS gradients for pale backdrops, light-rig retuning, contact shadow |
@@ -163,9 +164,9 @@ ASCII below `0x7F` is stored as is; the Thai block U+0E00 to U+0E7F as one byte 
 
 | Tag range | Value size | Used for |
 |---|---|---|
-| 1-31 | varint length + packed text | 2 sender, 4 title, 5 message, 6 letterTitle, 7 letterBody, 8 topperText, 9 photo (1 recipientName in v2) |
+| 1-31 | varint length + packed text | 2 sender, 4 title, 5 message, 6 letterTitle, 7 letterBody, 8 topperText, 9 photo (1 recipientName in v2); 10 signature, raw stroke bytes instead of text ([4.8](#signature-format)) |
 | 32-63 | 1 byte enum index | v2 only (v2.1 packs enums) |
-| 64-95 | 1 byte | 68 / 69 birth date high / low byte, as days since 1970-01-01 (v2 also uses 64-67 for counts) |
+| 64-95 | 1 byte | 68 / 69 birth date high / low byte, as days since 1970-01-01 (v2 also uses 64-67 for counts); 70 / 71 unlock date high / low byte, same encoding |
 | 96-111 | 1 byte bit field | v2 only: 96 flags, 97 templated |
 | 112-127 | 3 bytes RGB | 112 glaze, 113 cream, 114 plate, 115 candle, 116 topper, 117 envelope base, 118 flap, 119 seal |
 
@@ -182,6 +183,25 @@ Untouched wording is not sent. The decoder calls `buildTemplates({ name, sender,
 - Payloads longer than 12 000 characters are refused; inflated data is capped at 16 KB (a stream reader cancels past the cap), so a crafted link cannot decompress into a memory bomb.
 - Varint lengths are limited to 3 continuation bytes and every read is bounds-checked (`Truncated card link`).
 - `decodeCardHash()` never throws. A broken link yields the defaults (`format: 'error'`), so the recipient still gets a card rather than a blank page.
+
+<a id="signature-format"></a>
+
+### 4.8 Handwriting and the midnight lock
+
+**สรุป:** ลายเซ็นถูกเก็บเป็นเส้น (ไม่ใช่รูป) บนตาราง 256 x 128 ลดจุดแล้วเข้ารหัสแบบส่วนต่าง ลายเซ็นทั่วไปใช้ 150 ถึง 300 ไบต์ วันปลดล็อกเก็บเป็นจำนวนวันเหมือนวันเกิด ลิงก์รุ่นก่อนไม่มีสองค่านี้และยังเปิดได้เหมือนเดิม ส่วนตัวถอดรหัสรุ่นเก่าที่เจอลิงก์ใหม่จะข้ามสองแท็กนี้ไปเอง
+
+**Signature (tag 10).** `signature.js` records each stroke on the pad in grid units (256 x 128, the pad's 2:1 shape), rounds the points, drops repeats and simplifies with Ramer-Douglas-Peucker (tolerance 0.75 grid units, invisible at card size). The wire format:
+
+| Bytes | Meaning |
+|---|---|
+| 1 | Format, `0x01` |
+| per stroke | varint point count, then the first point as two bytes (x 0-255, y 0-127), then a zigzag varint pair (dx, dy) per further point |
+
+The creator stops a stroke that would push the drawing past 900 bytes. In the card config the bytes travel as base64url (`signature`), so drafts and the sanitizer handle a plain string; the link stores the raw bytes. Decoding is strict: a bad format byte, a stroke count over 64, a point count over 2000 or a truncated varint yields no drawing at all, and every point is clamped onto the grid. Replay smooths the points with two passes of Chaikin corner cutting, trims to the ink's bounds and draws at an even pen speed (0.9 to 3.2 s in total, a short lift between strokes) with a slanted-nib width; opaque round-capped segments let it add ink frame by frame without visible overlaps.
+
+**Lock (tags 70, 71).** `lockDate` is the calendar day the card opens on, as days since 1970. The creator only offers the switch for a birthday still ahead (not today, not within the 45-day belated window) and works the date out when the link is made: the next occurrence of the birthday, with 29 February falling back to the 28th in common years. The receiver unlocks at 00:00 on that day **in its own time zone**, and ignores a date in the past or more than 400 days ahead. The lock is a ceremony, not access control: the message is in the link, and a changed device clock opens it early.
+
+**Measured link lengths** (Node, current codec): the 30-character card above becomes 35 characters with the lock, 170 with a four-stroke handwritten "Ton" and flourish (107 bytes of strokes), and 176 with both.
 
 <a id="sanitizer"></a>
 
@@ -200,6 +220,8 @@ Untouched wording is not sent. The decoder calls `buildTemplates({ name, sender,
 | Switches | Only real booleans |
 | Colours | Only `#rrggbb` |
 | Photo | Only a parseable `https:` URL |
+| Signature | Only base64url, 4 to 1400 characters; `signature.js` then decodes it strictly (see [4.8](#signature-format)) |
+| Lock date | Only a real calendar date `YYYY-MM-DD` |
 
 All user text reaches the DOM through `textContent` (see [SECURITY.md](SECURITY.md)).
 
@@ -308,7 +330,9 @@ A phone is recognised by touch plus a short screen side (600 CSS px or less) or 
 
 ```mermaid
 stateDiagram-v2
+    [*] --> locked: lockDate ahead
     [*] --> gate
+    locked --> gate: 00:00 on the day (or the sender's preview skips)
     gate --> dark: Open (party)
     gate --> intro: Open (other backdrops)
     gate --> message: no WebGL
@@ -323,6 +347,7 @@ stateDiagram-v2
     message --> intro: replay (other backdrops)
 ```
 
+- **Locked:** a card with a `lockDate` still ahead opens on the same envelope, sealed with a padlock, showing the unlock day and a countdown (days, hours, minutes, seconds; one large gold number for the last ten seconds). Nothing heavy loads: the scene preparation and the room prefetch wait until 3 minutes before midnight (`LOCK_PREP_LEAD_MS`). The countdown wakes exactly when the shown second changes and catches up on `visibilitychange` (background tabs throttle timers). At 00:00 the padlock shakes loose, the seal flares, confetti bursts from it, the eyebrow says "It's time" and the Open buttons rise in; screen readers hear the same through a polite live region. The sender's own preview (`#...?preview=1`, added by "Preview as recipient") shows the countdown with a "Skip the countdown" button.
 - **Behind the gate:** `prepareScene()` builds renderer, cake, candles, room (party) and precompiles every program for the bloom target in 12 ms slices, while the gate is read. Party cards also decode both posters first, so the Open button can go "early" long before the 3D room has streamed in.
 - **Open** unlocks audio synchronously inside the tap (iOS). **Open quietly** (quiet mode) plays everything muted until the speaker is tapped, then fades in over 1.5 s.
 
@@ -418,7 +443,7 @@ flowchart LR
 
 | What | Value | Source |
 |---|---|---|
-| JS over the wire, gzip (build of the current `main`) | three 171 KB, viewer 42 KB, cake kit and backdrops 31 KB, entry 23 KB, room 19 KB, creator 15 KB, QR 3 KB; CSS 26 KB; HTML 11 KB | `vite build`, this revision |
+| JS over the wire, gzip | three 171 KB, viewer 44 KB, shared chunk (cake kit, backdrops and `signature.js`; Rollup names it after `signature`) 34 KB, entry 26 KB, room 19 KB, creator 16 KB, QR 3 KB; CSS 27 KB; HTML 12 KB. The handwriting and the lock added about 7.5 KB to the receiver path. | `vite build`, this revision |
 | Room assets | Phones 1.33 MB, desktop 2.16 MB (+ 41 KB city, 83 KB posters) | `public/room/room.json` |
 | Whole phone visit | About 1.75 MB; the gate is usable after 130 to 384 KB | Mobile QA emulation, before commit d9f76ac |
 | Programs on phones | 67, constant from the dark room to the end | Commits 0e0504d, d9f76ac |
@@ -433,15 +458,16 @@ flowchart LR
 
 ## 14. Testing and QA
 
-**สรุป:** ตอนนี้มีการตรวจอัตโนมัติคือ ESLint และ build ใน CI เท่านั้น ส่วนการวัดประสิทธิภาพและภาพหน้าจอทำด้วยสคริปต์เบราว์เซอร์และการทดสอบด้วยมือ ยังไม่มี unit test
+**สรุป:** การตรวจอัตโนมัติใน CI คือชุดทดสอบตัวเข้ารหัสลิงก์ ESLint และ build ส่วนการวัดประสิทธิภาพและภาพหน้าจอทำด้วยสคริปต์เบราว์เซอร์และการทดสอบด้วยมือ
 
 | Check | How |
 |---|---|
 | Lint | `npm run lint` (ESLint 9 flat config: recommended rules, unused variables warn). `npm run build` runs it first; an error fails the build. |
-| CI | `.github/workflows/ci.yml`: Node 20, `npm ci`, `npm run build` on pushes and pull requests to `main`. |
+| Link codec tests | `npm test` (`node --test`, no extra dependencies): links made before signatures and locks decode exactly as before, cards without the new fields encode byte for byte as before, signature and lock survive both the raw and the deflated path, and malformed stroke data yields no drawing. |
+| CI | `.github/workflows/ci.yml`: Node 20, `npm ci`, `npm test`, `npm run build` on pushes and pull requests to `main`. |
 | Room harness | `npm run dev`, then `/src/room/dev/room-test.html?state=dark\|mid\|lit\|dim&shot=entry\|wide\|cake\|closeUp&q=0..2&theme=..&name=..&model=..` (`clean` hides the HUD, `trace` logs slow compiles, `checks` re-enables shader error checks). `window.__room.stats()` returns draw calls, triangles, programs, fps and load time; `window.__room.exportProps()` exports the props for the Blender poster stage. |
-| Screenshots | `npm run screenshots` drives Chrome through the real flow (creator, share, gate, dark, reveal, song, finale, message) and writes `screenshots/`. |
-| Manual pass | Before a release: create a Thai card, open it on a phone inside LINE, go through every beat, deny and allow the mic, save a photo, thank the sender, replay; repeat with reduced motion and quiet mode; open one old `#/view/` link. |
+| Screenshots | `npm run screenshots` drives Chrome through the real flow (creator, share, gate, dark, reveal, song, finale, message) and writes `screenshots/`. The `keepsake` group signs the pad, locks the card and moves the browser clock to capture the countdown, its last ten seconds and the card writing the signature. |
+| Manual pass | Before a release: create a Thai card, open it on a phone inside LINE, go through every beat, deny and allow the mic, save a photo, thank the sender, replay; repeat with reduced motion and quiet mode; open one old `#/view/` link. Sign a card with a finger on a real phone (the pad must not scroll the page), lock one for tomorrow and open it inside LINE before and after midnight. |
 
 Headless GPU measurement scripts used during development (fps per beat, program counts, long tasks, luminance) are not part of the repository.
 

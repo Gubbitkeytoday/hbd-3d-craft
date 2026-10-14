@@ -28,5 +28,8 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Link Codec Tests
+        run: npm test
+
       - name: Build Application
         run: npm run build

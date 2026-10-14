@@ -50,6 +50,18 @@ A 3D birthday card sent as one link: the recipient walks into a dark room, flips
   </tr>
 </table>
 
+**ของที่ระลึกจากผู้ส่ง / Keepsake touches**
+
+<table>
+  <tr>
+    <td width="20%" valign="top"><img src="screenshots/creator-lock-mobile.jpg" alt="สวิตช์ล็อกไว้ เปิดได้ตอนเที่ยงคืนวันเกิด / The midnight lock switch in the creator"><br><sub>ล็อกไว้ให้เปิดตอนเที่ยงคืนวันเกิด<br>Lock it until midnight</sub></td>
+    <td width="20%" valign="top"><img src="screenshots/creator-signature-mobile.jpg" alt="แผ่นเซ็นชื่อด้วยนิ้ว / The signature pad with a hand-drawn signature"><br><sub>เซ็นชื่อด้วยนิ้ว<br>Sign it by hand</sub></td>
+    <td width="20%" valign="top"><img src="screenshots/gate-locked-mobile.jpg" alt="ซองปิดผนึกพร้อมนับถอยหลัง / The sealed envelope with the countdown"><br><sub>ซองปิดผนึกนับถอยหลัง<br>Sealed, counting down</sub></td>
+    <td width="20%" valign="top"><img src="screenshots/gate-final-mobile.jpg" alt="10 วินาทีสุดท้ายเป็นตัวเลขทอง / The last ten seconds as one gold number"><br><sub>10 วินาทีสุดท้าย<br>The last ten seconds</sub></td>
+    <td width="20%" valign="top"><img src="screenshots/card-signature-mobile.jpg" alt="ลายมือผู้ส่งบนการ์ดข้อความ / The sender's handwriting on the message card"><br><sub>ลายมือผู้ส่งเขียนขึ้นเอง<br>The handwriting writes itself</sub></td>
+  </tr>
+</table>
+
 ---
 
 <a id="th"></a>
@@ -86,9 +98,9 @@ A 3D birthday card sent as one link: the recipient walks into a dark room, flips
 
 | ขั้น | สิ่งที่ทำ |
 |---|---|
-| 1. ส่งให้ใคร | ชื่อผู้รับ (บังคับ), ชื่อผู้ส่ง, วันเกิด, ความสัมพันธ์ (เพื่อน คนรัก ครอบครัว เพื่อนร่วมงาน) ถ้าวันเกิดผ่านมาแล้วไม่เกิน 45 วัน ข้อความจะเป็นแบบอวยพรย้อนหลัง |
+| 1. ส่งให้ใคร | ชื่อผู้รับ (บังคับ), ชื่อผู้ส่ง, วันเกิด, ความสัมพันธ์ (เพื่อน คนรัก ครอบครัว เพื่อนร่วมงาน) ถ้าวันเกิดผ่านมาแล้วไม่เกิน 45 วัน ข้อความจะเป็นแบบอวยพรย้อนหลัง ถ้าวันเกิดยังมาไม่ถึง เปิดสวิตช์ **ล็อกไว้ เปิดได้ตอนเที่ยงคืนวันเกิด** ได้ |
 | 2. เลือกเค้ก | ลุคสำเร็จรูป 6 แบบ, ทรงเค้ก 5 แบบ, โทนสี 9 แบบ, ฉาก 7 แบบ, ท็อปเปอร์, จำนวนเทียนและท็อปปิ้ง, ครีม, จาน, สีกำหนดเอง |
-| 3. ข้อความและส่ง | หัวข้อ, ข้อความ, จดหมายในซอง (เปิดปิดได้), ลายมือ 3 แบบ, เพลง 3 โทน, ซอง 4 แบบ, ลิงก์รูป (ไม่บังคับ), ดูตัวอย่างแบบผู้รับ แล้วกดสร้างลิงก์ |
+| 3. ข้อความและส่ง | หัวข้อ, ข้อความ, ลายมือ 3 แบบ, **เซ็นชื่อด้วยนิ้ว** (ไม่บังคับ), เพลง 3 โทน, จดหมายในซอง (เปิดปิดได้) พร้อม **ปุ่มคำถามนำเรื่องความทรงจำ**, ซอง 4 แบบ, ลิงก์รูป (ไม่บังคับ), ดูตัวอย่างแบบผู้รับ แล้วกดสร้างลิงก์ |
 
 ร่างการ์ดบันทึกอัตโนมัติในเบราว์เซอร์ของผู้สร้าง ปิดหน้าไปแล้วกลับมาทำต่อได้
 
@@ -96,6 +108,7 @@ A 3D birthday card sent as one link: the recipient walks into a dark room, flips
 
 ```mermaid
 flowchart LR
+    L[ซองปิดผนึก<br>นับถอยหลังถึงเที่ยงคืน] -.->|ถ้าล็อกไว้| A
     A[ซองจดหมาย<br>เปิด หรือ เปิดแบบเงียบ] --> B[ห้องมืด<br>ตาปรับแสง คำใบ้ใน 1.1 วิ]
     B -->|แตะสวิตช์ หรืออัตโนมัติที่ 9 วิ| C[เปิดไฟ<br>เซอร์ไพรส์! พลุ คอนเฟตตี]
     C --> D[กล้องเคลื่อนไปที่โต๊ะ]
@@ -103,7 +116,7 @@ flowchart LR
     E --> F[อธิษฐาน]
     F --> G[เป่าเทียน<br>แตะ หรือใช้ไมค์]
     G --> H[ไฟสว่าง ลูกโป่งร่วง]
-    H --> I[การ์ดข้อความ<br>ขอบคุณ ดูอีกครั้ง บันทึกรูป]
+    H --> I[การ์ดข้อความ<br>ลายมือผู้ส่งเขียนขึ้นเอง<br>ขอบคุณ ดูอีกครั้ง บันทึกรูป]
 ```
 
 ฉากสตูดิโอแบบอื่นใช้ลำดับสั้นกว่า: ซองจดหมาย, กล้องเคลื่อนเข้าหาเค้กและจุดเทียน, อธิษฐาน, เป่าเทียน, ฉลอง, การ์ดข้อความ
@@ -119,6 +132,9 @@ flowchart LR
 | เค้ก 3 มิติ | 5 ทรง สร้างด้วยโค้ดทั้งหมด (ไม่มีไฟล์โมเดล): คลาสสิก 2 ชั้น, หัวใจวินเทจ, เบนโตะ, อลังการ 3 ชั้น, คริสตัลปริซึม เปลวเทียนเรืองแสงจริง |
 | ห้องเซอร์ไพรส์ | เฟอร์นิเจอร์ CC0 จาก Poly Haven, แสงเบคด้วย Cycles 2 ชุด (มืด และ ไฟปาร์ตี้), ลูกโป่งฟอยล์ HAPPY BIRTHDAY, ป้ายไฟชื่อผู้รับ (ตัวอักษรไทยถูกต้อง), ลูกโป่ง ไฟประดับ ธงราว ของขวัญ หมวก คอนเฟตตี 3 มิติ สีทั้งหมดตามโทนการ์ด รูปของการ์ดอยู่ในกรอบบนโต๊ะ |
 | ฉากอื่น | กลางคืน (ฉากเดิม) และฉากสตูดิโอสีอ่อน 5 แบบ: ชมพูพาสเทล ครีม ฟ้าใส มิ้นต์ ลาเวนเดอร์ |
+| ล็อกเที่ยงคืน | ส่งล่วงหน้าได้ ผู้รับเห็นซองปิดผนึกกับนาฬิกานับถอยหลัง (วัน ชั่วโมง นาที วินาที) 10 วินาทีสุดท้ายเป็นตัวเลขทองใหญ่ เที่ยงคืนตามเวลาของผู้รับกุญแจหลุด ซองเปล่งแสง คอนเฟตตีพุ่ง แล้วปุ่มเปิดขึ้นมา ห้องยังไม่โหลดจนเหลือ 3 นาที ดูตัวอย่างของผู้ส่งข้ามนับถอยหลังได้ |
+| ลายมือผู้ส่ง | เซ็นชื่อหรือวาดรูปเล็ก ๆ ด้วยนิ้ว เก็บเป็นเส้นในลิงก์ (ราว 100 ถึง 300 ไบต์ ไม่ใช่รูปภาพ) ผู้รับเห็นลายมือค่อย ๆ เขียนขึ้นใต้ข้อความในการ์ด ท้ายจดหมาย และบนการ์ดในกรอบรูปบนโต๊ะ |
+| คำถามนำ | ปุ่ม "ตอนเจอกันครั้งแรก" "สิ่งที่ชอบในตัวเธอ" "ขอบคุณที่…" ฯลฯ แทรกประโยคขึ้นต้นลงในจดหมาย (ชุดสุภาพสำหรับเพื่อนร่วมงาน) ให้ผู้ส่งเล่าเรื่องจริงแทนคำอวยพรทั่วไป |
 | เป่าเทียน | แตะที่เปลวไฟหรือที่เค้ก (เป้าแตะอย่างน้อย 44 px) กด Space/Enter ได้ ไมโครโฟนเป็นตัวเลือกและขออนุญาตก่อนเสมอ |
 | เสียง | สังเคราะห์ทั้งหมดด้วย Web Audio: เพลงแฮปปี้เบิร์ธเดย์ (ทำนองสาธารณสมบัติ) เสียงสวิตช์ พลุ เสียงห้อง เสียงเชียร์แบบไม่มีคำ มีลิมิตเตอร์กันเสียงดังกะทันหัน เพิ่มเสียงคนจริงได้ภายหลัง ([public/audio/README.md](public/audio/README.md)) |
 | ตอนจบ | ขอบคุณผู้ส่งผ่าน LINE, ดูเซอร์ไพรส์อีกครั้ง, บันทึกรูป 1080x1350 หรือ 1600x1200, สร้างการ์ดของตัวเอง |
@@ -156,6 +172,7 @@ npm run dev
 | `npm run build` | ตรวจ ESLint แล้ว build ไป `dist/` (lint มี error = build ล้ม) |
 | `npm run preview` | เสิร์ฟ `dist/` เพื่อทดสอบแบบ production |
 | `npm run lint` | ตรวจโค้ดด้วย ESLint |
+| `npm test` | ทดสอบตัวเข้ารหัสลิงก์และลายเซ็น (ลิงก์เก่ายังเปิดได้เหมือนเดิม ค่าใหม่ไม่หาย) |
 | `npm run icons` | สร้าง `src/styles/icons.css` ใหม่จากไอคอน `fa-*` ที่ใช้จริง (Vite ทำให้อัตโนมัติอยู่แล้ว) |
 | `npm run screenshots` | ถ่ายภาพหน้าจอทั้งชุดใน `screenshots/` จากเซิร์ฟเวอร์ที่รันอยู่ (ดู [CONTRIBUTING.md](CONTRIBUTING.md#screenshots)) |
 | `npm run room:fetch` | ดาวน์โหลดโมเดล CC0 จาก Poly Haven และวาดภาพเมืองกลางคืน (ต้องมี Python และ Pillow) |
@@ -173,9 +190,10 @@ src/
   main.js                  เราเตอร์ตามแฮช + ตัวกรองข้อมูลจากลิงก์ (sanitizer)
   card-link.js             เข้ารหัส/ถอดรหัสลิงก์ (v2.1, v2, v1, legacy)
   card-templates.js        ข้อความตั้งต้น 3 ภาษา
-  creator.js               หน้าสร้างการ์ด 3 ขั้น, แชร์, ร่างอัตโนมัติ
+  creator.js               หน้าสร้างการ์ด 3 ขั้น, ล็อกเที่ยงคืน, คำถามนำ, แชร์, ร่างอัตโนมัติ
+  signature.js             ลายเซ็น: แผ่นเซ็น, รูปแบบเส้นในลิงก์, เล่นซ้ำทีละเส้น
   creator-scene.js         พรีวิว 3 มิติของผู้สร้าง
-  viewer.js                ประสบการณ์ผู้รับทั้งหมด (ลำดับฉาก, เป่าเทียน, ตอนจบ)
+  viewer.js                ประสบการณ์ผู้รับทั้งหมด (นับถอยหลัง, ลำดับฉาก, เป่าเทียน, ตอนจบ)
   cake-models.js, cake/    ชุดประกอบเค้ก, เทียน, โมเดลละไฟล์
   backdrops.js             ฉากกลางคืนและสตูดิโอสีอ่อน
   room/                    ห้องเซอร์ไพรส์ (โหลด, วัสดุแสงเบค, ไฟ, ของตกแต่ง)
@@ -190,6 +208,7 @@ scripts/
   gen-icons.mjs            สร้าง icons.css
   screenshots.mjs          ถ่ายภาพหน้าจอทั้งชุด
   room/                    ท่อสร้างห้อง: ดาวน์โหลด, Blender, บีบอัด, เครดิต
+tests/                     ทดสอบตัวเข้ารหัสลิงก์ (node --test)
 screenshots/               ภาพในเอกสารนี้
 ```
 
@@ -216,6 +235,8 @@ screenshots/               ภาพในเอกสารนี้
 - **ข้อมูลทั้งหมดอยู่ในลิงก์** ชื่อ ข้อความ และการตั้งค่าอยู่ในแฮชของ URL ซึ่งเบราว์เซอร์ไม่ส่งไปที่เซิร์ฟเวอร์ ไม่มีฐานข้อมูล ไม่มีบัญชีผู้ใช้ ไม่มีระบบเก็บสถิติ ไม่มีคุกกี้
 - ใครก็ตามที่ได้ลิงก์จะอ่านการ์ดได้ ให้ถือว่าลิงก์คือตัวการ์ด
 - ข้อมูลที่เก็บในเครื่อง: ร่างการ์ดและภาษาที่เลือก (localStorage ของผู้สร้าง) และตำแหน่งตอนจบชั่วคราวเมื่อกดขอบคุณใน LINE (sessionStorage ของผู้รับ)
+- ลายเซ็นอยู่ในลิงก์เหมือนข้อความ (เก็บเป็นเส้น ไม่ใช่รูปภาพ) ใครมีลิงก์ก็เห็นลายมือนั้น
+- การล็อกเที่ยงคืนเป็นพิธีกรรม ไม่ใช่การป้องกัน ข้อความอยู่ในลิงก์อยู่แล้ว และการแก้นาฬิกาในเครื่องจะเปิดได้ก่อนเวลา
 - ไมโครโฟนเปิดเมื่อผู้รับยินยอมเท่านั้น เสียงถูกวิเคราะห์ในหน่วยความจำ ไม่บันทึกและไม่ส่งไปไหน
 - ถ้าผู้สร้างใส่ลิงก์รูป เบราว์เซอร์ของผู้รับจะโหลดรูปจากเว็บนั้นโดยตรง (ไม่ส่ง referrer) เว็บเจ้าของรูปจึงเห็นการเข้าถึงนั้น
 - รายละเอียดด้านความปลอดภัยอยู่ใน [SECURITY.md](SECURITY.md)
@@ -241,7 +262,8 @@ screenshots/               ภาพในเอกสารนี้
 | ทดสอบบนเครื่องจริง | ทุกตัวเลขมาจาก Chromium จำลองบน Windows ยังไม่ได้ทดสอบ iPhone และ Android จริง | ชุดทดสอบ iPhone SE, iPhone รุ่นใหม่, Android กลางและล่าง, ในแอป LINE | QA |
 | เว็บจริง | ขึ้นแล้วที่ https://gubbitkeytoday.github.io/hbd-3d-craft/ (GitHub Pages, deploy อัตโนมัติเมื่อ push ขึ้น `main`) | ทดสอบลิงก์ใน LINE บนมือถือจริง | IT |
 | เสียงคนจริง | ยังไม่มี ใช้เสียงเชียร์แบบไม่มีคำ | อัดเสียง "เซอร์ไพรส์!" และเสียงเชียร์ตาม [public/audio/README.md](public/audio/README.md) | PD, MKT/BD |
-| ชุดทดสอบอัตโนมัติ | มี lint และ build ใน CI เท่านั้น | เพิ่มทดสอบ codec ลิงก์และทดสอบผ่านเบราว์เซอร์ | RD/Tech Lead, QA |
+| ชุดทดสอบอัตโนมัติ | ทดสอบ codec ลิงก์และลายเซ็น (`npm test`), lint และ build ใน CI | เพิ่มทดสอบผ่านเบราว์เซอร์ (หน้าสร้างการ์ด, นับถอยหลัง, ทุกฉาก) | RD/Tech Lead, QA |
+| ลายเซ็นและล็อกบนเครื่องจริง | ทดสอบด้วย Chromium จำลองมือถือเท่านั้น | เซ็นด้วยนิ้วบน iPhone และ Android ในแอป LINE (แผ่นเซ็นต้องไม่เลื่อนหน้า) และเปิดการ์ดที่ล็อกก่อนและหลังเที่ยงคืน | QA |
 
 ---
 
@@ -279,9 +301,9 @@ New cards default to the **surprise room**, a Bangkok condo living room at night
 
 | Step | What happens |
 |---|---|
-| 1. Who's it for? | Recipient name (required), sender, birthday, relation (friend, partner, family, colleague). A birthday up to 45 days ago switches the wording to belated. |
+| 1. Who's it for? | Recipient name (required), sender, birthday, relation (friend, partner, family, colleague). A birthday up to 45 days ago switches the wording to belated; a birthday still ahead offers **Lock it until midnight on their birthday**. |
 | 2. Pick the cake | 6 one-tap looks, 5 cake shapes, 9 moods, 7 backdrops, topper, candle and topping counts, frosting, plate, custom colours. |
-| 3. Message and send | Title, message, optional sealed letter, 3 handwriting styles, 3 music timbres, 4 envelopes, optional photo link, recipient preview, then the share sheet. |
+| 3. Message and send | Title, message, 3 handwriting styles, an optional **finger-drawn signature**, 3 music timbres, optional sealed letter with **memory prompts**, 4 envelopes, optional photo link, recipient preview, then the share sheet. |
 
 The draft autosaves in the creator's browser.
 
@@ -289,6 +311,7 @@ The draft autosaves in the creator's browser.
 
 ```mermaid
 flowchart LR
+    L[Sealed envelope<br>countdown to midnight] -.->|when locked| A
     A[Envelope<br>Open or Open quietly] --> B[Dark room<br>eyes adapt, hint at 1.1 s]
     B -->|tap the switch, or auto at 9 s| C[Lights on<br>SURPRISE, poppers, confetti]
     C --> D[Camera glides to the table]
@@ -296,7 +319,7 @@ flowchart LR
     E --> F[Make a wish]
     F --> G[Blow out the candles<br>tap, or opt-in mic]
     G --> H[Lights back, balloon drop]
-    H --> I[Message card<br>thank, replay, save photo]
+    H --> I[Message card<br>the sender's handwriting writes itself<br>thank, replay, save photo]
 ```
 
 The studio backdrops use the shorter classic flow: envelope, establishing move and candles, wish, blow, celebration, message.
@@ -310,6 +333,9 @@ The studio backdrops use the shorter classic flow: envelope, establishing move a
 | 3D cakes | Five procedurally built models (no model files): classic 2-tier, vintage heart, Korean bento, grand 3-tier, crystal prism. Additive, blooming candle flames. |
 | Surprise room | CC0 Poly Haven furniture, two Cycles lightmap sets (dark, party), foil HAPPY BIRTHDAY balloons, an LED name sign with correct Thai shaping, balloons, fairy lights, bunting, gifts, hats and 3D confetti, all in the card's palette; the card photo stands in a frame on the table. |
 | Other backdrops | Night (the original stage) and five pale studio sweeps: blush, cream, sky, mint, lavender. |
+| Midnight lock | Send it early: the recipient sees a sealed envelope with a countdown (days, hours, minutes, seconds; one big gold number for the last ten). At 00:00 their time the padlock shakes loose, the seal flares, confetti bursts and the Open buttons rise. The room only starts loading 3 minutes before. The sender's preview can skip the countdown. |
+| The sender's handwriting | Sign or doodle with a finger; the strokes travel in the link (about 100 to 300 bytes, not an image) and write themselves, stroke by stroke, under the card's message, at the end of the letter and on the framed print on the table. |
+| Memory prompts | "The day we met", "What I love about you", "Thank you for…" and more insert a sentence starter into the letter (a politer set for colleagues), so the letter tells a real story instead of a generic wish. |
 | Blowing candles | Tap a flame or the cake (targets at least 44 px), or Space / Enter. The microphone is opt-in behind an explainer. |
 | Sound | All synthesized with Web Audio: Happy Birthday (public-domain melody), switch click, poppers, room tone, wordless crowd, through a limiter so nothing is ever startlingly loud. Real voice clips can be dropped in later ([public/audio/README.md](public/audio/README.md)). |
 | End actions | Thank the sender on LINE, watch the surprise again, save a 1080x1350 or 1600x1200 photo, make your own card. |
@@ -345,6 +371,7 @@ The microphone needs `https` or `localhost`. To try a real phone, run `npm run d
 | `npm run build` | ESLint, then a production build into `dist/` (a lint error fails the build) |
 | `npm run preview` | Serves `dist/` for a production check |
 | `npm run lint` | ESLint only |
+| `npm test` | Link and signature codec tests (old links decode unchanged, new fields survive) |
 | `npm run icons` | Regenerates `src/styles/icons.css` from the `fa-*` classes in use (Vite also does this on start, edit and build) |
 | `npm run screenshots` | Regenerates every image in `screenshots/` from a running server (see [CONTRIBUTING.md](CONTRIBUTING.md#screenshots)) |
 | `npm run room:fetch` | Downloads the CC0 Poly Haven assets and paints the night-city image (needs Python with Pillow) |
@@ -362,9 +389,10 @@ src/
   main.js                  hash router + share-link sanitizer
   card-link.js             link codec (v2.1, v2, v1, legacy)
   card-templates.js        starter wording in three languages
-  creator.js               3-step creator, share sheet, draft autosave
+  creator.js               3-step creator, midnight lock, memory prompts, share sheet, draft autosave
+  signature.js             handwriting: pad, link stroke format, stroke-by-stroke replay
   creator-scene.js         the creator's live 3D preview
-  viewer.js                the recipient experience (beats, candles, end actions)
+  viewer.js                the recipient experience (countdown, beats, candles, end actions)
   cake-models.js, cake/    cake kit, candles, one file per model
   backdrops.js             night and pale studio backdrops
   room/                    surprise room (loader, baked materials, rig, party props)
@@ -379,6 +407,7 @@ scripts/
   gen-icons.mjs            icons.css generator
   screenshots.mjs          documentation screenshots
   room/                    room pipeline: fetch, Blender, optimize, credits
+tests/                     link codec tests (node --test)
 screenshots/               images used in these docs
 ```
 
@@ -405,6 +434,8 @@ These versions follow from features the code relies on (CSS `:has()`, `Decompres
 - **All card data lives in the link.** Names, message and settings sit in the URL fragment, which browsers never send to a server. No database, no accounts, no analytics, no cookies.
 - Anyone who has the link can read the card: treat the link as the card.
 - Stored locally: the creator's draft and language (localStorage on the sender's device) and a short-lived end-screen marker when the recipient thanks the sender from LINE (sessionStorage).
+- The signature is in the link like the message (stored as strokes, not an image): anyone with the link sees the handwriting.
+- The midnight lock is a ceremony, not protection: the message is already in the link, and changing the device clock opens it early.
 - The microphone opens only after the recipient agrees; audio is analysed in memory, never recorded or sent.
 - A photo link makes the recipient's browser fetch that image from its host (without a referrer), so that host sees the request.
 - Security details: [SECURITY.md](SECURITY.md).
@@ -430,7 +461,8 @@ These versions follow from features the code relies on (CSS `:has()`, `Decompres
 | Real-device checks | Every number comes from emulated Chromium on Windows; no real iPhone or Android run yet | Device pass: iPhone SE, a current iPhone, mid and low Android, inside LINE | QA |
 | Live site | Live at https://gubbitkeytoday.github.io/hbd-3d-craft/ (GitHub Pages, auto-deployed on every push to `main`) | Test links inside LINE on real phones | IT |
 | Real voices | None yet; the crowd is wordless | Record "เซอร์ไพรส์!" and the cheer per [public/audio/README.md](public/audio/README.md) | PD, MKT/BD |
-| Automated tests | Lint and build in CI only | Link-codec unit tests and a browser smoke test | RD/Tech Lead, QA |
+| Automated tests | Link and signature codec tests (`npm test`), lint and build in CI | A browser smoke test (creator, countdown, every beat) | RD/Tech Lead, QA |
+| Signature and lock on real devices | Checked in emulated phone Chromium only | Sign with a finger on iPhone and Android inside LINE (the pad must not scroll the page); open a locked card before and after midnight | QA |
 
 ---
 

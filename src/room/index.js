@@ -38,6 +38,7 @@ import { ROOM, ROOM_SCALE, TABLE, CAKE_SPOT, LETTERS, SIGN, PORTRAIT, shotsWorld
 import { createRig } from './rig.js';
 import { createBakeUniforms } from './materials.js';
 import { createCity, createSwitch, createGreybox } from './shell.js';
+import { drawSignature, strokesFromString } from '../signature.js';
 import { balloonGeometry, createLatexMaterial, createBalloonClusters, createBalloonDrop } from './party/balloons.js';
 import { buildLetterRow, createFoilMaterial } from './party/foil-letters.js';
 import { createFairyLights, createBunting, createNameSign, createGifts, createHats, catenary } from './party/decor.js';
@@ -104,68 +105,89 @@ function yieldToMain() {
 /**
  * What the frame shows without a card photo: a printed greeting card on
  * cream stock (theme ink), not a blurred "failed image". Name and sender are
- * drawn by the browser in the page's Noto Sans Thai.
+ * drawn by the browser in the page's Noto Sans Thai, and the sender's
+ * handwriting, when the card has it, is signed under the name. paint() can
+ * run again (the creator preview repaints the signature as it is drawn); the
+ * dots are seeded so a repaint never reshuffles them.
  */
-function paintPhotoPlaceholder(colors, name, sender) {
+function createPrint(colors, name, sender) {
     const W = 512;
     const H = 640;
     const c = document.createElement('canvas');
     c.width = W;
     c.height = H;
     const ctx = c.getContext('2d');
+    const texture = new THREE.CanvasTexture(c);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = 4;
     const hex = (v) => '#' + new THREE.Color(v).getHexString();
     // Ink: the darkest of the theme's paper colours, so it reads on cream.
-    const ink = [...colors].sort((a, b) => new THREE.Color(a).getHSL({}).l - new THREE.Color(b).getHSL({}).l)[0];
-    const accent = colors[0];
-    ctx.fillStyle = '#f5eee3';
-    ctx.fillRect(0, 0, W, H);
-    // Paper tooth
-    for (let i = 0; i < 1400; i++) {
-        ctx.fillStyle = `rgba(90,70,50,${Math.random() * 0.05})`;
-        ctx.fillRect(Math.random() * W, Math.random() * H, 1.5, 1.5);
-    }
-    ctx.strokeStyle = hex(accent);
-    ctx.lineWidth = 6;
-    // The frame's mat hides ~12 % at each edge: keep everything inside.
-    ctx.strokeRect(70, 80, W - 140, H - 160);
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(84, 94, W - 168, H - 188);
-    // Confetti dots
-    for (let i = 0; i < 38; i++) {
-        ctx.fillStyle = hex(colors[i % colors.length]);
-        ctx.globalAlpha = 0.75;
-        const x = 110 + Math.random() * (W - 220);
-        const y = Math.random() < 0.5 ? 120 + Math.random() * 70 : H - 190 + Math.random() * 70;
-        ctx.beginPath();
-        ctx.arc(x, y, 3 + Math.random() * 5, 0, Math.PI * 2);
-        ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = hex(ink);
-    ctx.font = '600 26px "Outfit", sans-serif';
-    ctx.fillText('HAPPY BIRTHDAY', W / 2, 232);
+    const ink = hex([...colors].sort((a, b) => new THREE.Color(a).getHSL({}).l - new THREE.Color(b).getHSL({}).l)[0]);
+    const accent = hex(colors[0]);
     const who = String(name || '').trim().slice(0, 18);
-    const big = who || 'HBD';
-    let size = 120;
-    ctx.font = `700 ${size}px "Noto Sans Thai", "Outfit", sans-serif`;
-    while (ctx.measureText(big).width > W - 210 && size > 40) {
-        size -= 6;
-        ctx.font = `700 ${size}px "Noto Sans Thai", "Outfit", sans-serif`;
-    }
-    ctx.fillStyle = hex(accent);
-    ctx.fillText(big, W / 2, 322);
     const from = String(sender || '').trim().slice(0, 24);
-    if (from) {
-        ctx.fillStyle = hex(ink);
-        ctx.font = '500 30px "Noto Sans Thai", "Outfit", sans-serif';
-        ctx.fillText(`จาก ${from}`, W / 2, 432);
-    }
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 4;
-    return t;
+
+    const paint = (signature = '') => {
+        const rand = mulberry32(hashString(`print|${who}|${from}`));
+        const strokes = strokesFromString(signature);
+        const signed = strokes.length > 0;
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#f5eee3';
+        ctx.fillRect(0, 0, W, H);
+        // Paper tooth
+        for (let i = 0; i < 1400; i++) {
+            ctx.fillStyle = `rgba(90,70,50,${rand() * 0.05})`;
+            ctx.fillRect(rand() * W, rand() * H, 1.5, 1.5);
+        }
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 6;
+        // The frame's mat hides ~12 % at each edge: keep everything inside.
+        ctx.strokeRect(70, 80, W - 140, H - 160);
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(84, 94, W - 168, H - 188);
+        // Confetti dots (a signature takes the lower band's place)
+        for (let i = 0; i < 38; i++) {
+            ctx.fillStyle = hex(colors[i % colors.length]);
+            ctx.globalAlpha = 0.75;
+            const x = 110 + rand() * (W - 220);
+            const top = rand() < 0.5;
+            const y = top ? 120 + rand() * 70 : signed ? 512 + rand() * 18 : H - 190 + rand() * 70;
+            const r = 3 + rand() * 5;
+            ctx.beginPath();
+            ctx.arc(x, y, signed && !top ? r * 0.7 : r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = ink;
+        ctx.font = '600 26px "Outfit", sans-serif';
+        ctx.fillText('HAPPY BIRTHDAY', W / 2, 232);
+        const big = who || 'HBD';
+        let size = 120;
+        ctx.font = `700 ${size}px "Noto Sans Thai", "Outfit", sans-serif`;
+        while (ctx.measureText(big).width > W - 210 && size > 40) {
+            size -= 6;
+            ctx.font = `700 ${size}px "Noto Sans Thai", "Outfit", sans-serif`;
+        }
+        ctx.fillStyle = accent;
+        ctx.fillText(big, W / 2, 322);
+        if (signed) {
+            if (from) {
+                ctx.fillStyle = ink;
+                ctx.font = '500 22px "Noto Sans Thai", "Outfit", sans-serif';
+                ctx.fillText(`จาก ${from}`, W / 2, 404);
+            }
+            drawSignature(ctx, strokes, { x: 128, y: from ? 420 : 400, w: W - 256, h: from ? 84 : 100 }, { color: ink, weight: 1.6 });
+        } else if (from) {
+            ctx.fillStyle = ink;
+            ctx.font = '500 30px "Noto Sans Thai", "Outfit", sans-serif';
+            ctx.fillText(`จาก ${from}`, W / 2, 432);
+        }
+        texture.needsUpdate = true;
+    };
+    paint();
+    return { texture, paint };
 }
 
 /** Dark-state lift of the DARK lightmap (see applyState). */
@@ -366,7 +388,11 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
 
     await step(0.34, 'gifts');
     // Picture frame on the table (the card's photo when there is one).
-    const photoTex = paintPhotoPlaceholder(pal.paper, config.recipientName, config.sender);
+    const print = createPrint(pal.paper, config.recipientName, config.sender);
+    let printSignature = config.signature || '';
+    if (printSignature) print.paint(printSignature);
+    const photoTex = print.texture;
+    let photoShown = false;
     const photoMat = new THREE.MeshStandardMaterial({ map: photoTex, color: 0xd6d0c8, roughness: 0.7 });
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x6b4a33, roughness: 0.45 });
     trackEnv(photoMat, 0.6);
@@ -392,6 +418,7 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
             if (disposed) return;
             photoTex.image = coverCrop(img, 512, 640);
             photoTex.needsUpdate = true;
+            photoShown = true;
         };
         img.src = config.photo;
     }
@@ -771,6 +798,12 @@ export async function createPartyRoom({ renderer, scene, camera, quality = 1, co
             applyState();
         },
         seatCake,
+        /** Repaints the frame print with the sender's handwriting (no-op over a photo). */
+        setSignature(signature = '') {
+            if (disposed || photoShown || signature === printSignature) return;
+            printSignature = signature;
+            print.paint(signature);
+        },
         /** Resolves once the reflection captures are in (the room is already renderable). */
         ready,
         get envMap() { return envMap; },

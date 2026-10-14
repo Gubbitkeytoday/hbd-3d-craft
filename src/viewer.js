@@ -32,6 +32,7 @@ import { buildCakeModel, getCakeLayout, disposeCakeGroup } from './cake-models.j
 import { buildCandles } from './cake/candles.js';
 import { applyBackdrop, backdropCss, createContactShadow, fitContactShadow, paintBackdrop, resolveBackdrop } from './backdrops.js';
 import { loadCardFont } from './fonts.js';
+import { playSignature, strokesFromString } from './signature.js';
 import { createAudioEngine } from './audio/engine.js';
 import { createSong, SONG_LENGTH, LYRIC_STARTS } from './audio/song.js';
 import * as cues from './audio/cues.js';
@@ -202,6 +203,22 @@ let songStartedAt = 0;         // performance.now() fallback clock for lyrics
 let lyricIndex = -1;
 const mic = { state: 'off', stream: null, analyser: null, data: null, floor: 0, samples: [], calibrating: false, above: 0, cadence: 0 };
 
+// Midnight lock: the gate waits with a countdown until 00:00 on the unlock
+// day, on the recipient's own clock. The room only starts loading close to it.
+const LOCK_PREP_LEAD_MS = 3 * 60 * 1000;
+const LOCK_MAX_DAYS = 400;     // a further date is not something the creator makes
+let lockAt = 0;                // ms timestamp of the unlock, 0 = open
+let lockTimer = 0;
+let prepStarted = false;
+let isPreview = false;         // the sender's own preview (#...?preview=1) may skip the wait
+let gateEyebrowKey = 'rcvEyebrow';
+
+// The sender's handwriting (signature.js strokes), replayed on the card and the letter.
+let sigStrokes = [];
+let cardSigCancel = null;
+let letterSigCancel = null;
+let letterSigShown = false;
+
 let focusBeforeCard = null;
 let letterTimer = 0;
 let letterSegments = null;
@@ -367,6 +384,11 @@ export function initViewer(config) {
     muted = false;
     quietMode = false;
     decorEnabled = true;
+    sigStrokes = strokesFromString(activeConfig.signature);
+    isPreview = /[?&]preview=1(?:&|$)/.test(window.location.hash);
+    lockAt = lockTimestamp(activeConfig.lockDate);
+    prepStarted = false;
+    gateEyebrowKey = 'rcvEyebrow';
 
     // The card's typeface downloads while the gate is read (on-demand font).
     loadCardFont(activeConfig.font || 'outfit');
@@ -384,19 +406,36 @@ export function initViewer(config) {
         });
     }
 
+    if (lockAt) {
+        // A sealed card: no room download for a birthday days away.
+        enterLock();
+        return;
+    }
+    startPreparation();
+    // Back from the LINE thank-you: the end screen, not the gate again.
+    if (takeResume()) resumeAtEnd();
+}
+
+/** Builds the scene behind the gate (once per card). */
+function startPreparation() {
+    if (prepStarted) return;
+    prepStarted = true;
     const token = ++prepToken;
     sceneReady = prepareScene(token).catch((err) => {
         console.error('[viewer] 3D scene failed, showing the card without it:', err);
         return false;
     });
-    // Back from the LINE thank-you: the end screen, not the gate again.
-    if (takeResume()) resumeAtEnd();
 }
 
 export function destroyViewer() {
     prepToken++;
     phase = 'idle';
     clearTimers();
+    clearTimeout(lockTimer);
+    lockAt = 0;
+    document.removeEventListener('visibilitychange', tickLock);
+    cardSigCancel?.();
+    letterSigCancel?.();
     anime.remove([dim, glow, spin, shift, roomLight, roomDim, exposureKick, lens, adapt]);
     if (camera) anime.remove(camera.position);
     if (controls) anime.remove(controls.target);
@@ -551,6 +590,7 @@ function bindDomOnce() {
     });
     $('btn-open-envelope')?.addEventListener('click', () => onOpenClick(false));
     $('btn-open-quiet')?.addEventListener('click', () => onOpenClick(true));
+    $('btn-lock-peek')?.addEventListener('click', () => unlock());
     $('rcv-switch')?.addEventListener('click', () => flipSwitch(false));
     $('btn-dark-skip')?.addEventListener('click', () => flipSwitch(false));
     $('btn-skip-song')?.addEventListener('click', endSong);
@@ -617,6 +657,13 @@ function resetDom() {
         gate.classList.remove('is-leaving');
         gate.inert = false;
     }
+    gate?.querySelector('.rcv-gate-card')?.classList.remove('is-locked', 'is-unlocking', 'is-unlocked');
+    const lockBox = $('rcv-lock');
+    if (lockBox) lockBox.hidden = true;
+    const openBox = $('rcv-gate-open');
+    if (openBox) openBox.hidden = false;
+    const lockLive = $('rcv-lock-live');
+    if (lockLive) lockLive.textContent = '';
     const btn = $('btn-open-envelope');
     if (btn) {
         btn.dataset.state = 'loading';
@@ -670,7 +717,7 @@ async function loadPoster(gate) {
             img.src = url;
             await img.decode().catch(() => {});
         }
-        mod.prefetchPartyRoom?.();
+        if (!lockAt || lockAt - Date.now() <= LOCK_PREP_LEAD_MS) mod.prefetchPartyRoom?.();
     } catch { /* the CSS gradient stays */ }
 }
 
@@ -686,7 +733,8 @@ function translateReceiver() {
 
     // Gate
     const eyebrow = $('rcv-gate-eyebrow');
-    if (eyebrow) eyebrow.textContent = t('rcvEyebrow');
+    if (eyebrow) eyebrow.textContent = t(gateEyebrowKey);
+    if (lockAt) renderLock();
     fillTemplate($('rcv-gate-headline'), sender ? 'rcvGateHeadline' : 'rcvGateHeadlineAnon', { name, sender });
     const seal = $('rcv-seal-initial');
     if (seal) seal.textContent = firstGrapheme(sender) || '🎂';
@@ -2233,7 +2281,7 @@ function spawnEmbers(dt) {
 // ---------------------------------------------------------------------------
 
 function onOpenClick(quiet) {
-    if (phase !== 'gate' || opening) return;
+    if (phase !== 'gate' || opening || lockAt) return;
     opening = true;
     // Quiet: everything plays, silently, until the speaker is tapped (then a
     // 1.5 s fade-in). The surprise is carried by light, text and vibration.
@@ -2283,6 +2331,150 @@ function leaveGate() {
     gate.classList.add('is-leaving');
     gate.inert = true;
     later(() => gate.classList.remove('active-gate', 'is-leaving'), ms(500) + 20);
+}
+
+// ---------------------------------------------------------------------------
+// Midnight lock: a sealed envelope and a countdown until 00:00 on the day
+// ---------------------------------------------------------------------------
+
+/** 00:00 on `iso` in the recipient's time zone, or 0 when the card is open. */
+function lockTimestamp(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    if (!m) return 0;
+    const at = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+    const left = at - Date.now();
+    return left > 0 && left <= LOCK_MAX_DAYS * 86400000 ? at : 0;
+}
+
+function enterLock() {
+    const card = document.querySelector('.rcv-gate-card');
+    card?.classList.add('is-locked');
+    const box = $('rcv-lock');
+    if (box) box.hidden = false;
+    // The open buttons are not merely invisible: they leave the tab order too.
+    const open = $('rcv-gate-open');
+    if (open) open.hidden = true;
+    const peek = $('btn-lock-peek');
+    if (peek) peek.hidden = !isPreview;
+    renderLock();
+    // Timers are throttled in background tabs; catch up the moment it shows.
+    document.addEventListener('visibilitychange', tickLock);
+    tickLock();
+}
+
+function lockDateLabel() {
+    const d = new Date(lockAt);
+    const lang = getCurrentLang();
+    const locale = lang === 'th' ? 'th-TH' : lang === 'ja' ? 'ja-JP' : 'en-GB';
+    try {
+        return new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
+    } catch {
+        return d.toDateString();
+    }
+}
+
+/** Static lock copy (re-run on language change). */
+function renderLock() {
+    if (!lockAt) return;
+    setHeadingText($('rcv-lock-when'), t('rcvLockWhen', { date: lockDateLabel() }));
+    for (const [unit, key] of [['d', 'rcvLockDays'], ['h', 'rcvLockHours'], ['m', 'rcvLockMinutes'], ['s', 'rcvLockSeconds']]) {
+        const label = $(`rcv-cd-${unit}-label`);
+        if (label) label.textContent = t(key);
+    }
+    const note = $('rcv-lock-note');
+    if (note) note.textContent = t('rcvLockNote');
+    const peek = $('btn-lock-peek');
+    if (peek) peek.textContent = t('rcvLockPeek');
+    renderCountdown(lockAt - Date.now());
+}
+
+function renderCountdown(leftMs) {
+    const total = Math.max(0, Math.ceil(leftMs / 1000));
+    const d = Math.floor(total / 86400);
+    const h = Math.floor((total % 86400) / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const sec = total % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    const set = (unit, text) => {
+        const el = $(`rcv-cd-${unit}`);
+        if (el && el.textContent !== text) el.textContent = text;
+    };
+    set('d', String(d));
+    set('h', pad(h));
+    set('m', pad(m));
+    set('s', total <= 10 ? String(sec) : pad(sec));
+    const box = $('rcv-countdown');
+    if (!box) return;
+    box.dataset.days = d > 0 ? 'yes' : 'no';
+    // The last ten seconds: one big number, a beat on every second.
+    const final = total <= 10;
+    box.classList.toggle('is-final', final);
+    if (final && !reduceMotion) {
+        const num = $('rcv-cd-s');
+        num?.classList.remove('is-beat');
+        void num?.offsetWidth;
+        num?.classList.add('is-beat');
+    }
+    const parts = [];
+    if (d) parts.push(`${d} ${t('rcvLockDays')}`);
+    if (d || h) parts.push(`${h} ${t('rcvLockHours')}`);
+    parts.push(`${m} ${t('rcvLockMinutes')}`);
+    box.setAttribute('aria-label', t('rcvLockTimer', { left: parts.join(' ') }));
+}
+
+function tickLock() {
+    clearTimeout(lockTimer);
+    if (!lockAt || document.hidden) return;
+    const left = lockAt - Date.now();
+    if (left <= 0) {
+        unlock();
+        return;
+    }
+    if (left <= LOCK_PREP_LEAD_MS) startPreparation();
+    renderCountdown(left);
+    // Wake exactly when the shown second changes.
+    lockTimer = setTimeout(tickLock, (left % 1000 || 1000) + 15);
+}
+
+/** Midnight (or the sender's preview skipping ahead): the seal opens. */
+function unlock() {
+    if (!lockAt) return;
+    lockAt = 0;
+    clearTimeout(lockTimer);
+    document.removeEventListener('visibilitychange', tickLock);
+    startPreparation();
+    gateEyebrowKey = 'rcvLockOpenNow';
+    const card = document.querySelector('.rcv-gate-card');
+    const live = $('rcv-lock-live');
+    if (live) live.textContent = t('rcvLockOpenNow');
+    const finish = () => {
+        const box = $('rcv-lock');
+        if (box) box.hidden = true;
+        const open = $('rcv-gate-open');
+        if (open) open.hidden = false;
+        card?.classList.remove('is-locked', 'is-unlocking');
+        card?.classList.add('is-unlocked');
+        const eyebrow = $('rcv-gate-eyebrow');
+        if (eyebrow) eyebrow.textContent = t(gateEyebrowKey);
+        updateOpenLabel();
+        $('btn-open-envelope')?.focus({ preventScroll: true });
+    };
+    if (reduceMotion) {
+        finish();
+        return;
+    }
+    card?.classList.add('is-unlocking');
+    // Vibration needs an earlier tap on the page (Chrome logs a warning otherwise).
+    if (navigator.userActivation?.hasBeenActive !== false) haptic([0, 40, 70, 40]);
+    const seal = document.querySelector('.rcv-seal')?.getBoundingClientRect();
+    if (seal) {
+        confetti({
+            particleCount: 80, spread: 90, startVelocity: 30, ticks: 170, scalar: 0.9, gravity: 0.9,
+            origin: { x: (seal.left + seal.width / 2) / window.innerWidth, y: (seal.top + seal.height / 2) / window.innerHeight },
+            colors: themeCssColors()
+        });
+    }
+    later(finish, 700);
 }
 
 function startReveal() {
@@ -3229,6 +3421,11 @@ function fillCard() {
         if (sender) fillTemplate(sig, 'rcvSignedBy', { sender });
         else sig.textContent = t('rcvSignedAnon');
     }
+    const hand = $('rcv-card-sig');
+    if (hand) {
+        hand.hidden = !sigStrokes.length;
+        hand.setAttribute('aria-label', sender ? t('rcvSigLabel', { sender }) : t('rcvSigLabelAnon'));
+    }
 
     const text = $('rcv-card-text');
     if (text) {
@@ -3274,6 +3471,30 @@ function openCard() {
     // Move focus to the heading once the sheet is on screen.
     later(() => $('view-title')?.focus({ preventScroll: true }), ms(350));
     updateCardShift(700);
+    // The sender's handwriting writes itself under the message, every time
+    // the card opens (after the sheet has slid in).
+    playHandwriting($('rcv-card-sig'), (c) => (cardSigCancel = c), ms(650));
+}
+
+const inkProbe = typeof document !== 'undefined' ? document.createElement('canvas').getContext('2d') : null;
+
+/** An element's text colour as a canvas colour (computed values such as
+ *  color(srgb ...) from color-mix are not parsed everywhere). */
+function inkOf(el, fallback) {
+    if (!inkProbe || !el) return fallback;
+    inkProbe.strokeStyle = fallback;
+    try { inkProbe.strokeStyle = getComputedStyle(el).color; } catch { /* keep the fallback */ }
+    return inkProbe.strokeStyle;
+}
+
+function playHandwriting(canvas, keepCancel, delay = 0, inkFrom = canvas) {
+    if (!canvas || canvas.hidden || !sigStrokes.length) return;
+    const cancel = playSignature(canvas, sigStrokes, {
+        color: inkOf(inkFrom, '#9b2f55'),
+        animate: !reduceMotion,
+        delay
+    });
+    keepCancel(cancel);
 }
 
 function updateCardShift(duration) {
@@ -3290,6 +3511,7 @@ function closeCard(restoreFocus = true) {
     const card = $('rcv-card');
     if (!card?.classList.contains('is-open')) return;
     setOpen(card, false);
+    cardSigCancel?.();
     $('btn-hud-card')?.setAttribute('aria-expanded', 'false');
     if (camera) {
         tweenShift(0, 0, 600);
@@ -3547,6 +3769,14 @@ function showLetter() {
     if (body) body.textContent = '';
     const sr = $('letter-popup-sr');
     if (sr) sr.textContent = '';
+    letterSigCancel?.();
+    letterSigShown = false;
+    const hand = $('letter-sig');
+    if (hand) {
+        hand.hidden = true;
+        const sender = senderName();
+        hand.setAttribute('aria-label', sender ? t('rcvSigLabel', { sender }) : t('rcvSigLabelAnon'));
+    }
     const hint = $('letter-open-hint');
     if (hint) hint.classList.add('is-visible');
     overlay.classList.add('active');
@@ -3605,6 +3835,19 @@ function finishLetterTyping() {
     const body = $('letter-popup-body');
     if (body && activeConfig) body.textContent = activeConfig.letterBody || '';
     letterSegments = null;
+    signLetter();
+}
+
+/** The letter ends in the sender's own hand, written once the text is in. */
+function signLetter() {
+    const hand = $('letter-sig');
+    if (letterSigShown || !hand || !sigStrokes.length) return;
+    letterSigShown = true;
+    hand.hidden = false;
+    // Bring the signing spot into view (the body and the paper both scroll).
+    hand.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+    // Same ink as the letter's text, whatever the paper theme.
+    playHandwriting(hand, (c) => (letterSigCancel = c), ms(250), $('letter-popup-body') || hand);
 }
 
 function closeLetter(restoreFocus) {
@@ -3612,6 +3855,7 @@ function closeLetter(restoreFocus) {
     if (!overlay?.classList.contains('active')) return;
     if (letterTimer) clearInterval(letterTimer);
     letterTimer = 0;
+    letterSigCancel?.();
     overlay.classList.remove('active');
     overlay.inert = true;
     $('letter-envelope-container')?.classList.remove('open');

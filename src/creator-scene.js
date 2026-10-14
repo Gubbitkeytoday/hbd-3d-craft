@@ -72,6 +72,7 @@ let callbacks = {};
 // 'party' backdrop: the real surprise room around the cake, lit (src/room/,
 // loaded on demand). The classic stage stays until the room is ready.
 let partyRoom = null;       // createPartyRoom() result
+let partySignature = '';    // latest signature (repainted on the frame print)
 let partyKey = '';          // config parts the room is built from
 let partyWanted = false;    // current config asks for the room
 let partyLoading = false;   // a build is in flight
@@ -348,6 +349,9 @@ function partyKeyOf(config) {
  * another backdrop is chosen.
  */
 function syncPartyRoom(config) {
+    // The handwriting only repaints the frame print; it never rebuilds the room.
+    partySignature = config.signature || '';
+    partyRoom?.setSignature?.(partySignature);
     partyWanted = backdropOf(config) === 'party';
     clearTimeout(partyTimer);
     if (!partyWanted) {
@@ -391,6 +395,7 @@ async function buildPartyRoom(config) {
         }
         partyRoom = built;
         partyKey = partyKeyOf(config);
+        partyRoom.setSignature?.(partySignature);
         partyRoom.setLights(1);
         partyRoom.setDim(0);
         partyRoom.setCandles(1);

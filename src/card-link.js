@@ -27,7 +27,11 @@ const CONTENT_DEFAULTS = {
     letterTitle: '',
     letterBody: '',
     topperText: '',
-    photo: ''
+    photo: '',
+    // Hand-drawn signature (signature.js strokes, base64url) and the date the
+    // card unlocks at 00:00 recipient time ('YYYY-MM-DD', '' = open now).
+    signature: '',
+    lockDate: ''
 };
 
 const COLOR_DEFAULTS = {
@@ -104,7 +108,7 @@ const SHORT_KEYS = {
     letterTheme: 'lt', letterTitle: 'ltt', letterBody: 'lb', topperText: 'tt',
     decorHearts: 'dh', decorStars: 'ds', glazeColor: 'gc', creamColor: 'cc',
     plateColor: 'pc', candleColor: 'kc', topperColor: 'tc', envBaseColor: 'eb',
-    envFlapColor: 'ef', envSealColor: 'es', backdrop: 'bd'
+    envFlapColor: 'ef', envSealColor: 'es', backdrop: 'bd', signature: 'sg', lockDate: 'lk'
 };
 const LONG_KEYS = Object.fromEntries(Object.entries(SHORT_KEYS).map(([k, v]) => [v, k]));
 
@@ -188,6 +192,8 @@ async function inflateBytesCapped(bytes, cap) {
  *   1-31 string (varint length + packed text)    32-63 enum (1 byte index)
  *   64-95 small int (1 byte)                     96-111 byte (bit field)
  *   112-127 color (3 bytes RGB)
+ * The signature (tag 10) uses the string layout with raw bytes instead of
+ * packed text; older decoders skip it like any unknown string.
  */
 
 
@@ -226,12 +232,14 @@ const ENUMS = {
 const TAGS = {
     // strings
     recipientName: 1, sender: 2, title: 4, message: 5, letterTitle: 6,
-    letterBody: 7, topperText: 8, photo: 9,
+    letterBody: 7, topperText: 8, photo: 9, signature: 10,
     // enums
     theme: 32, preset: 33, music: 34, font: 35, cakeModel: 36, plate: 37,
     glaze: 38, topper: 39, letterTheme: 40, relation: 41, lang: 42, backdrop: 43,
     // small ints (bdate is days since 1970 split over two bytes)
     candles: 64, strawberries: 65, cherries: 66, rolls: 67, bdateHi: 68, bdateLo: 69,
+    // the unlock date, days since 1970 like bdate
+    lockHi: 70, lockLo: 71,
     // bit fields
     flags: 96, templated: 97,
     // colors
@@ -299,6 +307,14 @@ function encodeV2Fields(config, { taggedExtrasOnly = false, templated: tpl = nul
         if (taggedExtrasOnly && tag >= 32) continue;
         if (tag < 32) {
             if (templated.has(key) || typeof value !== 'string' || value === defaults[key]) continue;
+            if (key === 'signature') {
+                let raw;
+                try { raw = base64urlToBytes(value); } catch { continue; }
+                out.push(tag);
+                pushVarint(out, raw.length);
+                out.push(...raw);
+                continue;
+            }
             const packed = packText(value);
             out.push(tag);
             pushVarint(out, packed.length);
@@ -318,6 +334,8 @@ function encodeV2Fields(config, { taggedExtrasOnly = false, templated: tpl = nul
 
     const days = dateToDays(config.bdate);
     if (days >= 0 && days <= 0xffff) out.push(TAGS.bdateHi, days >> 8, TAGS.bdateLo, days & 0xff);
+    const lock = dateToDays(config.lockDate);
+    if (lock >= 0 && lock <= 0xffff) out.push(TAGS.lockHi, lock >> 8, TAGS.lockLo, lock & 0xff);
 
     if (!taggedExtrasOnly) {
     let flags = 0;
@@ -346,6 +364,7 @@ function decodeV2Fields(bytes, preset = null) {
     let flags = null;
     let mask = preset?.mask || 0;
     let days = 0;
+    let lock = -1;
     let i = 0;
     const need = (n) => { if (i + n > bytes.length) throw new Error('Truncated card link'); };
     while (i < bytes.length) {
@@ -363,7 +382,8 @@ function decodeV2Fields(bytes, preset = null) {
                 if (shift > 21) throw new Error('Bad length');
             }
             need(len);
-            if (key) raw[key] = unpackText(bytes.subarray(i, i + len));
+            if (key === 'signature') raw.signature = bytesToBase64url(bytes.subarray(i, i + len));
+            else if (key) raw[key] = unpackText(bytes.subarray(i, i + len));
             i += len;
         } else if (tag < 112) {
             need(1);
@@ -372,6 +392,8 @@ function decodeV2Fields(bytes, preset = null) {
             if (tag < 64) raw[key] = ENUMS[key][v] ?? raw[key];
             else if (key === 'bdateHi') days |= v << 8;
             else if (key === 'bdateLo') days |= v;
+            else if (key === 'lockHi') lock = (Math.max(lock, 0) & 0xff) | (v << 8);
+            else if (key === 'lockLo') lock = (Math.max(lock, 0) & 0xff00) | v;
             else if (key === 'flags') flags = v;
             else if (key === 'templated') mask = v;
             else raw[key] = v;
@@ -384,6 +406,7 @@ function decodeV2Fields(bytes, preset = null) {
         }
     }
     if (days) raw.bdate = daysToDate(days);
+    if (lock >= 0) raw.lockDate = daysToDate(lock);
     if (flags !== null) FLAG_BITS.forEach((key, bit) => { raw[key] = !!(flags & (1 << bit)); });
 
     // Rebuild untouched wording exactly as the sender saw it (their language).

@@ -8,9 +8,11 @@
  *   BASE         app origin (default http://localhost:5173)
  *   CHROME_PATH  Chrome/Chromium executable (default: Playwright's own
  *                install; `npx playwright-core install chromium` fetches it)
+ *   CHROME_ARGS  extra browser flags, space separated (a GPU-less Linux box
+ *                needs `--use-angle=swiftshader --enable-unsafe-swiftshader`)
  *   SHOTS        comma list of groups to (re)write: creator, room, hero,
- *                mobile, montage (default: all). The card link is always
- *                made first by the creator itself.
+ *                mobile, montage, keepsake (default: all). The card link is
+ *                always made first by the creator itself.
  *
  * Everything is driven the way a person would: the creator fills the form
  * and makes the #/c/... link, the receiver opens that link, taps the
@@ -30,7 +32,7 @@ import { chromium } from 'playwright-core';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'screenshots');
 const BASE = (process.env.BASE || 'http://localhost:5173').replace(/\/+$/, '');
-const ONLY = new Set((process.env.SHOTS || 'creator,room,hero,mobile,montage').split(',').map((s) => s.trim()).filter(Boolean));
+const ONLY = new Set((process.env.SHOTS || 'creator,room,hero,mobile,montage,keepsake').split(',').map((s) => s.trim()).filter(Boolean));
 const QUALITY = 82;
 const RECIPIENT = 'มายด์';
 const SENDER = 'ต้น';
@@ -148,6 +150,101 @@ async function creatorMobile(browser) {
     await page.waitForTimeout(400);
     await save(page, 'creator-mobile.jpg');
     await page.context().close();
+}
+
+// ------------------------------------------------- handwriting and the lock
+
+/** Draws a "Ton" signature with a flourish on the pad, the way a finger would. */
+async function signPad(page) {
+    const pad = page.locator('#sig-pad');
+    await pad.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+    const box = await pad.boundingBox();
+    const at = (fx, fy) => [box.x + fx * box.width, box.y + fy * box.height];
+    const path = (n, f) => Array.from({ length: n + 1 }, (_, i) => f(i / n));
+    const strokes = [
+        path(20, (t) => [0.14 + t * 0.22, 0.36 - Math.sin(t * Math.PI) * 0.05]),
+        path(16, (t) => [0.25 + Math.sin(t * 2) * 0.01, 0.34 + t * 0.36]),
+        path(60, (t) => [0.36 + t * 0.42, 0.6 + Math.sin(t * Math.PI * 4) * 0.09 - t * 0.04]),
+        path(30, (t) => [0.16 + t * 0.66, 0.8 - Math.sin(t * Math.PI) * 0.06])
+    ];
+    for (const s of strokes) {
+        await page.mouse.move(...at(...s[0]));
+        await page.mouse.down();
+        for (const p of s.slice(1)) await page.mouse.move(...at(...p), { steps: 3 });
+        await page.mouse.up();
+    }
+    await page.waitForTimeout(400);
+}
+
+/**
+ * The keepsake features on a phone: the signed pad and the lock switch in
+ * the creator, the sealed envelope counting down, its last ten seconds, and
+ * the message card writing the signature. The birthday is two days ahead of
+ * the machine's clock, and the browser clock is moved for the countdown.
+ */
+async function keepsake(browser) {
+    const page = await newPage(browser, PHONE);
+    await fillStep1(page);
+    const bdate = await page.evaluate(() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 2);
+        return `1999-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    });
+    await page.fill('#birth-date', bdate);
+    await page.evaluate(() => document.activeElement?.blur?.());
+    await page.click('#cr-lock .cr-switch');
+    await page.locator('#cr-lock').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(500);
+    await save(page, 'creator-lock-mobile.jpg');
+    await nextStep(page);
+    await nextStep(page);
+    await signPad(page);
+    await page.click('.cr-prompt[data-prompt="1"]');
+    await page.evaluate(() => document.activeElement?.blur?.());
+    await page.locator('#cr-sig-pad').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(500);
+    await save(page, 'creator-signature-mobile.jpg');
+    await page.click('#btn-generate-card');
+    await page.waitForFunction(() => (document.getElementById('share-url-input')?.value || '').includes('#/c/'), null, { timeout: 15000 });
+    const link = (await page.inputValue('#share-url-input')).replace(/^https?:\/\/[^/]+/, BASE);
+    await page.context().close();
+
+    const gate = await newPage(browser, PHONE);
+    await gate.goto(link);
+    await gate.waitForSelector('#rcv-lock:not([hidden])', { timeout: 60000 });
+    await gate.waitForTimeout(1200);
+    await save(gate, 'gate-locked-mobile.jpg');
+    await gate.context().close();
+
+    // The last ten seconds: the browser clock stopped 7 s before midnight.
+    const midnight = new Date();
+    midnight.setDate(midnight.getDate() + 2);
+    midnight.setHours(0, 0, 0, 0);
+    const final = await newPage(browser, PHONE);
+    await final.clock.install({ time: midnight.getTime() - 9000 });
+    await final.goto(link);
+    await final.clock.pauseAt(midnight.getTime() - 7000);
+    await final.waitForSelector('#rcv-countdown.is-final', { timeout: 30000 });
+    await final.waitForTimeout(1200);
+    await save(final, 'gate-final-mobile.jpg');
+    await final.context().close();
+
+    // After the birthday: back from the LINE thank-you, the card opens and
+    // the handwriting writes itself under the message.
+    const card = await newPage(browser, PHONE);
+    await card.clock.install({ time: midnight.getTime() + 3600e3 });
+    await card.clock.resume();
+    await card.addInitScript(() => {
+        try { sessionStorage.setItem('hbd-rcv-resume', JSON.stringify({ hash: location.hash, at: Date.now() })); } catch { /* storage blocked */ }
+    });
+    await card.goto(link);
+    await card.waitForSelector('#rcv-card.is-open', { timeout: 60000 });
+    await card.waitForTimeout(4500);
+    await card.locator('#rcv-card-sig').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await card.waitForTimeout(600);
+    await save(card, 'card-signature-mobile.jpg');
+    await card.context().close();
 }
 
 // ---------------------------------------------------------------- receiver
@@ -384,7 +481,7 @@ async function main() {
     fs.mkdirSync(OUT, { recursive: true });
     const browser = await chromium.launch({
         executablePath: process.env.CHROME_PATH || undefined,
-        args: [...GPU_ARGS, '--autoplay-policy=no-user-gesture-required']
+        args: [...GPU_ARGS, ...(process.env.CHROME_ARGS || '').split(/\s+/).filter(Boolean), '--autoplay-policy=no-user-gesture-required']
     });
     try {
         log(`app ${BASE}, groups: ${[...ONLY].join(', ')}`);
@@ -397,6 +494,7 @@ async function main() {
             await receiverMobile(browser, link);
         }
         if (ONLY.has('montage')) await montages(browser);
+        if (ONLY.has('keepsake')) await keepsake(browser);
     } finally {
         await browser.close();
     }

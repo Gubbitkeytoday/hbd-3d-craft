@@ -7,15 +7,24 @@ All notable changes to HBD 3D Craft. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
-**ไทย:** เขียนเอกสารใหม่ทั้งหมดจากโค้ดจริงแบบสองภาษา และสร้างภาพหน้าจอชุดใหม่ด้วยสคริปต์
+**ไทย:** การ์ดล็อกไว้ให้เปิดตอนเที่ยงคืนวันเกิดพร้อมนับถอยหลัง, ลายเซ็นด้วยนิ้วที่ค่อย ๆ เขียนขึ้นให้ผู้รับเห็น, ปุ่มคำถามนำเรื่องความทรงจำในจดหมาย, ชุดทดสอบตัวเข้ารหัสลิงก์ และเอกสารที่เขียนใหม่ทั้งหมดจากโค้ดจริงแบบสองภาษา
 
 ### Added
+- **Midnight lock.** For a birthday still ahead, the creator offers "Lock it until midnight on their birthday". The link then opens on a sealed envelope with a padlock, the unlock day and a live countdown (one large gold number for the last ten seconds); at 00:00 on the day, in the recipient's time zone, the padlock shakes loose, the seal flares, confetti bursts and the Open buttons rise. The room only starts loading 3 minutes before midnight. The share text and share sheet say when it opens; "Preview as recipient" adds `?preview=1`, which shows a "Skip the countdown" button. New link tags 70/71 (unlock date).
+- **The sender's handwriting.** An optional signature pad in step 3 (finger, pen or mouse; undo and clear). Strokes are simplified and stored in the link as about 100 to 300 bytes (`src/signature.js`, tag 10). The recipient sees it write itself stroke by stroke under the card's message and at the end of the letter, and it is signed on the framed print in the party room (also live in the creator preview).
+- **Memory prompts.** Four sentence starters under the letter ("The day we met", "What I love about you", "Thank you for…", "This year, let's…", with a politer set for colleagues) insert at the cursor or above the sign-off.
+- `npm test`: link and signature codec tests (`tests/card-link.test.mjs`, `node --test`), now run in CI before the build.
+- `keepsake` group in `npm run screenshots` (signed pad, lock switch, countdown, last ten seconds, card writing the signature).
 - `scripts/screenshots.mjs` and `npm run screenshots`: regenerates every documentation image by driving the real creator and receiver flow (playwright-core, new devDependency).
 - New screenshot set in `screenshots/` (creator, share sheet, gate, dark room, reveal, song, finale, message card, cake and backdrop montages, hero banner).
 
 ### Changed
 - README, ARCHITECTURE, DEPLOYMENT, CONTRIBUTING, SECURITY and this changelog rewritten from the current code, Thai first with English; `docs/` now only points to the root documents.
 - Pull request and issue templates updated for the current link format and checks.
+- The room's framed print is repainted in place (seeded dots) instead of rebuilt.
+
+### Fixed
+- On phones the opened letter ran about 140 px off the bottom of the screen (the entrance tilt out-ranked the open state), hiding the sign-off; it is now flat, fits the screen and keeps its close button in view.
 
 ### Removed
 - `take_screenshots.js` (depended on puppeteer, which was never installed) and the four outdated PNG screenshots.

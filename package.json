@@ -8,6 +8,7 @@
     "build": "eslint . && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test": "node --test tests/card-link.test.mjs",
     "icons": "node scripts/gen-icons.mjs",
     "room:fetch": "node scripts/room/fetch-assets.mjs && python scripts/room/make_city.py",
     "room:optimize": "node scripts/room/optimize.mjs && node scripts/room/build-credits.mjs",

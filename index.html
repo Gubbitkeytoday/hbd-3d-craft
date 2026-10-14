@@ -56,6 +56,9 @@
         <symbol id="cr-i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></symbol>
         <symbol id="cr-i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
         <symbol id="cr-i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+        <symbol id="cr-i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11M12 15v2.5"/></symbol>
+        <symbol id="cr-i-pen" viewBox="0 0 24 24"><path d="M3 21c3-1 5.5-1.3 8-3.8L20.5 7.7a2.1 2.1 0 0 0-3-3L8 14.2C5.5 16.7 4.2 19 3 21zM15.5 6.5l2 2"/></symbol>
+        <symbol id="cr-i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
         <symbol id="cr-i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.4-6.4L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.4 6.4L3 16M3 21v-5h5"/></symbol>
         <symbol id="cr-i-line" viewBox="0 0 24 24"><path class="cr-fill" d="M12 3C6.5 3 2 6.6 2 11c0 3.9 3.5 7.2 8.3 7.9.3.1.8.2.9.5.1.3.1.7 0 1l-.1.9c0 .3-.2 1 .9.5s5.9-3.5 8-6c1.4-1.6 2-3.1 2-4.8C22 6.6 17.5 3 12 3z"/></symbol>
     </svg>
@@ -138,6 +141,18 @@
                                     </button>
                                 </div>
                                 <p class="cr-hint" id="birth-date-hint" data-i18n="crDateHint">We'll say "belated" automatically if it has just passed.</p>
+                                <!-- Shown only for an upcoming birthday (creator.js refreshLock) -->
+                                <div class="cr-lock" id="cr-lock" hidden>
+                                    <label class="cr-switch cr-switch-lg">
+                                        <span class="cr-lock-ico" aria-hidden="true"><svg class="cr-ico"><use href="#cr-i-lock"/></svg></span>
+                                        <span class="cr-switch-text">
+                                            <span class="cr-switch-title" data-i18n="crLockTitle">Lock it until midnight on their birthday</span>
+                                            <span class="cr-hint" id="cr-lock-hint"></span>
+                                        </span>
+                                        <input type="checkbox" role="switch" id="lock-midnight" name="lockMidnight" aria-describedby="cr-lock-hint">
+                                        <span class="cr-switch-track" aria-hidden="true"></span>
+                                    </label>
+                                </div>
                             </div>
 
                             <fieldset class="cr-field cr-fieldset">
@@ -344,6 +359,31 @@
                                 </div>
                             </fieldset>
 
+                            <!-- Hand-drawn signature: strokes live in the hidden input (signature.js) -->
+                            <div class="cr-field cr-sig">
+                                <div class="cr-label-row">
+                                    <p class="cr-label" id="sig-label" data-i18n="crSigLabel">Sign it by hand (optional)</p>
+                                    <div class="cr-sig-tools">
+                                        <button type="button" class="cr-text-btn cr-sig-tool" id="btn-sig-undo" hidden>
+                                            <svg class="cr-ico" aria-hidden="true"><use href="#cr-i-undo"/></svg><span data-i18n="crSigUndo">Undo</span>
+                                        </button>
+                                        <button type="button" class="cr-text-btn cr-sig-tool" id="btn-sig-clear" hidden>
+                                            <svg class="cr-ico" aria-hidden="true"><use href="#cr-i-x"/></svg><span data-i18n="crSigClear">Clear</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="cr-sig-pad" id="cr-sig-pad">
+                                    <canvas id="sig-pad" class="cr-sig-canvas" role="img" data-i18n-aria="crSigPadLabel" aria-label="Signature pad" aria-describedby="sig-hint"></canvas>
+                                    <span class="cr-sig-placeholder" aria-hidden="true">
+                                        <svg class="cr-ico" aria-hidden="true"><use href="#cr-i-pen"/></svg><span data-i18n="crSigPlaceholder">Sign here with your finger</span>
+                                    </span>
+                                    <span class="cr-sig-line" aria-hidden="true"></span>
+                                </div>
+                                <input type="hidden" name="signature" id="signature-data">
+                                <p class="cr-hint" id="sig-hint" data-i18n="crSigHint">They'll watch your handwriting appear on the card.</p>
+                                <p class="cr-status is-warn" id="sig-status" aria-live="polite"></p>
+                            </div>
+
                             <fieldset class="cr-field cr-fieldset">
                                 <legend class="cr-label" data-i18n="crMusicLabel">Music</legend>
                                 <div class="cr-chips">
@@ -389,6 +429,16 @@
                                         </div>
                                         <textarea id="letter-body" name="letterBody" class="cr-input cr-textarea" rows="6" maxlength="1500" aria-describedby="letter-body-count"></textarea>
                                         <p class="cr-counter" id="letter-body-count" data-counter-for="letter-body" aria-live="polite"></p>
+                                        <!-- Sentence starters about a shared memory (creator.js insertPrompt) -->
+                                        <div class="cr-prompts" role="group" aria-labelledby="cr-prompts-label">
+                                            <p class="cr-prompts-label" id="cr-prompts-label" data-i18n="crPromptLabel">Not sure what to write? Start from a memory:</p>
+                                            <div class="cr-prompt-chips">
+                                                <button type="button" class="cr-prompt" data-prompt="1"></button>
+                                                <button type="button" class="cr-prompt" data-prompt="2"></button>
+                                                <button type="button" class="cr-prompt" data-prompt="3"></button>
+                                                <button type="button" class="cr-prompt" data-prompt="4"></button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -440,6 +490,9 @@
                     <span class="cr-sheet-badge" aria-hidden="true"><svg class="cr-ico"><use href="#cr-i-check"/></svg></span>
                     <h2 id="share-title" data-i18n-tpl="crSheetTitle">Ready!</h2>
                     <p id="share-sub" class="cr-hint" data-i18n="crSheetSub">Send it where you usually chat.</p>
+                    <p class="cr-sheet-lock" id="cr-sheet-lock" hidden>
+                        <svg class="cr-ico" aria-hidden="true"><use href="#cr-i-lock"/></svg><span id="cr-sheet-lock-text"></span>
+                    </p>
                 </div>
 
                 <div class="cr-sheet-actions">
@@ -490,16 +543,36 @@
             <div id="envelope-gate" class="rcv-gate active-gate">
                 <div class="rcv-gate-card" role="group" aria-labelledby="rcv-gate-headline">
                     <div class="rcv-gate-flap" aria-hidden="true"></div>
-                    <div class="rcv-seal" aria-hidden="true"><span id="rcv-seal-initial"></span></div>
+                    <div class="rcv-seal" aria-hidden="true">
+                        <span id="rcv-seal-initial"></span>
+                        <span class="rcv-seal-lock"><i class="fa-solid fa-lock"></i></span>
+                    </div>
                     <p class="rcv-eyebrow" id="rcv-gate-eyebrow"></p>
                     <h1 id="rcv-gate-headline" class="rcv-gate-headline"></h1>
-                    <button type="button" id="btn-open-envelope" class="rcv-open-btn" data-state="loading">
-                        <span class="rcv-open-spinner" aria-hidden="true"></span>
-                        <span class="rcv-open-label" id="rcv-open-label"></span>
-                        <span class="rcv-open-progress" aria-hidden="true"><span id="rcv-open-bar"></span></span>
-                    </button>
-                    <button type="button" id="btn-open-quiet" class="rcv-quiet-btn"></button>
-                    <p class="rcv-gate-sound" id="rcv-gate-sound"></p>
+
+                    <!-- Locked until midnight on the birthday (viewer.js lock) -->
+                    <div class="rcv-lock" id="rcv-lock" hidden>
+                        <p class="rcv-lock-when" id="rcv-lock-when"></p>
+                        <div class="rcv-countdown" id="rcv-countdown" role="timer" aria-live="off" aria-atomic="true">
+                            <div class="rcv-cd-unit" data-unit="d"><span class="rcv-cd-num" id="rcv-cd-d">0</span><span class="rcv-cd-label" id="rcv-cd-d-label"></span></div>
+                            <div class="rcv-cd-unit" data-unit="h"><span class="rcv-cd-num" id="rcv-cd-h">00</span><span class="rcv-cd-label" id="rcv-cd-h-label"></span></div>
+                            <div class="rcv-cd-unit" data-unit="m"><span class="rcv-cd-num" id="rcv-cd-m">00</span><span class="rcv-cd-label" id="rcv-cd-m-label"></span></div>
+                            <div class="rcv-cd-unit" data-unit="s"><span class="rcv-cd-num" id="rcv-cd-s">00</span><span class="rcv-cd-label" id="rcv-cd-s-label"></span></div>
+                        </div>
+                        <p class="rcv-lock-note" id="rcv-lock-note"></p>
+                        <button type="button" id="btn-lock-peek" class="rcv-quiet-btn" hidden></button>
+                    </div>
+                    <p class="rcv-sr" id="rcv-lock-live" aria-live="polite"></p>
+
+                    <div class="rcv-gate-open" id="rcv-gate-open">
+                        <button type="button" id="btn-open-envelope" class="rcv-open-btn" data-state="loading">
+                            <span class="rcv-open-spinner" aria-hidden="true"></span>
+                            <span class="rcv-open-label" id="rcv-open-label"></span>
+                            <span class="rcv-open-progress" aria-hidden="true"><span id="rcv-open-bar"></span></span>
+                        </button>
+                        <button type="button" id="btn-open-quiet" class="rcv-quiet-btn"></button>
+                        <p class="rcv-gate-sound" id="rcv-gate-sound"></p>
+                    </div>
                 </div>
             </div>
 
@@ -595,6 +668,7 @@
                         <h2 id="view-title" tabindex="-1"></h2>
                         <p id="view-message" class="rcv-card-message"></p>
                         <p class="rcv-card-signature" id="rcv-card-signature"></p>
+                        <canvas class="rcv-sig" id="rcv-card-sig" role="img" hidden></canvas>
                     </div>
                     <button type="button" id="btn-read-letter" class="rcv-btn rcv-btn-letter" hidden></button>
                     <div class="rcv-end">
@@ -633,6 +707,7 @@
                                 <h2 id="letter-popup-title"></h2>
                                 <div class="letter-body-scroll">
                                     <div id="letter-popup-body" aria-hidden="true"></div>
+                                    <canvas class="letter-sig" id="letter-sig" role="img" hidden></canvas>
                                     <p id="letter-popup-sr" class="rcv-sr" aria-live="polite"></p>
                                 </div>
                             </div>
