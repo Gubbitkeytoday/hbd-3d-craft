@@ -10,6 +10,7 @@ All notable changes to HBD 3D Craft. The format follows [Keep a Changelog](https
 **ไทย:** เขียนเอกสารใหม่ทั้งหมดจากโค้ดจริงแบบสองภาษา และสร้างภาพหน้าจอชุดใหม่ด้วยสคริปต์
 
 ### Added
+- Sender voice message: an optional https audio link in creator step 3 ("ลิงก์ข้อความเสียงของคุณ"), carried in the link as a new string tag (old links are unaffected). The receiver decodes it while the room loads, plays it about 3.5 s after the last candle with the music ducked, and shows a play/stop button on the message card; quiet mode waits for that tap. `public/voices/` holds self-hosted recordings.
 - `scripts/screenshots.mjs` and `npm run screenshots`: regenerates every documentation image by driving the real creator and receiver flow (playwright-core, new devDependency).
 - New screenshot set in `screenshots/` (creator, share sheet, gate, dark room, reveal, song, finale, message card, cake and backdrop montages, hero banner).
 

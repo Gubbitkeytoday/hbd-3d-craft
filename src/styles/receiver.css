@@ -605,6 +605,15 @@
     border-color: var(--rcv-hair);
     color: var(--rcv-accent-ink);
 }
+.rcv-btn-voice {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.rcv-btn-voice[hidden] { display: none; }
+.rcv-btn-voice.is-playing { background: var(--rcv-hair); }
 .rcv-end {
     border-top: 1px solid var(--rcv-hair);
     padding-top: 18px;

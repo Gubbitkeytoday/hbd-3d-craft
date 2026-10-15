@@ -166,6 +166,9 @@ let roomTone = null;
 let partyLoop = null;
 let muted = false;
 let quietMode = false;
+let voiceLoad = null;          // Promise<boolean>: the sender's voice clip decoding
+let voiceSrc = null;           // the voice clip while it plays
+let musicAfterVoice = false;   // the soft song waits until the voice has finished
 
 // Party room state. Light values are tweened here and pushed to the room as
 // uniforms once per frame (never a light count or material change).
@@ -412,12 +415,14 @@ export function destroyViewer() {
     if (letterTimer) clearInterval(letterTimer);
     letterTimer = 0;
     if (audio) {
+        stopVoice({ resume: false });
         song?.stop(0.05);
         partyLoop?.stop(0.05);
         roomTone?.stop(0.05);
         audio.close();
         audio = song = roomTone = partyLoop = null;
     }
+    voiceLoad = null;
     roomAbort?.abort();
     roomAbort = null;
     hideDarkUi();
@@ -563,6 +568,7 @@ function bindDomOnce() {
     $('btn-mic-tap')?.addEventListener('click', () => closeMicSheet(true));
     $('btn-close-greeting-card')?.addEventListener('click', () => closeCard());
     $('btn-read-letter')?.addEventListener('click', showLetter);
+    $('btn-play-voice')?.addEventListener('click', toggleVoice);
     $('btn-thanks')?.addEventListener('click', sendThanks);
     $('btn-replay')?.addEventListener('click', replay);
     $('btn-save-photo')?.addEventListener('click', savePhoto);
@@ -2942,6 +2948,8 @@ function startClimax() {
             $('btn-hud-card').hidden = false;
             $('btn-hud-reset').hidden = false;
             openCard();
+            // The sender's own voice, once the cheer has settled (not in quiet mode).
+            if (activeConfig?.voice && !muted) later(() => { if (phase === 'message') playVoice(); }, 900);
         }, ms(2300) || 400);
     }, ms(CLIMAX_SILENCE_MS));
 }
@@ -2972,6 +2980,7 @@ function replay() {
     if ((!renderer && !stage2d) || (phase !== 'message' && phase !== 'climax')) return;
     // A resumed end screen (after the LINE thank-you) has no audio yet: this tap unlocks it.
     unlockAudio();
+    stopVoice({ resume: false });
     closeLetter(false);
     closeCard(false);
     clearTimers();
@@ -3252,6 +3261,12 @@ function fillCard() {
             delete photo.dataset.src;
         }
         photo.alt = t('rcvTo', { name });
+    }
+
+    const voiceBtn = $('btn-play-voice');
+    if (voiceBtn) {
+        voiceBtn.hidden = !activeConfig.voice;
+        syncVoiceButton();
     }
 
     const letterBtn = $('btn-read-letter');
@@ -3636,6 +3651,9 @@ function unlockAudio() {
     partyLoop = cues.createPartyLoop(audio);
     // Recorded voices, if the owner has added them (one small JSON request).
     if (partyMode) audio.preloadClips();
+    // The sender's voice message: decoded early so it starts on cue.
+    voiceLoad = activeConfig?.voice ? audio.loadClip('voice', activeConfig.voice) : null;
+    voiceLoad?.then((ok) => { if (!ok) $('btn-play-voice')?.setAttribute('hidden', ''); });
 }
 
 function melodyWave() {
@@ -3662,8 +3680,77 @@ function playFinalPhrase() {
     if (!song) return;
     song.finalPhrase();
     later(() => {
-        if (phase === 'message' || phase === 'climax') startMusic({ level: 0.35, fadeIn: 2.5, passes: 1 });
+        if (phase !== 'message' && phase !== 'climax') return;
+        if (voiceSrc) musicAfterVoice = true;
+        else startMusic({ level: 0.35, fadeIn: 2.5, passes: 1 });
     }, 5200);
+}
+
+// ---------------------------------------------------------------------------
+// The sender's voice message (card.voice: an https audio file)
+// ---------------------------------------------------------------------------
+
+function toggleVoice() {
+    if (voiceSrc) {
+        stopVoice();
+        return;
+    }
+    // A tap is a gesture: it can create or resume the audio context, and it
+    // means "I want to hear it", so quiet mode is lifted.
+    unlockAudio();
+    if (muted) toggleMute();
+    playVoice();
+}
+
+async function playVoice() {
+    if (!audio || !voiceLoad || voiceSrc) return;
+    const ok = await voiceLoad;
+    if (!ok || !audio || voiceSrc) return;
+    duckMusic(0.06);
+    const src = audio.playClip('voice', { at: audio.now() + 0.05, gain: 1.15, fadeIn: 0.02, dest: audio.master });
+    if (!src) return;
+    voiceSrc = src;
+    src.onended = () => {
+        if (voiceSrc !== src) return;
+        voiceSrc = null;
+        syncVoiceButton();
+        afterVoice();
+    };
+    syncVoiceButton();
+}
+
+/** `resume: false` when the music is being stopped anyway (replay, teardown). */
+function stopVoice({ resume = true } = {}) {
+    const src = voiceSrc;
+    if (!resume) musicAfterVoice = false;
+    if (!src) return;
+    voiceSrc = null;
+    src.onended = null;
+    try { src.stop(); } catch { /* already stopped */ }
+    syncVoiceButton();
+    if (resume) afterVoice();
+}
+
+function afterVoice() {
+    if (musicAfterVoice) {
+        musicAfterVoice = false;
+        if (phase === 'message') startMusic({ level: 0.35, fadeIn: 2.5, passes: 1 });
+    } else {
+        duckMusic(0.35);
+    }
+}
+
+function syncVoiceButton() {
+    const btn = $('btn-play-voice');
+    if (!btn) return;
+    const playing = !!voiceSrc;
+    const sender = (activeConfig?.sender || '').trim();
+    btn.setAttribute('aria-pressed', playing ? 'true' : 'false');
+    btn.classList.toggle('is-playing', playing);
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = `fa-solid ${playing ? 'fa-stop' : 'fa-volume-high'}`;
+    const label = $('rcv-voice-label');
+    if (label) label.textContent = playing ? t('rcvStopVoice') : (sender ? t('rcvPlayVoice', { sender }) : t('rcvPlayVoiceAnon'));
 }
 
 function playPuff(pan) { if (audio) cues.puff(audio, pan); }

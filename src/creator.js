@@ -45,6 +45,8 @@ let touchedColors = new Set();
 let nameErrorShown = false;
 let draftTimer = 0;
 let photoTimer = 0;
+let voiceTimer = 0;
+let voiceProbe = null;
 let toastTimer = 0;
 let lastShareUrl = '';
 let bound = false;
@@ -71,6 +73,7 @@ export function initCreator() {
     refreshLookEdited();
     goToStep(step, { focus: false, save: false });
     refreshPhotoCheck();
+    refreshVoiceCheck();
 
     startPreview();
 }
@@ -81,6 +84,7 @@ export function destroyCreator() {
     setBrowserThemeColor(false);
     clearTimeout(draftTimer);
     clearTimeout(photoTimer);
+    stopVoiceProbe();
     if (els?.dialog?.open) els.dialog.close();
     if (els) delete els.root.dataset.kb;
     els?.canvasHost.classList.remove('is-ready', 'is-busy', 'is-error');
@@ -114,6 +118,7 @@ function collectElements() {
         letterGroup: $('letter-details-group'),
         photoThumb: $('memory-photo-thumb'),
         photoStatus: $('memory-photo-status'),
+        voiceStatus: $('voice-status'),
         preview: $('btn-preview-recipient'),
         dialog: $('share-modal'),
         shareInput: $('share-url-input'),
@@ -361,6 +366,7 @@ function readConfig() {
         music: radioValue('music'),
         font: radioValue('font'),
         photo: f.photo.value.trim(),
+        voice: f.voice.value.trim(),
         cakeModel: radioValue('cakeModel'),
         plate: radioValue('plate'),
         glaze: radioValue('glaze'),
@@ -656,6 +662,7 @@ function onFieldChange(e) {
     if (['theme', 'glaze', 'plate', 'letterTheme'].includes(name)) syncColorPickers();
     if (name === 'topperChoice' || name === 'letterEnabled') refreshToggles();
     if (name === 'photo') refreshPhotoCheck();
+    if (name === 'voice') refreshVoiceCheck();
     if (el.type === 'number' && e.type === 'change') el.value = String(intValue(name));
     if (el.type === 'number') refreshSteppers();
 
@@ -940,6 +947,54 @@ function refreshPhotoCheck() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Voice check
+ * ------------------------------------------------------------------ */
+
+function stopVoiceProbe() {
+    clearTimeout(voiceTimer);
+    if (!voiceProbe) return;
+    voiceProbe.oncanplaythrough = voiceProbe.onerror = null;
+    voiceProbe.removeAttribute('src');
+    voiceProbe.load();
+    voiceProbe = null;
+}
+
+function refreshVoiceCheck() {
+    stopVoiceProbe();
+    const value = els.f.voice.value.trim();
+    const status = els.voiceStatus;
+    status.className = 'cr-status';
+    if (!value) {
+        status.textContent = '';
+        return;
+    }
+    let url;
+    try { url = new URL(value); } catch { url = null; }
+    if (!url || url.protocol !== 'https:') {
+        status.textContent = t('crPhotoHttps');
+        status.classList.add('is-warn');
+        return;
+    }
+    status.textContent = t('crVoiceChecking');
+    voiceTimer = setTimeout(() => {
+        // Same requirement as the viewer, which decodes the file: CORS must allow it.
+        const probe = new Audio();
+        voiceProbe = probe;
+        probe.crossOrigin = 'anonymous';
+        probe.preload = 'auto';
+        const done = (ok) => {
+            if (voiceProbe !== probe || els.f.voice.value.trim() !== value) return;
+            status.textContent = t(ok ? 'crVoiceOk' : 'crVoiceFail');
+            status.className = `cr-status ${ok ? 'is-ok' : 'is-warn'}`;
+            stopVoiceProbe();
+        };
+        probe.oncanplaythrough = () => done(true);
+        probe.onerror = () => done(false);
+        probe.src = value;
+    }, 450);
+}
+
+/* ------------------------------------------------------------------ *
  * Share sheet
  * ------------------------------------------------------------------ */
 
@@ -1187,6 +1242,7 @@ function startOver() {
     refreshToggles();
     refreshLookEdited();
     refreshPhotoCheck();
+    refreshVoiceCheck();
     goToStep(1, { save: false });
     pushPreview();
     els.nameInput.focus();

@@ -27,7 +27,8 @@ const CONTENT_DEFAULTS = {
     letterTitle: '',
     letterBody: '',
     topperText: '',
-    photo: ''
+    photo: '',
+    voice: ''
 };
 
 const COLOR_DEFAULTS = {
@@ -104,7 +105,7 @@ const SHORT_KEYS = {
     letterTheme: 'lt', letterTitle: 'ltt', letterBody: 'lb', topperText: 'tt',
     decorHearts: 'dh', decorStars: 'ds', glazeColor: 'gc', creamColor: 'cc',
     plateColor: 'pc', candleColor: 'kc', topperColor: 'tc', envBaseColor: 'eb',
-    envFlapColor: 'ef', envSealColor: 'es', backdrop: 'bd'
+    envFlapColor: 'ef', envSealColor: 'es', backdrop: 'bd', voice: 'v'
 };
 const LONG_KEYS = Object.fromEntries(Object.entries(SHORT_KEYS).map(([k, v]) => [v, k]));
 
@@ -226,7 +227,7 @@ const ENUMS = {
 const TAGS = {
     // strings
     recipientName: 1, sender: 2, title: 4, message: 5, letterTitle: 6,
-    letterBody: 7, topperText: 8, photo: 9,
+    letterBody: 7, topperText: 8, photo: 9, voice: 10,
     // enums
     theme: 32, preset: 33, music: 34, font: 35, cakeModel: 36, plate: 37,
     glaze: 38, topper: 39, letterTheme: 40, relation: 41, lang: 42, backdrop: 43,
