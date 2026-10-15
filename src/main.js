@@ -186,18 +186,21 @@ function sanitizeCardConfig(config, defaults) {
         out[key] = typeof config[key] === 'string' && /^#[0-9a-f]{6}$/i.test(config[key]) ? config[key] : '';
     }
 
-    // Only https images, so a link cannot point the recipient's browser at an
-    // arbitrary scheme or a plain-http tracker.
-    out.photo = '';
-    if (typeof config.photo === 'string' && config.photo) {
-        try {
-            const url = new URL(config.photo);
-            if (url.protocol === 'https:') out.photo = url.href;
-        } catch {
-            out.photo = '';
-        }
-    }
+    // Only https media (photo, sender's voice clip), so a link cannot point the
+    // recipient's browser at an arbitrary scheme or a plain-http tracker.
+    out.photo = httpsUrl(config.photo);
+    out.voice = httpsUrl(config.voice);
     return out;
+}
+
+function httpsUrl(value) {
+    if (typeof value !== 'string' || !value) return '';
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:' ? url.href : '';
+    } catch {
+        return '';
+    }
 }
 
 // Instantiate App

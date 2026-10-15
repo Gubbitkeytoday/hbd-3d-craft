@@ -156,12 +156,28 @@ export function createAudioEngine({ muted = false } = {}) {
             }));
         },
 
-        hasClip: (name) => clips.has(name),
+        /** Decodes one clip from a full URL (the sender's voice message). Resolves to success. */
+        async loadClip(name, url) {
+            try {
+                const res = await fetch(url, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer' });
+                if (!res.ok) return false;
+                clips.set(name, await ctx.decodeAudioData(await res.arrayBuffer()));
+                return true;
+            } catch {
+                return false;
+            }
+        },
 
-        /** Plays a decoded clip at an audio-clock time, with a soft attack. */
+        hasClip: (name) => clips.has(name),
+        clipDuration: (name) => clips.get(name)?.duration || 0,
+
+        /**
+         * Plays a decoded clip at an audio-clock time, with a soft attack.
+         * Returns the source node (so the caller can stop it), or null.
+         */
         playClip(name, { at = ctx.currentTime, gain = 1, pan = 0, fadeIn = 0.025, dest = sfx } = {}) {
             const buf = clips.get(name);
-            if (!buf) return false;
+            if (!buf) return null;
             const src = ctx.createBufferSource();
             src.buffer = buf;
             const out = engine.out(pan, dest);
@@ -169,7 +185,7 @@ export function createAudioEngine({ muted = false } = {}) {
             out.gain.linearRampToValueAtTime(gain, at + fadeIn);
             src.connect(out);
             src.start(at);
-            return true;
+            return src;
         }
     };
     return engine;

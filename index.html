@@ -403,6 +403,13 @@
                                 <p class="cr-status" id="memory-photo-status" aria-live="polite"></p>
                             </div>
 
+                            <div class="cr-field">
+                                <label for="voice-url" class="cr-label" data-i18n="crVoiceLabel">Your voice message link (optional)</label>
+                                <input type="url" id="voice-url" name="voice" class="cr-input" inputmode="url" autocomplete="off" placeholder="https://" aria-describedby="voice-hint voice-status">
+                                <p class="cr-hint" id="voice-hint" data-i18n="crVoiceHint">A direct link to an audio file (https, .m4a or .mp3). It plays after the last candle goes out.</p>
+                                <p class="cr-status" id="voice-status" aria-live="polite"></p>
+                            </div>
+
                             <button type="button" class="cr-btn cr-btn-secondary cr-btn-block" id="btn-preview-recipient">
                                 <svg class="cr-ico" aria-hidden="true"><use href="#cr-i-eye"/></svg>
                                 <span data-i18n-tpl="crPreviewAs">Preview as recipient</span>
@@ -596,6 +603,9 @@
                         <p id="view-message" class="rcv-card-message"></p>
                         <p class="rcv-card-signature" id="rcv-card-signature"></p>
                     </div>
+                    <button type="button" id="btn-play-voice" class="rcv-btn rcv-btn-letter rcv-btn-voice" aria-pressed="false" hidden>
+                        <i class="fa-solid fa-volume-high" aria-hidden="true"></i><span id="rcv-voice-label"></span>
+                    </button>
                     <button type="button" id="btn-read-letter" class="rcv-btn rcv-btn-letter" hidden></button>
                     <div class="rcv-end">
                         <button type="button" id="btn-thanks" class="rcv-btn rcv-btn-gold"></button>
